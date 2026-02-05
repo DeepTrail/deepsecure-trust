@@ -208,11 +208,15 @@ cd deepsecure-cli
 /create-task-ticket WS-B1 "..." for my-feature
 git add . && git commit -m "Add workstream and task tickets"
 
-# 2. Create worktrees branching from main (includes tickets)
-git worktree add ../ds-ws-a -b feature/ws-a main
-git worktree add ../ds-ws-b -b feature/ws-b main
+# 2. Create worktrees branching from dev (includes tickets)
+git worktree add ../ds-ws-a -b feature/ws-a dev
+git worktree add ../ds-ws-b -b feature/ws-b dev
 
-# 3. Work in parallel
+# 3. Copy .cursor/commands to each worktree (required for commands to work)
+cp -r .cursor ../ds-ws-a/
+cp -r .cursor ../ds-ws-b/
+
+# 4. Work in parallel
 # Terminal 1:
 cd ../ds-ws-a && cursor .
 # Execute WS-A tasks, commit completion reports
@@ -221,13 +225,15 @@ cd ../ds-ws-a && cursor .
 cd ../ds-ws-b && cursor .
 # Execute WS-B tasks, commit completion reports
 
-# 4. Merge back to main
+# 5. Merge back to dev
 cd deepsecure-cli
+git checkout dev
 git merge feature/ws-a
 git merge feature/ws-b
 
-# 5. Create integration worktree
-git worktree add ../ds-ws-c -b feature/ws-c main
+# 6. Create integration worktree
+git worktree add ../ds-ws-c -b feature/ws-c dev
+cp -r .cursor ../ds-ws-c/
 # Execute WS-C tasks
 ```
 
@@ -277,9 +283,12 @@ services:
 ## Quick Reference: Worktree Commands
 
 ```bash
-# Create worktree with new branch
+# Create worktree with new branch (from dev)
 git worktree add <path> -b <branch-name> <start-point>
-git worktree add ../ds-ws-a -b feature/ws-a main
+git worktree add ../ds-ws-a -b feature/ws-a dev
+
+# IMPORTANT: Copy .cursor/commands to worktree
+cp -r .cursor ../ds-ws-a/
 
 # Create worktree with existing branch
 git worktree add <path> <existing-branch>
