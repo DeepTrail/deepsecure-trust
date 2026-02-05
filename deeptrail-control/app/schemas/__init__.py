@@ -12,6 +12,13 @@ from .attestation_policy import ( # noqa
     AttestationPolicyUpdate,
 )
 from .bootstrap import BootstrapRequest, BootstrapResponse # noqa
+from .agent_auth import ( # noqa
+    AgentChallengeRequest,
+    AgentChallengeResponse,
+    AgentVerifyRequest,
+    AgentVerifyResponse,
+    AgentAuthError,
+)
 
 __all__ = [
     "AgentBase",
@@ -46,6 +53,12 @@ __all__ = [
     "AttestationPolicyCreate",
     "AttestationPolicyUpdate",
     "BootstrapResponse",
+    # Agent auth (Virtual MCP Server MVP)
+    "AgentChallengeRequest",
+    "AgentChallengeResponse",
+    "AgentVerifyRequest",
+    "AgentVerifyResponse",
+    "AgentAuthError",
 ]
 
 # Add any other schemas needed globally here 
