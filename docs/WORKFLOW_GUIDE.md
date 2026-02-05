@@ -21,8 +21,39 @@ This command automates all phases with checkpoints for human approval. See `.cur
 | Guide | Purpose |
 |-------|---------|
 | **This Guide** | What to do (phases, steps, templates) |
+| `EXECUTION_STATUS.md` | **Global status across all designs** |
 | `PARALLEL_EXECUTION_GUIDE.md` | How to parallelize (worktrees, instances) |
 | `TASK_BREAKDOWN.md` | Methodology reference (prompts, patterns) |
+| `deepsecure-virtual-mcp-server-mvp-breakdown.md` | Real-world example breakdown |
+
+### Status Tracking Hierarchy
+
+```
+docs/
+├── EXECUTION_STATUS.md                   ← GLOBAL PORTFOLIO: All designs, one-line status
+│
+├── [design-name]/                        ← PER-DESIGN EXECUTION FOLDER
+│   └── EXECUTION_STATUS.md               ← EXECUTION: Phase 1-4, commands, milestones
+│
+└── workstreams/[design-name]/
+    ├── STATUS.md                         ← TASKS: Batches, task status, worktrees
+    └── tasks/[WS-ID]-*.md                ← PER-TASK: Acceptance, execution log
+```
+
+| File | Scope | Contains |
+|------|-------|----------|
+| `docs/EXECUTION_STATUS.md` | All designs | Portfolio dashboard, links |
+| `docs/[design]/EXECUTION_STATUS.md` | One design | Phases, commands, demos, milestones |
+| `docs/workstreams/[design]/STATUS.md` | One design | Batches, tasks, worktrees |
+| `docs/workstreams/[design]/tasks/*.md` | One task | Ticket, acceptance, execution log |
+
+### Real-World Example
+
+For a complete worked example of this workflow applied to a real feature:
+- **Design Document:** `docs/design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md`
+- **Breakdown:** `docs/deepsecure-virtual-mcp-server-mvp-breakdown.md`
+
+This example demonstrates all concepts: 6 workstreams, 44 tasks, 9 batches, merge points, and acceptance mapping.
 
 ---
 
@@ -141,6 +172,30 @@ The task breakdown framework provides:
 ### Templates Used
 - `docs/workstreams/WORKSTREAM_TEMPLATE.md` - For workstream overview
 
+#### Step 2c: Create Status Tracking File
+
+After creating the workstream folder, create a `STATUS.md` file to track execution progress:
+
+```
+docs/workstreams/[feature-name]/STATUS.md
+```
+
+**What this file tracks:**
+- Current phase (Design, Planning, Execution, Learning)
+- Batch progress (which batch is current, which are complete)
+- Task status (ready, in progress, complete, blocked)
+- Parallel execution (active worktrees, merge point status)
+- Demo and user journey validation status
+- Quality gate results
+- Blockers and issues
+- Timeline of events
+
+**When to update:**
+- After each task status change
+- After completing a batch
+- After merge points
+- When blockers arise or resolve
+
 ---
 
 ## Phase 3: Task Execution
@@ -172,22 +227,30 @@ The task breakdown framework provides:
 ### Template Used
 - `docs/workstreams/TASK_TICKET_TEMPLATE.md`
 
-#### Step 3b: Execute Task
-Use the task ticket as your execution guide:
-
-```markdown
-# Read the task ticket
-Read: docs/workstreams/my-feature/tasks/WS-A1-define-token-data-models.md
-
-# Work through:
-1. Verify pre-conditions ✓
-2. Implement changes
-3. Update execution log in ticket
-4. Verify acceptance criteria
-5. Run tests
+#### Step 3b: Execute Task (Automated)
+```
+/execute-task WS-A1 my-feature
 ```
 
-#### Step 3c: Run Quality Checks
+**What this command does:**
+1. Reads the task ticket from `docs/workstreams/my-feature/tasks/WS-A1-*.md`
+2. Updates STATUS.md (moves task to "In Progress")
+3. Verifies all dependencies are complete
+4. Evaluates if implementation hints are sufficient
+5. Requests clarification if information is missing
+6. Implements the task:
+   - Creates/modifies files as specified
+   - Follows acceptance criteria
+   - Adds tests
+7. Runs quality checks (format, lint, type check, tests)
+8. Verifies all acceptance criteria are met
+9. Triggers `/complete-task` automatically if successful
+
+**If blocked:** Reports what's missing and waits for resolution
+
+**Output:** Implemented code, passing tests, completion report
+
+#### Step 3c: Run Quality Checks (if running manually)
 ```
 /run-checks
 ```
@@ -262,6 +325,7 @@ This creates **compounding knowledge** - every mistake becomes a rule that preve
 | `/breakdown-design` | 2 | Analyze design → workstreams + tasks |
 | `/create-workstream` | 2 | Create workstream folder structure |
 | `/create-task-ticket` | 3 | Generate individual task spec |
+| `/execute-task` | 3 | **Automatically implement a task** |
 | `/run-checks` | 3 | Validate code quality |
 | `/complete-task` | 4 | Generate completion report |
 | `/update-claude-md` | 4 | Add learning to CLAUDE.md |
@@ -320,6 +384,205 @@ This creates **compounding knowledge** - every mistake becomes a rule that preve
 ## DeepSecure-Specific Patterns  ← SDK, Backend, Cross-service patterns
 ## Task Execution Workflow       ← Links to ticket/report templates
 ```
+
+---
+
+## Advanced Concepts
+
+### Batch Execution Model
+
+When `/breakdown-design` produces tasks, they should be organized into numbered **batches** for execution:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         BATCH EXECUTION MODEL                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Batch 1          Batch 2          Batch 3          Batch 4                 │
+│  ────────         ────────         ────────         ────────                │
+│  ┌─────┐          ┌─────┐          ┌─────┐          ┌─────┐                 │
+│  │ A1  │──┐   ┌──►│ A2  │──┐   ┌──►│ C1  │──┐   ┌──►│ F1  │                 │
+│  └─────┘  │   │   └─────┘  │   │   └─────┘  │   │   └─────┘                 │
+│           ├───┤            ├───┤            ├───┤                           │
+│  ┌─────┐  │   │   ┌─────┐  │   │   ┌─────┐  │   │                           │
+│  │ B1  │──┘   └──►│ B2  │──┘   └──►│ D1  │──┘   │                           │
+│  └─────┘          └─────┘          └─────┘      │                           │
+│                                                  │                           │
+│  ◄─── PARALLEL ──►◄─── PARALLEL ──►◄─ PARALLEL ─►◄── SEQUENTIAL ──►         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Batch Rules:**
+- **Batch 1**: All tasks with no dependencies (start immediately, run in parallel)
+- **Batch N**: Tasks whose dependencies are ALL satisfied by Batches 1 to N-1
+- Tasks within a batch run in **parallel**
+- Batches execute **sequentially** (Batch 2 starts only when Batch 1 completes)
+
+**Output Format:**
+```markdown
+| Batch | Tasks (Parallel) | Depends On | Blocking For |
+|-------|------------------|------------|--------------|
+| 1 | A1, B1 | None | Batch 2 |
+| 2 | A2, A3, B2, B4 | Batch 1 | Batch 3 |
+| 3 | C1, C2, D1 | Batch 2 | Batch 4 |
+```
+
+---
+
+### Merge Points
+
+When parallel workstreams must synchronize before continuing, define explicit **merge points**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           MERGE POINT PROTOCOL                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   Workstream A              Merge Point              Workstream C            │
+│   ────────────              ───────────              ────────────            │
+│       A1                        MP1                      C1                  │
+│        │                         │                        │                  │
+│        ▼                         │                        ▼                  │
+│       A2 ─────────────────►  SYNC  ◄───────────────── (waits)               │
+│                                  │                                           │
+│   Workstream B                   │                                           │
+│   ────────────                   │                                           │
+│       B1                         │                                           │
+│        │                         │                                           │
+│        ▼                         │                                           │
+│       B3 ─────────────────►  SYNC                                           │
+│                                  │                                           │
+│                                  ▼                                           │
+│                           C1 can now start                                   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Merge Point Rules:**
+- Define merge points where independent tracks must converge
+- All contributing tasks must complete before the merge point unlocks
+- Merge points may require git branch merges (in worktree setups)
+- New worktrees can be created after merge points for the next phase
+
+**Output Format:**
+```markdown
+| Merge Point | Converging Tasks | Enables | Git Action |
+|-------------|------------------|---------|------------|
+| MP1 | A3 + B2 | C1, C2 | Merge ws-a, ws-b to main |
+| MP2 | C3 + D4 | E1 | Merge ws-c, ws-d to main |
+```
+
+**Worktree Lifecycle at Merge Points:**
+```bash
+# Before merge point
+git worktree list
+# ../feature-ws-a    abc1234 [feature/ws-a]
+# ../feature-ws-b    def5678 [feature/ws-b]
+
+# At merge point MP1
+cd /main/repo
+git merge feature/ws-a feature/ws-b
+
+# After merge point - create new worktree for next phase (from dev)
+git worktree add ../feature-ws-c -b feature/ws-c dev
+
+# Copy .cursor/commands to new worktree
+cp -r .cursor ../feature-ws-c/
+
+# Cleanup old worktrees
+git worktree remove ../feature-ws-a
+git worktree remove ../feature-ws-b
+```
+
+---
+
+### Critical Path Analysis
+
+The **critical path** is the longest sequential chain through the dependency graph. It determines the minimum possible project duration.
+
+**Single vs Dual-Track:**
+- **Single-track**: One critical path through the project
+- **Dual-track**: Two parallel critical paths (e.g., Control Plane vs Gateway tracks)
+
+**Identifying Critical Path:**
+1. Find all paths from first task to final task
+2. Sum the durations along each path
+3. The longest path is the critical path
+4. Tasks on the critical path cannot be delayed without delaying the project
+
+**Output Format:**
+```markdown
+### Critical Path
+Primary:   A1 → A2 → A5 → C1 → C3 → E1 → F1
+           (12 days minimum)
+
+Secondary: B1 → B2 → B4 → D1 → D3 → F1
+           (10 days, has 2 days float)
+```
+
+---
+
+### Acceptance Mapping
+
+Map acceptance criteria (demos, user journeys, milestones) to specific tasks for validation:
+
+**Demo → Task Matrix:**
+```markdown
+| Demo/Milestone | Description | Validating Tasks |
+|----------------|-------------|------------------|
+| Demo 1 | User can connect service | A1, B3, D1 |
+| Demo 2 | Permission denied shown | C2, C4, E1 |
+| Demo 3 | Audit log captured | E2, E3, F1 |
+```
+
+**User Journey Step → Task Matrix (if applicable):**
+```markdown
+| Step | User Action | Implementing Tasks |
+|------|-------------|-------------------|
+| 1 | User registers | A1 |
+| 2 | User connects service | A3, B3 |
+| 3 | Agent requests tool | B4, C1 |
+```
+
+**Why This Matters:**
+- Validates that all acceptance criteria have implementing tasks
+- Identifies gaps (acceptance criteria with no tasks)
+- Enables targeted demo preparation
+- Creates traceability from requirements to implementation
+
+---
+
+### Task Sizing Guidelines
+
+Consistent sizing enables better estimation and planning:
+
+| Size | Duration | Scope | Example |
+|------|----------|-------|---------|
+| **S** | < 2 hours | Single file, simple logic | "Add data model field" |
+| **M** | 2-4 hours | 2-3 files, moderate complexity | "Implement service method with tests" |
+| **L** | 4-8 hours | 4+ files or integration work | "E2E test suite for feature" |
+
+**Sizing Rules:**
+- If a task exceeds L (>8 hours), split it
+- Integration/E2E tasks are usually L
+- Schema/model tasks are usually S
+- Service implementations are usually M
+- Never estimate "XL" - always decompose further
+
+---
+
+### Learning Categories
+
+When completing tasks, categorize learnings for better CLAUDE.md updates:
+
+| Category | Example | Typical Source |
+|----------|---------|----------------|
+| **Protocol** | "MCP initialize must complete before tools/list" | Protocol implementation tasks |
+| **Security** | "Never forward agent tokens to backends" | Auth/permission tasks |
+| **Integration** | "E2E tests need deterministic test data" | Testing/integration tasks |
+| **Performance** | "Batch database queries in loops" | Optimization tasks |
+| **Architecture** | "Keep gateway stateless for scaling" | Design/refactoring tasks |
 
 ---
 
@@ -406,11 +669,16 @@ Phase 4 (Learning)   → Merge learnings back
 After `/breakdown-design` identifies parallel workstreams:
 
 ```bash
-# Create worktrees for parallel workstreams
-git worktree add ../feature-ws-a -b feature/ws-a main
-git worktree add ../feature-ws-b -b feature/ws-b main
+# Create worktrees for parallel workstreams (from dev branch)
+git worktree add ../feature-ws-a -b feature/ws-a dev
+git worktree add ../feature-ws-b -b feature/ws-b dev
 
-# Open Claude instances
+# IMPORTANT: Copy .cursor/commands to each worktree
+# (Required for /execute-task and other commands to work)
+cp -r .cursor ../feature-ws-a/
+cp -r .cursor ../feature-ws-b/
+
+# Open Cursor instances
 cd ../feature-ws-a && cursor .  # Terminal 1: WS-A tasks
 cd ../feature-ws-b && cursor .  # Terminal 2: WS-B tasks
 ```
