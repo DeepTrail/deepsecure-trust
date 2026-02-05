@@ -1,10 +1,25 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import agents, auth, vault, policies, delegation, internal, attestation_policies, bootstrap
+from app.api.v1.endpoints import (
+    agent_auth,
+    agents,
+    attestation_policies,
+    auth,
+    bootstrap,
+    delegation,
+    internal,
+    policies,
+    vault,
+)
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(delegation.router, prefix="/auth", tags=["auth"])
+api_router.include_router(
+    agent_auth.router,
+    prefix="/auth/agent",
+    tags=["agent-auth"],
+)
 api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
 api_router.include_router(vault.router, prefix="/vault", tags=["vault"])
 api_router.include_router(policies.router, prefix="/policies", tags=["policies"])
