@@ -4,7 +4,7 @@
 >
 > **Design Doc:** [deepsecure-virtual-mcp-server-mvp.md](../../design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md)
 >
-> **Last Updated:** February 4, 2026
+> **Last Updated:** February 5, 2026
 
 ---
 
@@ -16,8 +16,8 @@
 | 2 | 5 | 5 ✅ | 1 | ✅ Complete | control, gateway |
 | 3 | 4 | 4 ✅ | 1 | ✅ Complete | control, gateway |
 | 4 | 9 | 9 ✅ | 4 | ✅ Complete (MP1!) | control, gateway |
-| 5 | 6 | 0 | 2 | ⏳ Ready ← CURRENT | control, gateway |
-| 6 | 3 | 0 | 2 | ⏸️ Pending | control, gateway |
+| 5 | 6 | 6 ✅ | 2 | ✅ Complete (MP2!) | gateway |
+| 6 | 3 | 0 | 2 | ⏳ Ready ← CURRENT | gateway |
 | 7 | 3 | 0 | 2 | ⏸️ Pending | control, gateway |
 | 8 | 5 | 0 | 2 | ⏸️ Pending | control, gateway |
 | 9 | 5 | 0 | 2 | ⏸️ Pending | control, gateway |
@@ -459,18 +459,18 @@ cd /Users/imaxxs/repositories/deepsecure-mvp
 
 ---
 
-## Batch 5: JWT & Backend Clients (6 tasks)
+## Batch 5: JWT & Backend Clients (6 tasks) ✅ COMPLETE
 
 ### Dependencies
 
-| Task | Description | Dependencies | Worktree |
-|------|-------------|--------------|----------|
-| C3 | Implement JWT validation middleware | C2 ✅ | vmcp-gateway |
-| C4 | Implement tool→permission mapper | B4 ✅ | vmcp-gateway |
-| D3 | Implement Notion MCP client | D2 ✅ | vmcp-gateway |
-| D4 | Implement Slack MCP client | D2 ✅ | vmcp-gateway |
-| D5 | Implement HubSpot MCP client | D2 ✅ | vmcp-gateway |
-| D6 | Implement backend router | D1 ✅, B7 ✅ | vmcp-gateway |
+| Task | Description | Dependencies | Worktree | Status |
+|------|-------------|--------------|----------|--------|
+| C3 | Implement JWT validation middleware | C2 ✅ | vmcp-gateway | ✅ Complete |
+| C4 | Implement tool→permission mapper | B4 ✅ | vmcp-gateway | ✅ Complete |
+| D3 | Implement Notion MCP client | D2 ✅ | vmcp-gateway | ✅ Complete |
+| D4 | Implement Slack MCP client | D2 ✅ | vmcp-gateway | ✅ Complete |
+| D5 | Implement HubSpot MCP client | D2 ✅ | vmcp-gateway | ✅ Complete |
+| D6 | Implement backend router | D1 ✅, B7 ✅ | vmcp-gateway | ✅ Complete |
 
 ### Wave Analysis
 

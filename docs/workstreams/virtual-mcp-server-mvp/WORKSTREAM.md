@@ -35,8 +35,8 @@ Implementation of the Virtual MCP Server MVP that demonstrates:
 |-------|------|--------|---------------|------------|-------|
 | **WS-A** | Control Plane Foundation | ✅ `complete` | WS-B | None | A1-A8 |
 | **WS-B** | Gateway MCP Core | ✅ `complete` | WS-A | None | B1-B8 |
-| **WS-C** | Auth & Permissions | `in_progress` | WS-D | WS-A, WS-B | C1-C7 (2/7) |
-| **WS-D** | Backend Connectors | `in_progress` | WS-C | WS-B | D1-D6 (2/6) |
+| **WS-C** | Auth & Permissions | `in_progress` | WS-D | WS-A, WS-B | C1-C7 (4/7) |
+| **WS-D** | Backend Connectors | ✅ `complete` | WS-C | WS-B | D1-D6 (6/6) |
 | **WS-E** | Audit & Security | `in_progress` | - | WS-C, WS-D | E1-E6 (1/6) |
 | **WS-F** | Integration & Demos | `pending` | - | All | F1-F8 |
 
@@ -50,8 +50,8 @@ Implementation of the Virtual MCP Server MVP that demonstrates:
 | **2** | A2, A3, A5, B2, B4 | ✅ `complete` | Batch 1 | Batch 3 |
 | **3** | A4, A6, B3, B5 | ✅ `complete` | Batch 2 | Batch 4 |
 | **4** | A7, A8, B6, B7, B8, C1, C2, D1, D2 | ✅ `complete` (MP1 reached) | Batch 3 | Batch 5, MP1 |
-| **5** | C3, C4, D3, D4, D5, D6 | `ready` ← CURRENT | Batch 4, MP1 | Batch 6, MP2 |
-| **6** | C5, C6, C7 | `pending` | Batch 5, MP2 | Batch 7, MP3 |
+| **5** | C3, C4, D3, D4, D5, D6 | ✅ `complete` | Batch 4, MP1 | Batch 6, MP2 |
+| **6** | C5, C6, C7 | `ready` ← CURRENT | Batch 5, MP2 | Batch 7, MP3 |
 | **7** | E2, E3, F1 | `pending` | Batch 6, MP3 | Batch 8 |
 | **8** | E4, E5, F2, F3, F4 | `pending` | Batch 7 | Batch 9, MP4 |
 | **9** | E6, F5, F6, F7, F8 | `pending` | Batch 8, MP4 | Done |
@@ -105,11 +105,11 @@ Implementation of the Virtual MCP Server MVP that demonstrates:
 |---------|-----------|--------|--------------|------|
 | [C1](./tasks/WS-C1-agent-challenge-endpoint.md) | Implement agent challenge endpoint | ✅ `complete` | A8 ✅ | M |
 | [C2](./tasks/WS-C2-agent-verify-endpoint.md) | Implement agent verify endpoint | ✅ `complete` | C1 ✅ | M |
-| C3 | Implement JWT validation middleware | `ready` | C2 ✅ | M |
-| C4 | Implement tool→permission mapper | `ready` | B4 ✅ | S |
-| C5 | Implement permission filter | `pending` | C3, C4 | M |
-| C6 | Implement delegation validator | `pending` | C3, A6 ✅ | M |
-| C7 | Implement credential injection | `pending` | C6, A4 ✅ | M |
+| [C3](./tasks/WS-C3-jwt-validation-middleware.md) | Implement JWT validation middleware | ✅ `complete` | C2 ✅ | M |
+| [C4](./tasks/WS-C4-tool-permission-mapper.md) | Implement tool→permission mapper | ✅ `complete` | B4 ✅ | S |
+| C5 | Implement permission filter | `ready` | C3 ✅, C4 ✅ | M |
+| C6 | Implement delegation validator | `ready` | C3 ✅, A6 ✅ | M |
+| C7 | Implement credential injection | `ready` | C6, A4 ✅ | M |
 
 ### WS-D: Backend Connectors
 
@@ -117,19 +117,19 @@ Implementation of the Virtual MCP Server MVP that demonstrates:
 |---------|-----------|--------|--------------|------|
 | [D1](./tasks/WS-D1-backend-connection-manager.md) | Implement backend connection manager | ✅ `complete` | B8 ✅ | M |
 | [D2](./tasks/WS-D2-base-mcp-client.md) | Implement base MCP client | ✅ `complete` | D1 ✅ | M |
-| D3 | Implement Notion MCP client | `ready` | D2 ✅ | M |
-| D4 | Implement Slack MCP client | `ready` | D2 ✅ | M |
-| D5 | Implement HubSpot MCP client | `ready` | D2 ✅ | M |
-| D6 | Implement backend router | `ready` | D1 ✅, B7 ✅ | M |
+| [D3](./tasks/WS-D3-notion-mcp-client.md) | Implement Notion MCP client | ✅ `complete` | D2 ✅ | M |
+| [D4](./tasks/WS-D4-slack-mcp-client.md) | Implement Slack MCP client | ✅ `complete` | D2 ✅ | M |
+| [D5](./tasks/WS-D5-hubspot-mcp-client.md) | Implement HubSpot MCP client | ✅ `complete` | D2 ✅ | M |
+| [D6](./tasks/WS-D6-backend-router.md) | Implement backend router | ✅ `complete` | D1 ✅, B7 ✅ | M |
 
 ### WS-E: Audit & Security
 
 | Task ID | Task Name | Status | Dependencies | Size |
 |---------|-----------|--------|--------------|------|
-| [E1](./tasks/WS-E1-audit-event-model.md) | Define audit event model | `ready` | None | S |
-| E2 | Implement audit logger service | `pending` | E1 | M |
+| [E1](./tasks/WS-E1-audit-event-model.md) | Define audit event model | ✅ `complete` | None | S |
+| E2 | Implement audit logger service | `ready` | E1 ✅ | M |
 | E3 | Implement audit middleware | `pending` | E2, C6 | M |
-| E4 | Implement fail-closed security | `pending` | C3 | S |
+| E4 | Implement fail-closed security | `ready` | C3 ✅ | S |
 | E5 | Implement constraint checker | `pending` | C6 | M |
 | E6 | Implement audit query API | `pending` | E2 | M |
 

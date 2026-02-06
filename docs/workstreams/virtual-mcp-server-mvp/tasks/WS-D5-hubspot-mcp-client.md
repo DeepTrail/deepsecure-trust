@@ -788,7 +788,7 @@ __all__ = [
 - [x] Test error transformation
 - [x] Test convenience methods
 - [x] All tests pass with `pytest tests/backends/test_hubspot_client.py` (89 tests)
-
+ 
 ---
 
 ## Test Cases
@@ -1116,7 +1116,6 @@ class TestFactoryFunction:
 ## Post-Conditions
 
 After completing this task:
-
 - [x] `HubSpotMCPClient` is available in `app/backends/`
 - [x] Gateway can proxy MCP requests to HubSpot backend
 - [x] HubSpot tool arguments are validated before sending

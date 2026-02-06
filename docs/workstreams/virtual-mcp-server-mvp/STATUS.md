@@ -4,7 +4,7 @@
 >
 > **Workstream Details:** [WORKSTREAM.md](./WORKSTREAM.md)
 >
-> **Last Updated:** February 4, 2026
+> **Last Updated:** February 5, 2026
 
 ---
 
@@ -15,7 +15,7 @@
 | **Current Batch** | Batch 6 (of 9) - Batch 5 complete! |
 | **Tasks Complete** | 27/44 (61.4%) |
 | **Tasks In Progress** | 0 |
-| **Tasks Ready** | 4 (C5, C6, E2, E4) |
+| **Tasks Ready** | 3 (E2, E3, E4) |
 | **Tasks Blocked** | 0 |
 | **Active Worktrees** | 2 (vmcp-control, vmcp-gateway) |
 
@@ -33,28 +33,30 @@ Batch 3  [██████████] 100% ✅ COMPLETE (A4 ✅, A6 ✅, B3 
 Batch 4  [██████████] 100% ✅ COMPLETE (A7 ✅, A8 ✅, B6 ✅, B7 ✅, B8 ✅, C1 ✅, C2 ✅, D1 ✅, D2 ✅)
                           ═══════ MP1 REACHED ═══════
 Batch 5  [██████████] 100% ✅ COMPLETE (C3 ✅, C4 ✅, D3 ✅, D4 ✅, D5 ✅, D6 ✅)
-Batch 6  [░░░░░░░░░░] 0%   (blocked by Batch 5, MP2)
-Batch 7  [░░░░░░░░░░] 0%   (blocked by Batch 6, MP3)
+                          ═══════ MP2 REACHED ═══════
+Batch 6  [██████████] 100% ✅ COMPLETE (C5 ✅, C6 ✅, C7 ✅)
+                          ═══════ MP3 READY ═══════
+Batch 7  [░░░░░░░░░░] 0%   ← CURRENT (E2, E3, F1)
 Batch 8  [░░░░░░░░░░] 0%   (blocked by Batch 7)
 Batch 9  [░░░░░░░░░░] 0%   (blocked by Batch 8, MP4)
 ```
 
 ---
 
-## Current Batch: Batch 5
+## Current Batch: Batch 7
 
-> **Note:** Batch 4 is ✅ COMPLETE. MP1 (Merge Point 1) has been reached!
+> **Note:** Batch 6 is ✅ COMPLETE. MP3 (Merge Point 3) is ready!
 
 | Task ID | Task Name | Status | Worktree | Assignee |
 |---------|-----------|--------|----------|----------|
-| C3 | Implement JWT validation middleware | ✅ `complete` | vmcp-gateway | - |
-| C4 | Implement tool→permission mapper | ✅ `complete` | vmcp-gateway | - |
-| D3 | Implement Notion MCP client | ✅ `complete` | vmcp-gateway | - |
-| D4 | Implement Slack MCP client | ✅ `complete` | vmcp-gateway | - |
-| D5 | Implement HubSpot MCP client | ✅ `complete` | vmcp-gateway | - |
-| D6 | Implement backend router | ✅ `complete` | vmcp-gateway | - |
+| E2 | Implement audit logger service | `ready` | vmcp-control | - |
+| E3 | Implement audit middleware | `pending` | vmcp-gateway | - |
+| F1 | Create Sarah's Journey E2E test | `pending` | both | - |
 
-**Progress:** 6/6 tasks complete (100%) ✅ BATCH 5 COMPLETE
+**Progress:** 0/3 tasks complete (0%)
+
+**Also Ready (from later batches):**
+- E4: Implement fail-closed security (dependency C3 ✅)
 
 **Batch 1 Commands:**
 ```bash
@@ -85,16 +87,16 @@ cd ../vmcp-gateway && cursor .
 | Worktree | Branch | Completed | In Progress | Status |
 |----------|--------|-----------|-------------|--------|
 | ../vmcp-control | feature/vmcp-control | A1-A8, E1 | - | ⏳ Active |
-| ../vmcp-gateway | feature/vmcp-gateway | B1-B8 | - | ⏳ Active |
+| ../vmcp-gateway | feature/vmcp-gateway | B1-B8, C1-C4, D1-D6 | - | ⏳ Active |
 
 ### Merge Points Status
 
 | Point | Converging Tasks | Status | Merged At |
 |-------|------------------|--------|-----------|
 | **MP1** | A8 ✅ + B3 ✅ | ✅ Ready to Merge | - |
-| **MP2** | B8 ✅ + C3 | ⏸️ Pending | - |
-| **MP3** | C7 + D6 | ⏸️ Pending | - |
-| **MP4** | E3 + all backends | ⏸️ Pending | - |
+| **MP2** | B8 ✅ + C3 ✅ | ✅ Ready to Merge | - |
+| **MP3** | C7 + D6 ✅ | ⏸️ Pending (C7 needed) | - |
+| **MP4** | E3 + all backends ✅ | ⏸️ Pending (E3 needed) | - |
 
 ---
 
@@ -110,10 +112,9 @@ cd ../vmcp-gateway && cursor .
 | **F** | Integration & Demos | ⏸️ Blocked | 0% | 0/8 |
 
 ---
-
 ## All Tasks by Status
 
-### ✅ Completed (27)
+### ✅ Completed (30)
 
 | Task ID | Task Name | Completed | Report |
 |---------|-----------|-----------|--------|
@@ -135,15 +136,19 @@ cd ../vmcp-gateway && cursor .
 | B8 | Implement tool aggregator | Feb 4, 2026 | [Report](./reports/WS-B8-completion.md) |
 | C1 | Implement agent challenge endpoint | Feb 4, 2026 | [Report](./reports/WS-C1-completion.md) |
 | C2 | Implement agent verify endpoint | Feb 4, 2026 | [Report](./reports/WS-C2-completion.md) |
-| C3 | Implement JWT validation middleware | Jan 30, 2026 | [Report](./reports/WS-C3-completion.md) |
-| C4 | Implement tool→permission mapper | Jan 30, 2026 | [Report](./reports/WS-C4-completion.md) |
+| C3 | Implement JWT validation middleware | Feb 5, 2026 | [Report](./reports/WS-C3-completion.md) |
+| C4 | Implement tool→permission mapper | Feb 5, 2026 | [Report](./reports/WS-C4-completion.md) |
+| C5 | Implement permission filter | Feb 5, 2026 | [Report](./reports/WS-C5-completion.md) |
+| C6 | Implement delegation validator | Feb 5, 2026 | [Report](./reports/WS-C6-completion.md) |
+| C7 | Implement credential injection | Feb 5, 2026 | [Report](./reports/WS-C7-completion.md) |
 | D1 | Implement backend connection manager | Feb 4, 2026 | [Report](./reports/WS-D1-completion.md) |
 | D2 | Implement base MCP client | Feb 4, 2026 | [Report](./reports/WS-D2-completion.md) |
-| D3 | Implement Notion MCP client | Jan 30, 2026 | [Report](./reports/WS-D3-completion.md) |
-| D4 | Implement Slack MCP client | Jan 30, 2026 | [Report](./reports/WS-D4-completion.md) |
-| D5 | Implement HubSpot MCP client | Jan 30, 2026 | [Report](./reports/WS-D5-completion.md) |
-| D6 | Implement backend router | Jan 30, 2026 | [Report](./reports/WS-D6-completion.md) |
+| D3 | Implement Notion MCP client | Feb 5, 2026 | [Report](./reports/WS-D3-completion.md) |
+| D4 | Implement Slack MCP client | Feb 5, 2026 | [Report](./reports/WS-D4-completion.md) |
+| D5 | Implement HubSpot MCP client | Feb 5, 2026 | [Report](./reports/WS-D5-completion.md) |
+| D6 | Implement backend router | Feb 5, 2026 | [Report](./reports/WS-D6-completion.md) |
 | E1 | Define audit event model | Jan 30, 2026 | [Report](./reports/WS-E1-completion.md) |
+
 
 ### 🔄 In Progress (0)
 
@@ -151,12 +156,10 @@ cd ../vmcp-gateway && cursor .
 |---------|-----------|---------|----------|----------|
 | _None yet_ | - | - | - | - |
 
-### ⏳ Ready (4)
+### ⏳ Ready (2)
 
 | Task ID | Task Name | Batch | Ticket |
 |---------|-----------|-------|--------|
-| C5 | Implement permission filter | 6 | - |
-| C6 | Implement delegation validator | 6 | - |
 | E2 | Implement audit logger service | 7 | - |
 | E4 | Implement fail-closed security | 8 | - |
 
