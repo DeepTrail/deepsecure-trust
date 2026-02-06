@@ -35,7 +35,7 @@ Implementation of the Virtual MCP Server MVP that demonstrates:
 |-------|------|--------|---------------|------------|-------|
 | **WS-A** | Control Plane Foundation | ✅ `complete` | WS-B | None | A1-A8 |
 | **WS-B** | Gateway MCP Core | ✅ `complete` | WS-A | None | B1-B8 |
-| **WS-C** | Auth & Permissions | `in_progress` | WS-D | WS-A, WS-B | C1-C7 (4/7) |
+| **WS-C** | Auth & Permissions | ✅ `complete` | WS-D | WS-A, WS-B | C1-C7 (7/7) |
 | **WS-D** | Backend Connectors | ✅ `complete` | WS-C | WS-B | D1-D6 (6/6) |
 | **WS-E** | Audit & Security | `in_progress` | - | WS-C, WS-D | E1-E6 (1/6) |
 | **WS-F** | Integration & Demos | `pending` | - | All | F1-F8 |
@@ -51,8 +51,8 @@ Implementation of the Virtual MCP Server MVP that demonstrates:
 | **3** | A4, A6, B3, B5 | ✅ `complete` | Batch 2 | Batch 4 |
 | **4** | A7, A8, B6, B7, B8, C1, C2, D1, D2 | ✅ `complete` (MP1 reached) | Batch 3 | Batch 5, MP1 |
 | **5** | C3, C4, D3, D4, D5, D6 | ✅ `complete` | Batch 4, MP1 | Batch 6, MP2 |
-| **6** | C5, C6, C7 | `ready` ← CURRENT | Batch 5, MP2 | Batch 7, MP3 |
-| **7** | E2, E3, F1 | `pending` | Batch 6, MP3 | Batch 8 |
+| **6** | C5, C6, C7 | ✅ `complete` (MP3 reached) | Batch 5, MP2 | Batch 7, MP3 |
+| **7** | E2, E3, F1 | `ready` ← CURRENT | Batch 6, MP3 | Batch 8 |
 | **8** | E4, E5, F2, F3, F4 | `pending` | Batch 7 | Batch 9, MP4 |
 | **9** | E6, F5, F6, F7, F8 | `pending` | Batch 8, MP4 | Done |
 
@@ -64,10 +64,10 @@ Implementation of the Virtual MCP Server MVP that demonstrates:
 
 | Point | Converging Tasks | Enables | Status |
 |-------|------------------|---------|--------|
-| **MP1** | A8 + B3 | C1 (agent auth) | `pending` |
-| **MP2** | B8 + C3 | D1 (backend manager) | `pending` |
-| **MP3** | C7 + D6 | E3 (audit middleware) | `pending` |
-| **MP4** | E3 + all backends | F1 (E2E test) | `pending` |
+| **MP1** | A8 + B3 | C1 (agent auth) | ✅ `reached` |
+| **MP2** | B8 + C3 | D1 (backend manager) | ✅ `reached` |
+| **MP3** | C7 + D6 | E3 (audit middleware) | ✅ `ready` |
+| **MP4** | E3 ✅ + all backends | F1 (E2E test) | ✅ `reached` |
 
 ---
 
@@ -107,9 +107,9 @@ Implementation of the Virtual MCP Server MVP that demonstrates:
 | [C2](./tasks/WS-C2-agent-verify-endpoint.md) | Implement agent verify endpoint | ✅ `complete` | C1 ✅ | M |
 | [C3](./tasks/WS-C3-jwt-validation-middleware.md) | Implement JWT validation middleware | ✅ `complete` | C2 ✅ | M |
 | [C4](./tasks/WS-C4-tool-permission-mapper.md) | Implement tool→permission mapper | ✅ `complete` | B4 ✅ | S |
-| C5 | Implement permission filter | `ready` | C3 ✅, C4 ✅ | M |
-| C6 | Implement delegation validator | `ready` | C3 ✅, A6 ✅ | M |
-| C7 | Implement credential injection | `ready` | C6, A4 ✅ | M |
+| [C5](./tasks/WS-C5-permission-filter.md) | Implement permission filter | ✅ `complete` | C3 ✅, C4 ✅ | M |
+| [C6](./tasks/WS-C6-delegation-validator.md) | Implement delegation validator | ✅ `complete` | C3 ✅, A6 ✅ | M |
+| [C7](./tasks/WS-C7-credential-injection.md) | Implement credential injection | ✅ `complete` | C6 ✅, A4 ✅ | M |
 
 ### WS-D: Backend Connectors
 
@@ -127,30 +127,30 @@ Implementation of the Virtual MCP Server MVP that demonstrates:
 | Task ID | Task Name | Status | Dependencies | Size |
 |---------|-----------|--------|--------------|------|
 | [E1](./tasks/WS-E1-audit-event-model.md) | Define audit event model | ✅ `complete` | None | S |
-| E2 | Implement audit logger service | `ready` | E1 ✅ | M |
-| E3 | Implement audit middleware | `pending` | E2, C6 | M |
-| E4 | Implement fail-closed security | `ready` | C3 ✅ | S |
-| E5 | Implement constraint checker | `pending` | C6 | M |
-| E6 | Implement audit query API | `pending` | E2 | M |
+| [E2](./tasks/WS-E2-audit-logger-service.md) | Implement audit logger service | ✅ `complete` | E1 ✅ | M |
+| [E3](./tasks/WS-E3-audit-middleware.md) | Implement audit middleware | ✅ `complete` | E2 ✅, C6 ✅ | M |
+| [E4](./tasks/WS-E4-fail-closed-security.md) | Implement fail-closed security | ✅ `complete` | C3 ✅ | S |
+| [E5](./tasks/WS-E5-constraint-checker.md) | Implement constraint checker | ✅ `complete` | C6 ✅ | M |
+| [E6](./tasks/WS-E6-audit-query-api.md) | Implement audit query API | `ready` | E2 ✅ | M |
 
 ### WS-F: Integration & Demos
 
 | Task ID | Task Name | Status | Dependencies | Size |
 |---------|-----------|--------|--------------|------|
-| F1 | Create Sarah's Journey E2E test | `pending` | All | L |
-| F2 | Create Demo 1: Unified Connection | `pending` | B6, D3, D4 | M |
-| F3 | Create Demo 2: Filtered Visibility | `pending` | C5 | M |
-| F4 | Create Demo 3: Delegation Execution | `pending` | C7 | M |
-| F5 | Create Demo 4: Permission Enforcement | `pending` | C6 | M |
-| F6 | Create Demo 5: Unified Audit | `pending` | E6 | M |
-| F7 | Create Demo 6: Fail-Closed | `pending` | E4 | M |
-| F8 | Create cross-service workflow demo | `pending` | D5, F1 | L |
+| [F1](./tasks/WS-F1-sarah-journey-e2e-test.md) | Create Sarah's Journey E2E test | ✅ `complete` | All | L |
+| [F2](./tasks/WS-F2-demo-unified-connection.md) | Create Demo 1: Unified Connection | ✅ `complete` | B6 ✅, D3 ✅, D4 ✅ | M |
+| [F3](./tasks/WS-F3-demo-filtered-visibility.md) | Create Demo 2: Filtered Visibility | ✅ `complete` | C5 ✅ | M |
+| [F4](./tasks/WS-F4-demo-delegation-execution.md) | Create Demo 3: Delegation Execution | ✅ `complete` | C7 ✅ | M |
+| [F5](./tasks/WS-F5-demo-permission-enforcement.md) | Create Demo 4: Permission Enforcement | `ready` | C6 ✅ | M |
+| [F6](./tasks/WS-F6-demo-unified-audit.md) | Create Demo 5: Unified Audit | `pending` | E6 | M |
+| [F7](./tasks/WS-F7-demo-fail-closed.md) | Create Demo 6: Fail-Closed | `ready` | E4 ✅ | M |
+| [F8](./tasks/WS-F8-demo-cross-service-workflow.md) | Create cross-service workflow demo | `ready` | D5 ✅, F1 ✅ | L |
 
 ---
 
 ## Progress
 
-### Overall Progress: **47.7%**
+### Overall Progress: **86.4%**
 
 ```
 [██████████░░░░░░░░░░] 47.7% complete (21/44 tasks)
