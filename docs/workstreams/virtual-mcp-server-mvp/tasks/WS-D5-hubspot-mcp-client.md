@@ -6,7 +6,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | `ready` |
+| **Status** | `completed` |
 | **Design Doc** | [deepsecure-virtual-mcp-server-mvp.md](../../../design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) |
 | **Workstream** | WS-D: Backend Connectors |
 | **Dependencies** | D2 (Base MCP Client) ✅ |
@@ -36,7 +36,7 @@ Before starting this task, ensure:
 - [x] D1 (Backend Connection Manager) is complete
 - [x] `BaseMCPClient` class available in `app/backends/base_mcp_client.py`
 - [x] `BackendConnectionManager` available for HTTP transport
-- [ ] HubSpot API documentation reviewed for tool schemas
+- [x] HubSpot API documentation reviewed for tool schemas
 
 ---
 
@@ -745,50 +745,50 @@ __all__ = [
 
 ### Implementation Criteria
 
-- [ ] `HubSpotMCPClient` extends `BaseMCPClient`
-- [ ] `backend_id` property returns `"hubspot"`
-- [ ] Implements `validate_tool_arguments()` for HubSpot tools
-- [ ] Implements `transform_tool_result()` for HubSpot responses
+- [x] `HubSpotMCPClient` extends `BaseMCPClient`
+- [x] `backend_id` property returns `"hubspot"`
+- [x] Implements `validate_tool_arguments()` for HubSpot tools
+- [x] Implements `transform_tool_result()` for HubSpot responses
 
 ### Tool Support Criteria
 
-- [ ] `get_contact` tool supported with contact_id or email
-- [ ] `create_contact` tool supported with properties
-- [ ] `update_contact` tool supported with contact_id and properties
-- [ ] `list_contacts` tool supported with pagination
-- [ ] `list_deals` tool supported with pagination
-- [ ] `create_deal` tool supported with properties
-- [ ] `update_deal` tool supported with deal_id and properties
+- [x] `get_contact` tool supported with contact_id or email
+- [x] `create_contact` tool supported with properties
+- [x] `update_contact` tool supported with contact_id and properties
+- [x] `list_contacts` tool supported with pagination
+- [x] `list_deals` tool supported with pagination
+- [x] `create_deal` tool supported with properties
+- [x] `update_deal` tool supported with deal_id and properties
 
 ### Validation Criteria
 
-- [ ] Missing required arguments raise `ValueError`
-- [ ] `get_contact` requires either contact_id OR email
-- [ ] HubSpot ID validated (numeric string)
-- [ ] Email format validated
-- [ ] limit validated (1-100)
-- [ ] properties validated as dict
+- [x] Missing required arguments raise `ValueError`
+- [x] `get_contact` requires either contact_id OR email
+- [x] HubSpot ID validated (numeric string)
+- [x] Email format validated
+- [x] limit validated (1-100)
+- [x] properties validated as dict (for write ops) or list (for read ops)
 
 ### Error Handling Criteria
 
-- [ ] Rate limit errors (429) transformed
-- [ ] Not found errors (404) transformed
-- [ ] Validation errors (400) transformed
-- [ ] Property errors transformed
-- [ ] Auth errors (401/403) transformed
-- [ ] Errors logged at appropriate levels
+- [x] Rate limit errors (429) transformed
+- [x] Not found errors (404) transformed
+- [x] Validation errors (400) transformed
+- [x] Property errors transformed
+- [x] Auth errors (401/403) transformed
+- [x] Errors logged at appropriate levels
 
 ### Test Criteria
 
-- [ ] Test `backend_id` property
-- [ ] Test argument validation for each tool
-- [ ] Test HubSpot ID validation
-- [ ] Test email validation
-- [ ] Test one_of requirement (contact_id OR email)
-- [ ] Test error transformation
-- [ ] Test convenience methods
-- [ ] All tests pass with `pytest tests/backends/test_hubspot_client.py`
-
+- [x] Test `backend_id` property
+- [x] Test argument validation for each tool
+- [x] Test HubSpot ID validation
+- [x] Test email validation
+- [x] Test one_of requirement (contact_id OR email)
+- [x] Test error transformation
+- [x] Test convenience methods
+- [x] All tests pass with `pytest tests/backends/test_hubspot_client.py` (89 tests)
+ 
 ---
 
 ## Test Cases
@@ -1116,15 +1116,14 @@ class TestFactoryFunction:
 ## Post-Conditions
 
 After completing this task:
-
-- [ ] `HubSpotMCPClient` is available in `app/backends/`
-- [ ] Gateway can proxy MCP requests to HubSpot backend
-- [ ] HubSpot tool arguments are validated before sending
-- [ ] HubSpot errors are transformed to user-friendly messages
+- [x] `HubSpotMCPClient` is available in `app/backends/`
+- [x] Gateway can proxy MCP requests to HubSpot backend
+- [x] HubSpot tool arguments are validated before sending
+- [x] HubSpot errors are transformed to user-friendly messages
 - [ ] D6 (Backend Router) can route to HubSpot client
 - [ ] Demo 1 (Unified Connection) can include HubSpot tools
 - [ ] F8 (Cross-service workflow) can use HubSpot
-- [ ] All unit tests pass
+- [x] All unit tests pass (89 tests)
 
 ---
 

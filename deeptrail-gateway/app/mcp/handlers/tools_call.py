@@ -3,7 +3,7 @@ MCP tools/call Request Handler for Virtual MCP Server.
 
 Handles the MCP `tools/call` method by:
 1. Parsing namespaced tool name to extract backend and tool
-2. Validating permission against agent's delegation
+2. Validating permission against agent's delegation (C6: DelegationValidator)
 3. Validating constraints (rate limits, quotas) - placeholder for MVP
 4. Getting backend session and credential reference
 5. Forwarding to backend MCP server with injected credentials
@@ -13,10 +13,11 @@ Handles the MCP `tools/call` method by:
 This is the core handler demonstrating:
 - Demo 3: Delegation Execution
 - Demo 4: Permission Enforcement
+- Step 8-9 of Sarah's Journey
 
 Security principles:
 - Fail-closed: Deny if any validation fails
-- Unknown tools denied by default
+- Unknown tools denied by default (via DelegationValidator)
 - Every call logged for audit
 - Agent never sees OAuth tokens
 
@@ -68,9 +69,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..namespace import NamespaceError, unprefix_tool_name
-from ..permission_mapper import PermissionMapper
 from ..protocol import JsonRpcErrorCode, MCPError
 from ..session_manager import BackendMCPSession, MCPSessionManager
+from ...middleware.credential_injection import get_credential_injector
+from ...middleware.delegation_validator import get_delegation_validator
+from ...middleware.jwt_validation import AgentContext
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +168,7 @@ class AuditEvent(BaseModel):
     Audit event for tool calls.
     
     Every tool call (success or failure) generates an audit event.
+    Enhanced for C6 DelegationValidator integration.
     """
     timestamp: str = Field(..., description="ISO 8601 timestamp")
     event_type: str = Field(..., description="Event type (mcp_tool_call, permission_denied, etc.)")
@@ -178,6 +182,7 @@ class AuditEvent(BaseModel):
     result_summary: str | None = Field(default=None, description="Brief summary of result")
     error: str | None = Field(default=None, description="Error message if failed")
     required_permission: str | None = Field(default=None, description="Permission that was checked")
+    denial_reason: str | None = Field(default=None, description="C6: DelegationValidator denial reason")
 
 
 # =============================================================================
@@ -268,7 +273,20 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     # Extract context (passed by middleware/protocol handler)
     context = params.pop("_context", {})
     agent_session_id = context.get("agent_session_id")
+    agent_id = context.get("agent_id", agent_session_id)
     delegated_permissions = context.get("delegated_permissions", [])
+    delegation_id = context.get("delegation_id")
+    
+    # Build AgentContext for C6 DelegationValidator
+    agent_context: AgentContext | None = None
+    if agent_session_id and delegated_permissions:
+        agent_context = AgentContext(
+            agent_id=agent_id or "",
+            owner=context.get("delegator", ""),
+            delegation_id=delegation_id or "",
+            session_id=agent_session_id or "",
+            delegated_permissions=delegated_permissions,
+        )
     
     # Parse and validate params
     try:
@@ -335,24 +353,31 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     
     logger.debug(f"Parsed namespace: backend={backend_id}, tool={original_tool}")
     
-    # Step 2: Validate permission
-    permission_result = _validate_permission(tool_name, delegated_permissions)
+    # Step 2: Validate permission using C6 DelegationValidator
+    validator = get_delegation_validator()
+    validation_result = await validator.validate_tool_call(
+        tool_name=tool_name,
+        agent_context=agent_context,
+    )
     
-    if not permission_result["allowed"]:
-        required_perm = permission_result["required_permission"]
+    if not validation_result.allowed:
+        required_perm = validation_result.required_permission
+        error_message = validation_result.error_message or f"Permission denied: {required_perm}"
+        
         await _log_audit(
             agent_session, tool_name, arguments,
             success=False,
-            error=f"Permission denied: {required_perm} not delegated",
+            error=error_message,
             required_permission=required_perm,
-            backend=backend_id
+            backend=backend_id,
+            denial_reason=validation_result.denial_reason.value if validation_result.denial_reason else None,
         )
         raise MCPError(
             ToolsCallErrorCode.PERMISSION_DENIED,
-            f"Permission denied: {required_perm} not delegated"
+            error_message
         )
     
-    logger.debug(f"Permission validated: {permission_result['required_permission']}")
+    logger.debug(f"Permission validated: {validation_result.required_permission}")
     
     # Step 3: Validate constraints (MVP: placeholder)
     constraint_result = await _validate_constraints(agent_session, tool_name)
@@ -428,62 +453,13 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
 # =============================================================================
 
 
-def _validate_permission(
-    tool_name: str,
-    delegated_permissions: list[str]
-) -> dict[str, Any]:
-    """
-    Validate tool call against delegated permissions.
-    
-    Args:
-        tool_name: Namespaced tool name (e.g., "notion.search_pages")
-        delegated_permissions: Agent's delegated permissions
-    
-    Returns:
-        Dict with:
-            - allowed: bool
-            - required_permission: str (the permission that was checked)
-    """
-    required_permission = PermissionMapper.get_permission(tool_name)
-    
-    if required_permission is None:
-        # Unknown tool - fail closed
-        # Try inference for better error message
-        inferred = PermissionMapper.infer_permission(tool_name)
-        return {
-            "allowed": False,
-            "required_permission": inferred or f"unknown:{tool_name}"
-        }
-    
-    # Check exact permission
-    if required_permission in delegated_permissions:
-        return {
-            "allowed": True,
-            "required_permission": required_permission
-        }
-    
-    # Check wildcard permissions
-    # e.g., "notion:*" should allow "notion:pages:search"
-    backend_parts = required_permission.split(":")
-    if len(backend_parts) >= 1:
-        backend = backend_parts[0]
-        # Check backend wildcard (e.g., "notion:*")
-        if f"{backend}:*" in delegated_permissions:
-            return {
-                "allowed": True,
-                "required_permission": required_permission
-            }
-        # Check full wildcard
-        if "*:*" in delegated_permissions:
-            return {
-                "allowed": True,
-                "required_permission": required_permission
-            }
-    
-    return {
-        "allowed": False,
-        "required_permission": required_permission
-    }
+# NOTE: _validate_permission has been replaced by C6 DelegationValidator
+# The DelegationValidator provides:
+# - Structured ValidationResult with DenialReason enum
+# - Support for delegation revocation checking
+# - Better audit logging integration
+# - Wildcard permission support (notion:*, *:*)
+# See: app/middleware/delegation_validator.py
 
 
 async def _validate_constraints(
@@ -524,9 +500,14 @@ async def _forward_to_backend(
     arguments: dict[str, Any]
 ) -> dict[str, Any]:
     """
-    Forward tool call to backend MCP server with credential injection.
+    Forward tool call to backend MCP server with credential injection (C7).
     
     MVP: Returns mock response. Production uses backend_client.
+    
+    Security (C7):
+    - Injects OAuth credentials server-side
+    - Agent never sees the actual token
+    - Fail-closed: No credential = request denied
     
     Args:
         backend_id: Backend identifier (e.g., "notion")
@@ -536,28 +517,56 @@ async def _forward_to_backend(
     
     Returns:
         Backend response with content array
+        
+    Raises:
+        MCPError: If credential injection fails (CREDENTIAL_ERROR)
     """
     global _backend_client
     
-    # Get credential reference for logging
+    # Get credential reference from session
     cred_ref = None
     if backend_session.credential_ref:
         cred_ref = backend_session.credential_ref.ref
     
+    # C7: Inject credentials - get authorization headers from vault
+    injector = get_credential_injector()
+    injection_result = await injector.inject_credentials(
+        credential_ref=cred_ref,
+        backend_id=backend_id,
+    )
+    
+    if not injection_result.success:
+        # C7 Fail-closed: No credential = request denied
+        logger.warning(
+            "Credential injection failed for backend %s: %s",
+            backend_id,
+            injection_result.error.value if injection_result.error else "unknown",
+        )
+        raise MCPError(
+            ToolsCallErrorCode.CREDENTIAL_ERROR,
+            injection_result.error_message or "Credential error"
+        )
+    
+    # C7: Get auth headers (agent never sees these)
+    auth_headers = injection_result.headers
+    
     if _backend_client is not None:
-        # Production: Use configured backend client
+        # Production: Use configured backend client with injected credentials
         return await _backend_client.call_tool(
             backend_id=backend_id,
             tool_name=tool_name,
             arguments=arguments,
-            credential_ref=cred_ref,
+            auth_headers=auth_headers,  # C7: Pass injected headers
             mcp_session_id=backend_session.mcp_session_id
         )
     
-    # MVP: Mock response
+    # MVP: Mock response (credentials were validated but mock doesn't use them)
+    # Log that credentials were injected without exposing token
     logger.info(
-        f"MVP Mock: Forwarding {tool_name} to {backend_id} "
-        f"(credential_ref={cred_ref})"
+        "MVP Mock: Forwarding %s to %s (credentials injected: %s)",
+        tool_name,
+        backend_id,
+        bool(auth_headers),
     )
     
     # Update backend session activity
@@ -625,12 +634,14 @@ async def _log_audit(
     result_summary: str | None = None,
     error: str | None = None,
     required_permission: str | None = None,
-    backend: str | None = None
+    backend: str | None = None,
+    denial_reason: str | None = None,
 ) -> None:
     """
     Log audit event for tool call.
     
     Every tool call generates an audit event, regardless of success/failure.
+    Enhanced for C6 DelegationValidator integration.
     
     Args:
         agent_session: Agent's session (may be None if session lookup failed)
@@ -641,12 +652,16 @@ async def _log_audit(
         error: Error message (if failed)
         required_permission: Permission that was checked
         backend: Backend server ID
+        denial_reason: C6 DelegationValidator denial reason
     """
     global _audit_logger
     
-    # Determine event type
+    # Determine event type (enhanced for C6 denial reasons)
     if success:
         event_type = "mcp_tool_call"
+    elif denial_reason:
+        # Use C6 DelegationValidator denial reason for event type
+        event_type = f"delegation_{denial_reason}"
     elif error and "Permission denied" in error:
         event_type = "permission_denied"
     elif error and "constraint" in error.lower():
@@ -667,6 +682,7 @@ async def _log_audit(
         result_summary=result_summary,
         error=error,
         required_permission=required_permission,
+        denial_reason=denial_reason,
     )
     
     if _audit_logger is not None:
