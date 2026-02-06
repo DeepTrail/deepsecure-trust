@@ -4,6 +4,7 @@ from app.api.v1.endpoints import (
     agent_auth,
     agents,
     attestation_policies,
+    audit,
     auth,
     bootstrap,
     delegation,
@@ -29,4 +30,5 @@ api_router.include_router(
     tags=["policies"],
 )
 api_router.include_router(internal.router, prefix="/internal", tags=["internal"], include_in_schema=False)
-api_router.include_router(bootstrap.router, prefix="/bootstrap", tags=["bootstrap"]) 
+api_router.include_router(bootstrap.router, prefix="/bootstrap", tags=["bootstrap"])
+api_router.include_router(audit.router, prefix="/audit", tags=["audit"]) 

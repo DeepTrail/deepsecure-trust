@@ -6,7 +6,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | `ready` |
+| **Status** | `completed` |
 | **Design Doc** | [deepsecure-virtual-mcp-server-mvp.md](../../../design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) |
 | **Workstream** | WS-C: Auth & Permissions |
 | **Dependencies** | C2 (Agent Verify Endpoint) ✅ |
@@ -36,7 +36,7 @@ Before starting this task, ensure:
 - [x] C1 (Agent Challenge Endpoint) is complete  
 - [x] A8 (AgentSessionService) is complete - issues the JWT
 - [x] Existing `jwt_validation.py` middleware exists in gateway
-- [ ] Understand the Layer 3 JWT format from C2
+- [x] Understand the Layer 3 JWT format from C2
 
 ---
 
@@ -620,52 +620,52 @@ app.add_middleware(
 
 ### JWT Validation Criteria
 
-- [ ] Validates JWT signature with shared secret (HS256)
-- [ ] Validates `iss` claim equals `deeptrail-control`
-- [ ] Validates `aud` claim equals `deeptrail-gateway`
-- [ ] Validates `exp` claim (rejects expired tokens)
-- [ ] Validates required claims: `sub`, `owner`, `delegated_permissions`, `delegation_id`, `session_id`
-- [ ] Returns 401 with `token_expired` for expired tokens
-- [ ] Returns 401 with `invalid_signature` for bad signatures
-- [ ] Returns 401 with `invalid_issuer` for wrong issuer
-- [ ] Returns 401 with `invalid_audience` for wrong audience
-- [ ] Returns 401 with `missing_claims` for incomplete tokens
+- [x] Validates JWT signature with shared secret (HS256)
+- [x] Validates `iss` claim equals `deeptrail-control`
+- [x] Validates `aud` claim equals `deeptrail-gateway`
+- [x] Validates `exp` claim (rejects expired tokens)
+- [x] Validates required claims: `sub`, `owner`, `delegated_permissions`, `delegation_id`, `session_id`
+- [x] Returns 401 with `token_expired` for expired tokens
+- [x] Returns 401 with `invalid_signature` for bad signatures
+- [x] Returns 401 with `invalid_issuer` for wrong issuer
+- [x] Returns 401 with `invalid_audience` for wrong audience
+- [x] Returns 401 with `missing_claims` for incomplete tokens
 
 ### Request State Criteria
 
-- [ ] Stores `AgentContext` in `request.state.agent_context`
-- [ ] `AgentContext.agent_id` populated from `sub` claim
-- [ ] `AgentContext.owner` populated from `owner` claim
-- [ ] `AgentContext.delegated_permissions` populated as list
-- [ ] `AgentContext.delegation_id` populated
-- [ ] `AgentContext.session_id` populated
-- [ ] Legacy compatibility: `request.state.agent_id` also set
+- [x] Stores `AgentContext` in `request.state.agent_context`
+- [x] `AgentContext.agent_id` populated from `sub` claim
+- [x] `AgentContext.owner` populated from `owner` claim
+- [x] `AgentContext.delegated_permissions` populated as list
+- [x] `AgentContext.delegation_id` populated
+- [x] `AgentContext.session_id` populated
+- [x] Legacy compatibility: `request.state.agent_id` also set
 
 ### Path Protection Criteria
 
-- [ ] Protects `/mcp/*` endpoints
-- [ ] Protects `/proxy/*` endpoints
-- [ ] Bypasses `/health`, `/ready`, `/metrics`, `/docs`
-- [ ] Bypasses `/openapi.json`
+- [x] Protects `/mcp/*` endpoints
+- [x] Protects `/proxy/*` endpoints
+- [x] Bypasses `/health`, `/ready`, `/metrics`, `/docs`
+- [x] Bypasses `/openapi.json`
 
 ### Security Criteria
 
-- [ ] Fail-closed: denies access on any validation failure
-- [ ] No token information leaked in error messages
-- [ ] Logs validation failures at WARNING level
-- [ ] Logs successful validations at INFO level
+- [x] Fail-closed: denies access on any validation failure
+- [x] No token information leaked in error messages
+- [x] Logs validation failures at WARNING level
+- [x] Logs successful validations at INFO level
 
 ### Test Criteria
 
-- [ ] Test successful validation with valid Agent Session JWT
-- [ ] Test 401 for expired token
-- [ ] Test 401 for invalid signature
-- [ ] Test 401 for wrong issuer
-- [ ] Test 401 for wrong audience
-- [ ] Test 401 for missing required claims
-- [ ] Test bypass paths don't require auth
-- [ ] Test AgentContext populated correctly
-- [ ] All tests pass with `pytest tests/middleware/test_jwt_validation.py`
+- [x] Test successful validation with valid Agent Session JWT
+- [x] Test 401 for expired token
+- [x] Test 401 for invalid signature
+- [x] Test 401 for wrong issuer
+- [x] Test 401 for wrong audience
+- [x] Test 401 for missing required claims
+- [x] Test bypass paths don't require auth
+- [x] Test AgentContext populated correctly
+- [x] All tests pass with `pytest tests/middleware/test_jwt_validation.py`
 
 ---
 
@@ -922,12 +922,37 @@ class TestAgentContext:
 
 After completing this task:
 
-- [ ] Gateway validates Agent Session JWTs from Control Plane
-- [ ] Protected endpoints require valid JWT
-- [ ] Request state contains agent context for downstream middleware
-- [ ] C5 (Permission Filter) can access `agent_context.delegated_permissions`
-- [ ] C6 (Delegation Validator) can access `agent_context.delegation_id`
-- [ ] All unit tests pass
+- [x] Gateway validates Agent Session JWTs from Control Plane
+- [x] Protected endpoints require valid JWT
+- [x] Request state contains agent context for downstream middleware
+- [x] C5 (Permission Filter) can access `agent_context.delegated_permissions`
+- [x] C6 (Delegation Validator) can access `agent_context.delegation_id`
+- [x] All unit tests pass
+
+---
+
+## Files Modified
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `deeptrail-gateway/app/middleware/jwt_validation.py` | 505 | Enhanced with AgentContext, Layer 3 validation, dependencies |
+
+## Files Created
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `deeptrail-gateway/tests/middleware/__init__.py` | 1 | Test package init |
+| `deeptrail-gateway/tests/middleware/test_jwt_validation.py` | 760 | 40 comprehensive unit tests |
+
+---
+
+## Execution Log
+
+**Date**: 2026-01-30
+**Duration**: ~20 minutes
+**Tests Added**: 40 new tests
+**Total MCP + Backends + Middleware Tests**: 571 (all passing)
+**Lint Status**: All checks passed
 
 ---
 

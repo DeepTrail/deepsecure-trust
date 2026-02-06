@@ -6,7 +6,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | `ready` |
+| **Status** | `completed` |
 | **Design Doc** | [deepsecure-virtual-mcp-server-mvp.md](../../../design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) |
 | **Workstream** | WS-D: Backend Connectors |
 | **Dependencies** | D1 (Connection Manager) ✅, B7 (tools/call handler) ✅ |
@@ -36,7 +36,7 @@ Before starting this task, ensure:
 - [x] D2 (Base MCP Client) is complete
 - [x] B7 (tools/call handler) is complete
 - [x] B4 (Namespace Prefixer) is complete
-- [ ] D3, D4, D5 backend clients available (or use GenericMCPClient)
+- [x] D3, D4, D5 backend clients available (NotionMCPClient, SlackMCPClient, HubSpotMCPClient)
 
 ---
 
@@ -661,47 +661,46 @@ __all__ = [
 
 ### Implementation Criteria
 
-- [ ] `BackendRouter` class implemented
-- [ ] Backend registration (register/unregister) works
-- [ ] Tool name parsing extracts namespace correctly
-- [ ] `route_tool_call` forwards to correct backend
-- [ ] `list_all_tools` aggregates from all backends
+- [x] `BackendRouter` class implemented
+- [x] Backend registration (register/unregister) works
+- [x] Tool name parsing extracts namespace correctly
+- [x] `route_tool_call` forwards to correct backend
+- [x] `list_all_tools` aggregates from all backends
 
 ### Routing Criteria
 
-- [ ] `notion.search_pages` routes to Notion client with `search_pages`
-- [ ] `slack.send_message` routes to Slack client with `send_message`
-- [ ] `hubspot.get_contact` routes to HubSpot client with `get_contact`
-- [ ] Unknown namespace returns error (not exception)
-- [ ] Invalid tool name format returns error
+- [x] `notion.search_pages` routes to Notion client with `search_pages`
+- [x] `slack.send_message` routes to Slack client with `send_message`
+- [x] `hubspot.get_contact` routes to HubSpot client with `get_contact`
+- [x] Unknown namespace returns error (not exception)
+- [x] Invalid tool name format returns error
 
 ### Error Handling Criteria
 
-- [ ] Missing namespace returns `InvalidToolNameError`
-- [ ] Unknown backend returns `BackendNotFoundError`
-- [ ] Client errors wrapped in `ToolResult.from_error()`
-- [ ] Errors logged at appropriate levels
-- [ ] Does not throw exceptions to caller (returns ToolResult)
+- [x] Missing namespace returns `InvalidToolNameError`
+- [x] Unknown backend returns `BackendNotFoundError`
+- [x] Client errors wrapped in `ToolResult.from_error()`
+- [x] Errors logged at appropriate levels
+- [x] Does not throw exceptions to caller (returns ToolResult)
 
 ### Integration Criteria
 
-- [ ] Works with `tools/call` handler (B7)
-- [ ] Works with namespace prefixer (B4)
-- [ ] Supports D3, D4, D5 clients
-- [ ] Supports GenericMCPClient for unimplemented backends
+- [x] Works with `tools/call` handler (B7)
+- [x] Works with namespace prefixer (B4)
+- [x] Supports D3, D4, D5 clients
+- [x] Supports GenericMCPClient for unimplemented backends
 
 ### Test Criteria
 
-- [ ] Test backend registration
-- [ ] Test tool name parsing
-- [ ] Test routing to correct backend
-- [ ] Test namespace extraction
-- [ ] Test unknown backend handling
-- [ ] Test invalid tool name handling
-- [ ] Test list_all_tools aggregation
-- [ ] Test health checking
-- [ ] All tests pass with `pytest tests/backends/test_router.py`
-
+- [x] Test backend registration
+- [x] Test tool name parsing
+- [x] Test routing to correct backend
+- [x] Test namespace extraction
+- [x] Test unknown backend handling
+- [x] Test invalid tool name handling
+- [x] Test list_all_tools aggregation
+- [x] Test health checking
+- [x] All tests pass with `pytest tests/backends/test_router.py` (64 tests)
 ---
 
 ## Test Cases
@@ -1069,13 +1068,13 @@ class TestFactoryFunctions:
 
 After completing this task:
 
-- [ ] `BackendRouter` is available in `app/backends/`
-- [ ] Gateway can route tool calls to appropriate backends
-- [ ] `tools/call` handler (B7) can use router
-- [ ] Tool aggregation works across all backends
-- [ ] Health checking works for all backends
+- [x] `BackendRouter` is available in `app/backends/`
+- [x] Gateway can route tool calls to appropriate backends
+- [x] `tools/call` handler (B7) can use router
+- [x] Tool aggregation works across all backends
+- [x] Health checking works for all backends
 - [ ] Demo 1 (Unified Connection) routing works
-- [ ] All unit tests pass
+- [x] All unit tests pass (64 tests)
 
 ---
 
