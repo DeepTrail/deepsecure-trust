@@ -262,7 +262,6 @@ if not PermissionMapper.is_tool_permitted(
 - [x] Test `infer_permission()` with convention
 - [x] Test fail-closed behavior for unknown tools
 - [x] All tests pass with `pytest tests/mcp/test_permission_mapper.py` (31 tests)
-
 ---
 
 ## Test Cases
@@ -553,7 +552,6 @@ After completing this task:
 - In production, mappings could be loaded from configuration or database
 - Permission format `{backend}:{resource}:{action}` aligns with industry standards
 - The mapper is designed to be extended when new backends are added (D3, D4, D5)
-
 ---
 
 ## Execution Log

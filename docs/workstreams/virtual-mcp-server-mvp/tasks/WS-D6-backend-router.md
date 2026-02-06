@@ -701,7 +701,6 @@ __all__ = [
 - [x] Test list_all_tools aggregation
 - [x] Test health checking
 - [x] All tests pass with `pytest tests/backends/test_router.py` (64 tests)
-
 ---
 
 ## Test Cases
