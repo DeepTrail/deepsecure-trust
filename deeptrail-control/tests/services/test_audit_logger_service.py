@@ -626,3 +626,164 @@ class TestIntegrationWithDB:
         # Check descending order
         for i in range(len(events) - 1):
             assert events[i].timestamp >= events[i + 1].timestamp
+
+
+class TestGetSummary:
+    """Tests for E6: Audit summary statistics."""
+
+    @pytest.fixture
+    def mock_db(self):
+        """Create a mock database session."""
+        db = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.group_by.return_value = mock_query
+        mock_query.scalar.return_value = 100
+        mock_query.all.return_value = []
+        db.query.return_value = mock_query
+        return db
+
+    @pytest.fixture
+    def service(self, mock_db):
+        """Create an AuditLoggerService instance."""
+        return AuditLoggerService(mock_db)
+
+    def test_get_summary_returns_structure(self, service, mock_db):
+        """E6: Should return summary with correct structure."""
+        summary = service.get_summary()
+
+        assert "total_events" in summary
+        assert "by_event_type" in summary
+        assert "by_tool" in summary
+        assert "by_agent" in summary
+        assert "time_range" in summary
+
+    def test_get_summary_with_filters(self, service, mock_db):
+        """E6: Should accept filters."""
+        summary = service.get_summary(
+            agent_id="agent-123",
+            on_behalf_of="sarah@acme.com",
+        )
+
+        assert summary is not None
+        mock_db.query.return_value.filter.assert_called()
+
+
+class TestGetSummaryIntegration:
+    """Integration tests for audit summary."""
+
+    @pytest.fixture
+    def service(self, db):
+        """Create an AuditLoggerService with real DB."""
+        return AuditLoggerService(db)
+
+    def test_summary_counts_events(self, service, db):
+        """E6 Integration: Should count events correctly."""
+        unique_agent = unique_id()
+        unique_user = f"{unique_id()}@acme.com"
+
+        # Log tool call events
+        for i in range(3):
+            service.log_tool_call(
+                agent_id=unique_agent,
+                on_behalf_of=unique_user,
+                tool="notion.search_pages",
+                arguments={"index": i},
+            )
+
+        # Log permission denied event
+        service.log_permission_denied(
+            agent_id=unique_agent,
+            on_behalf_of=unique_user,
+            tool="slack.post_message",
+            required_permission="slack:messages:post",
+        )
+
+        summary = service.get_summary(agent_id=unique_agent)
+
+        assert summary["total_events"] >= 4
+
+    def test_summary_groups_by_event_type(self, service, db):
+        """E6 Integration: Should group by event type."""
+        unique_agent = unique_id()
+        unique_user = f"{unique_id()}@acme.com"
+
+        # Log different event types
+        service.log_tool_call(
+            agent_id=unique_agent,
+            on_behalf_of=unique_user,
+            tool="notion.search_pages",
+            arguments={},
+        )
+        service.log_permission_denied(
+            agent_id=unique_agent,
+            on_behalf_of=unique_user,
+            tool="slack.post_message",
+            required_permission="slack:messages:post",
+        )
+
+        summary = service.get_summary(agent_id=unique_agent)
+
+        assert "mcp_tool_call" in summary["by_event_type"]
+        assert "permission_denied" in summary["by_event_type"]
+
+    def test_summary_groups_by_tool(self, service, db):
+        """E6 Integration: Should group by tool."""
+        unique_agent = unique_id()
+        unique_user = f"{unique_id()}@acme.com"
+
+        # Log events with different tools
+        service.log_tool_call(
+            agent_id=unique_agent,
+            on_behalf_of=unique_user,
+            tool="notion.search_pages",
+            arguments={},
+        )
+        service.log_tool_call(
+            agent_id=unique_agent,
+            on_behalf_of=unique_user,
+            tool="slack.post_message",
+            arguments={},
+        )
+
+        summary = service.get_summary(agent_id=unique_agent)
+
+        assert "notion.search_pages" in summary["by_tool"]
+        assert "slack.post_message" in summary["by_tool"]
+
+    def test_summary_groups_by_agent(self, service, db):
+        """E6 Integration: Should group by agent."""
+        unique_user = f"{unique_id()}@acme.com"
+        agent1 = unique_id()
+        agent2 = unique_id()
+
+        # Log events with different agents
+        service.log_tool_call(
+            agent_id=agent1,
+            on_behalf_of=unique_user,
+            tool="notion.search_pages",
+            arguments={},
+        )
+        service.log_tool_call(
+            agent_id=agent2,
+            on_behalf_of=unique_user,
+            tool="notion.search_pages",
+            arguments={},
+        )
+
+        summary = service.get_summary(on_behalf_of=unique_user)
+
+        assert agent1 in summary["by_agent"]
+        assert agent2 in summary["by_agent"]
+
+    def test_summary_with_time_range(self, service, db):
+        """E6 Integration: Should include time range in response."""
+        from datetime import timedelta
+
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(hours=1)
+
+        summary = service.get_summary(start_time=start, end_time=now)
+
+        assert "start" in summary["time_range"]
+        assert "end" in summary["time_range"]
