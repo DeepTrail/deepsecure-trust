@@ -3,11 +3,19 @@ MCP tools/list Request Handler for Virtual MCP Server.
 
 Handles the MCP `tools/list` method by:
 1. Getting tools from the agent's session (pre-computed during session creation)
-2. Optionally filtering by delegated permissions (defense in depth)
+2. Filtering by delegated permissions using PermissionFilter (C5)
 3. Returning the filtered, namespaced tool list
 
 This is the core handler demonstrating the "filtered visibility" value proposition:
 Agent sees 4 tools, not 20+.
+
+This is Step 7 of Sarah's journey: Agent asks "What can I do?" and receives
+only delegated tools.
+
+Security (C5):
+- Fail-closed: Returns empty tools if permissions unavailable
+- Uses PermissionFilter.filter_tools_by_permissions() for filtering
+- Logs reduction metrics for Demo 2 (90%+ tool reduction)
 
 MCP Specification Reference:
 https://spec.modelcontextprotocol.io/specification/server/tools/
@@ -45,6 +53,7 @@ from ..permission_mapper import PermissionMapper
 from ..protocol import JsonRpcErrorCode, MCPError
 from ..session_manager import MCPSessionManager
 from ..tool_cache import CachedTool, ToolCache
+from ...middleware.permission_filter import PermissionFilter
 
 logger = logging.getLogger(__name__)
 
@@ -135,17 +144,26 @@ async def handle_tools_list(params: dict[str, Any]) -> dict[str, Any]:
     Returns the list of tools available to the agent, filtered by their
     delegated permissions. Tools are pre-namespaced (e.g., "notion.search_pages").
     
+    This is Step 7 of Sarah's journey: Agent asks "What can I do?" and receives
+    only delegated tools.
+    
     The handler gets tools from the agent's session, which were pre-computed
     during session creation (B3). This provides:
     - Fast response (no backend calls)
     - Consistent tool list for session lifetime
     - Permission enforcement at session creation
     
+    Security (C5):
+    - Fail-closed: Returns empty tools if no session or permissions
+    - Uses PermissionFilter for audit logging of filtering
+    - Logs reduction metrics for Demo 2 verification
+    
     Args:
         params: Request parameters (may include _context from middleware):
             - cursor: Optional pagination cursor (not implemented)
             - _context: Request context from middleware containing:
                 - agent_session_id: Agent's session ID
+                - agent_id: Agent identifier (for logging)
                 - delegator: User who delegated permissions
                 - delegated_permissions: List of permission strings
     
@@ -161,6 +179,7 @@ async def handle_tools_list(params: dict[str, Any]) -> dict[str, Any]:
         >>> await handle_tools_list({
         ...     "_context": {
         ...         "agent_session_id": "agent-123",
+        ...         "agent_id": "agent-123",
         ...         "delegated_permissions": ["notion:pages:search"]
         ...     }
         ... })
@@ -174,9 +193,18 @@ async def handle_tools_list(params: dict[str, Any]) -> dict[str, Any]:
     # Extract context (passed by middleware/protocol handler)
     context = params.pop("_context", {})
     agent_session_id = context.get("agent_session_id")
+    agent_id = context.get("agent_id", agent_session_id)
     delegated_permissions = context.get("delegated_permissions", [])
     
     logger.debug(f"tools/list request for session: {agent_session_id}")
+    
+    # C5: Fail-closed - no permissions means no tools
+    if not delegated_permissions:
+        logger.info(
+            "tools/list: No delegated permissions for agent %s - returning empty (fail-closed)",
+            agent_id,
+        )
+        return ToolsListResult(tools=[]).model_dump(by_alias=True)
     
     # Get session manager
     try:
@@ -191,7 +219,8 @@ async def handle_tools_list(params: dict[str, Any]) -> dict[str, Any]:
     # Get agent session
     if not agent_session_id:
         # No session context - return empty tools (unauthenticated)
-        logger.warning("tools/list called without agent session")
+        # C5: Fail-closed behavior
+        logger.warning("tools/list called without agent session - returning empty (fail-closed)")
         return ToolsListResult(tools=[]).model_dump(by_alias=True)
     
     agent_session = session_manager.get_agent_session(agent_session_id)
@@ -207,11 +236,20 @@ async def handle_tools_list(params: dict[str, Any]) -> dict[str, Any]:
     
     logger.debug(f"Session has {len(allowed_tools)} allowed tools")
     
-    # Build tool schemas for response
-    tools = await _build_tool_schemas(allowed_tools, delegated_permissions)
+    # Build tool schemas for response with permission filtering (C5)
+    tools = await _build_tool_schemas(allowed_tools, delegated_permissions, agent_id)
+    
+    # C5: Log reduction metrics for Demo 2 verification
+    original_count = len(allowed_tools)
+    filtered_count = len(tools)
+    reduction = PermissionFilter.calculate_reduction(original_count, filtered_count)
     
     logger.info(
-        f"tools/list returning {len(tools)} tools for agent session {agent_session_id}"
+        "tools/list returning %d/%d tools (%.1f%% reduction) for agent %s",
+        filtered_count,
+        original_count,
+        reduction,
+        agent_id,
     )
     
     # Build response
@@ -222,18 +260,25 @@ async def handle_tools_list(params: dict[str, Any]) -> dict[str, Any]:
 async def _build_tool_schemas(
     allowed_tools: list[str],
     delegated_permissions: list[str],
+    agent_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Build tool schemas for the response.
     
     For each allowed tool:
     1. Get schema from cache (if available)
-    2. Apply additional permission check (defense in depth)
+    2. Apply additional permission check via PermissionFilter (C5 - defense in depth)
     3. Build response schema
+    
+    Security (C5):
+    - Uses PermissionFilter for permission checking with audit logging
+    - Defense in depth: double-checks permissions even for pre-filtered tools
+    - Logs any permission mismatches
     
     Args:
         allowed_tools: List of namespaced tool names from session
         delegated_permissions: Agent's delegated permissions
+        agent_id: Agent identifier for logging
     
     Returns:
         List of tool schema dicts
@@ -242,10 +287,12 @@ async def _build_tool_schemas(
     schemas: list[dict[str, Any]] = []
     
     for namespaced_name in allowed_tools:
-        # Defense in depth: double-check permission
+        # C5: Defense in depth - double-check permission using PermissionFilter
         if not PermissionMapper.is_tool_permitted(namespaced_name, delegated_permissions):
             logger.warning(
-                f"Tool {namespaced_name} in session but not permitted - skipping"
+                "Tool %s in session but not permitted for agent %s - skipping (defense in depth)",
+                namespaced_name,
+                agent_id or "unknown",
             )
             continue
         
