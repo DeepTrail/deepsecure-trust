@@ -97,6 +97,32 @@ class QueryEventsResponse(BaseModel):
     offset: int = Field(..., description="Offset applied")
 
 
+class AuditSummaryResponse(BaseModel):
+    """Response for audit summary statistics."""
+
+    total_events: int = Field(..., description="Total number of events")
+    by_event_type: dict[str, int] = Field(
+        ..., description="Event counts by type (mcp_tool_call, permission_denied, etc.)"
+    )
+    by_tool: dict[str, int] = Field(
+        ..., description="Event counts by tool (notion.search_pages, etc.)"
+    )
+    by_agent: dict[str, int] = Field(
+        ..., description="Event counts by agent ID"
+    )
+    time_range: dict[str, str] = Field(
+        default_factory=dict, description="Time range filter applied"
+    )
+
+    model_config = {"json_schema_extra": {"example": {
+        "total_events": 150,
+        "by_event_type": {"mcp_tool_call": 145, "permission_denied": 5},
+        "by_tool": {"notion.search_pages": 50, "slack.post_message": 30},
+        "by_agent": {"agent-sdr-001": 100, "agent-researcher-002": 50},
+        "time_range": {"start": "2026-02-05T00:00:00Z", "end": "2026-02-06T00:00:00Z"},
+    }}}
+
+
 class AuditError(BaseModel):
     """Error response for audit operations."""
 
@@ -243,3 +269,50 @@ def get_event(
         )
 
     return AuditEventResponse.model_validate(event)
+
+
+@router.get(
+    "/summary",
+    response_model=AuditSummaryResponse,
+    summary="Get audit summary statistics",
+    description=(
+        "Get aggregate statistics for audit events. "
+        "Returns counts by event type, tool, and agent."
+    ),
+)
+def get_summary(
+    service: AuditLoggerServiceDep,
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    on_behalf_of: Optional[str] = Query(
+        None,
+        description="Filter by user email",
+        alias="user_email",
+    ),
+    organization_id: Optional[str] = Query(None, description="Filter by org"),
+    start_time: Optional[datetime] = Query(None, description="Events after this time"),
+    end_time: Optional[datetime] = Query(None, description="Events before this time"),
+) -> AuditSummaryResponse:
+    """Get summary statistics for audit events.
+
+    Useful for dashboards and quick overview of agent activity.
+
+    Examples:
+    - /api/v1/audit/summary?agent_id=agent-sdr-001
+    - /api/v1/audit/summary?user_email=sarah@acme.com
+    - /api/v1/audit/summary?start_time=2026-02-06T00:00:00Z
+    """
+    summary = service.get_summary(
+        agent_id=agent_id,
+        on_behalf_of=on_behalf_of,
+        organization_id=organization_id,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
+    return AuditSummaryResponse(
+        total_events=summary["total_events"],
+        by_event_type=summary["by_event_type"],
+        by_tool=summary["by_tool"],
+        by_agent=summary["by_agent"],
+        time_range=summary["time_range"],
+    )

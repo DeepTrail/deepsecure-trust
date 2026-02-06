@@ -427,3 +427,177 @@ class TestOpenAPIDocumentation:
         # Check that audit endpoints use the audit tag
         endpoint = schema["paths"]["/api/v1/audit/events"]["post"]
         assert "audit" in endpoint.get("tags", [])
+
+    def test_summary_endpoint_in_openapi(self, client):
+        """E6: Summary endpoint should be in OpenAPI schema."""
+        response = client.get("/openapi.json")
+        schema = response.json()
+
+        paths = schema["paths"]
+        assert "/api/v1/audit/summary" in paths
+        assert "get" in paths["/api/v1/audit/summary"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Summary Endpoint Tests (E6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestGetSummary:
+    """Tests for GET /api/v1/audit/summary endpoint."""
+
+    def test_get_summary_success(self, client_with_mock_service, mock_audit_logger_service):
+        """E6: Should return summary statistics."""
+        mock_audit_logger_service.get_summary.return_value = {
+            "total_events": 100,
+            "by_event_type": {"mcp_tool_call": 95, "permission_denied": 5},
+            "by_tool": {"notion.search_pages": 50, "slack.post_message": 30},
+            "by_agent": {"agent-sdr-001": 60, "agent-researcher-002": 40},
+            "time_range": {},
+        }
+
+        response = client_with_mock_service.get("/api/v1/audit/summary")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_events"] == 100
+        assert "by_event_type" in data
+        assert "by_tool" in data
+        assert "by_agent" in data
+
+    def test_get_summary_with_agent_filter(
+        self, client_with_mock_service, mock_audit_logger_service
+    ):
+        """E6: Should accept agent_id filter."""
+        mock_audit_logger_service.get_summary.return_value = {
+            "total_events": 50,
+            "by_event_type": {"mcp_tool_call": 48, "permission_denied": 2},
+            "by_tool": {"notion.search_pages": 30},
+            "by_agent": {"agent-sdr-001": 50},
+            "time_range": {},
+        }
+
+        response = client_with_mock_service.get(
+            "/api/v1/audit/summary",
+            params={"agent_id": "agent-sdr-001"},
+        )
+
+        assert response.status_code == 200
+        mock_audit_logger_service.get_summary.assert_called_once()
+
+    def test_get_summary_with_user_email_filter(
+        self, client_with_mock_service, mock_audit_logger_service
+    ):
+        """E6: Should accept user_email filter (alias for on_behalf_of)."""
+        mock_audit_logger_service.get_summary.return_value = {
+            "total_events": 30,
+            "by_event_type": {"mcp_tool_call": 30},
+            "by_tool": {"notion.search_pages": 20},
+            "by_agent": {"agent-sdr-001": 30},
+            "time_range": {},
+        }
+
+        response = client_with_mock_service.get(
+            "/api/v1/audit/summary",
+            params={"user_email": "sarah@acme.com"},
+        )
+
+        assert response.status_code == 200
+        # Verify it was passed as on_behalf_of
+        call_args = mock_audit_logger_service.get_summary.call_args
+        assert call_args.kwargs.get("on_behalf_of") == "sarah@acme.com"
+
+    def test_get_summary_with_time_range(
+        self, client_with_mock_service, mock_audit_logger_service
+    ):
+        """E6: Should accept time range filters."""
+        mock_audit_logger_service.get_summary.return_value = {
+            "total_events": 20,
+            "by_event_type": {"mcp_tool_call": 20},
+            "by_tool": {"notion.search_pages": 10},
+            "by_agent": {"agent-sdr-001": 20},
+            "time_range": {"start": "2026-02-05T00:00:00Z", "end": "2026-02-06T00:00:00Z"},
+        }
+
+        response = client_with_mock_service.get(
+            "/api/v1/audit/summary",
+            params={
+                "start_time": "2026-02-05T00:00:00Z",
+                "end_time": "2026-02-06T00:00:00Z",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "time_range" in data
+
+
+class TestGetSummaryIntegration:
+    """Integration tests for summary endpoint with real DB."""
+
+    def test_summary_returns_correct_totals(self, client):
+        """E6 Integration: Should return correct totals."""
+        unique_agent = unique_id()
+        unique_user = f"{unique_id()}@acme.com"
+
+        # Log several events
+        for i in range(3):
+            client.post(
+                "/api/v1/audit/events",
+                json={
+                    "event_type": "mcp_tool_call",
+                    "on_behalf_of": unique_user,
+                    "agent_id": unique_agent,
+                    "tool": "notion.search_pages",
+                    "arguments": {"index": i},
+                },
+            )
+
+        # Get summary for this agent
+        response = client.get(
+            "/api/v1/audit/summary",
+            params={"agent_id": unique_agent},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_events"] >= 3
+        assert "mcp_tool_call" in data["by_event_type"]
+
+    def test_summary_groups_by_tool_correctly(self, client):
+        """E6 Integration: Should group by tool correctly."""
+        unique_agent = unique_id()
+        unique_user = f"{unique_id()}@acme.com"
+
+        # Log events with different tools
+        client.post(
+            "/api/v1/audit/events",
+            json={
+                "event_type": "mcp_tool_call",
+                "on_behalf_of": unique_user,
+                "agent_id": unique_agent,
+                "tool": "notion.search_pages",
+                "arguments": {},
+            },
+        )
+        client.post(
+            "/api/v1/audit/events",
+            json={
+                "event_type": "mcp_tool_call",
+                "on_behalf_of": unique_user,
+                "agent_id": unique_agent,
+                "tool": "slack.post_message",
+                "arguments": {},
+            },
+        )
+
+        # Get summary
+        response = client.get(
+            "/api/v1/audit/summary",
+            params={"agent_id": unique_agent},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "notion.search_pages" in data["by_tool"]
+        assert "slack.post_message" in data["by_tool"]
