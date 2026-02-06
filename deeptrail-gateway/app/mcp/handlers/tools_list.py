@@ -54,6 +54,7 @@ from ..protocol import JsonRpcErrorCode, MCPError
 from ..session_manager import MCPSessionManager
 from ..tool_cache import CachedTool, ToolCache
 from ...middleware.permission_filter import PermissionFilter
+from ...security.fail_closed import FailClosedError, enforce_fail_closed
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,16 @@ async def handle_tools_list(params: dict[str, Any]) -> dict[str, Any]:
     delegated_permissions = context.get("delegated_permissions", [])
     
     logger.debug(f"tools/list request for session: {agent_session_id}")
+    
+    # E4: Fail-closed security - deny if Control Plane unreachable
+    try:
+        await enforce_fail_closed()
+    except FailClosedError as e:
+        logger.warning(f"FAIL-CLOSED: tools/list denied - {e.reason}")
+        raise MCPError(
+            JsonRpcErrorCode.PERMISSION_DENIED,
+            f"Security denial: Cannot verify permissions - {e.reason}"
+        )
     
     # C5: Fail-closed - no permissions means no tools
     if not delegated_permissions:
