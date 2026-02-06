@@ -375,6 +375,93 @@ class AuditLoggerService:
         result = query.scalar()
         return result or 0
 
+    def get_summary(
+        self,
+        agent_id: Optional[str] = None,
+        on_behalf_of: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Get summary statistics for audit events.
+
+        Returns aggregate statistics useful for dashboards:
+        - Total events count
+        - Events by event_type (mcp_tool_call, permission_denied, etc.)
+        - Events by tool (notion.search_pages, slack.post_message, etc.)
+        - Events by agent
+
+        Args:
+            agent_id: Filter by agent
+            on_behalf_of: Filter by user
+            organization_id: Filter by organization
+            start_time: Filter after this time
+            end_time: Filter before this time
+
+        Returns:
+            Dictionary with summary statistics
+        """
+        # Build base conditions
+        conditions = []
+        if agent_id:
+            conditions.append(AuditEvent.agent_id == agent_id)
+        if on_behalf_of:
+            conditions.append(AuditEvent.on_behalf_of == on_behalf_of)
+        if organization_id:
+            conditions.append(AuditEvent.organization_id == organization_id)
+        if start_time:
+            conditions.append(AuditEvent.timestamp >= start_time)
+        if end_time:
+            conditions.append(AuditEvent.timestamp <= end_time)
+
+        # Total count
+        total_query = self.db.query(func.count(AuditEvent.id))
+        if conditions:
+            total_query = total_query.filter(and_(*conditions))
+        total_events = total_query.scalar() or 0
+
+        # Count by event_type
+        type_query = self.db.query(
+            AuditEvent.event_type,
+            func.count(AuditEvent.id).label("count"),
+        ).group_by(AuditEvent.event_type)
+        if conditions:
+            type_query = type_query.filter(and_(*conditions))
+        by_event_type = {row[0]: row[1] for row in type_query.all()}
+
+        # Count by tool (only for events that have a tool)
+        tool_query = self.db.query(
+            AuditEvent.tool,
+            func.count(AuditEvent.id).label("count"),
+        ).filter(AuditEvent.tool.isnot(None)).group_by(AuditEvent.tool)
+        if conditions:
+            tool_query = tool_query.filter(and_(*conditions))
+        by_tool = {row[0]: row[1] for row in tool_query.all()}
+
+        # Count by agent (only for events that have an agent)
+        agent_query = self.db.query(
+            AuditEvent.agent_id,
+            func.count(AuditEvent.id).label("count"),
+        ).filter(AuditEvent.agent_id.isnot(None)).group_by(AuditEvent.agent_id)
+        if conditions:
+            agent_query = agent_query.filter(and_(*conditions))
+        by_agent = {row[0]: row[1] for row in agent_query.all()}
+
+        # Time range
+        time_range = {}
+        if start_time:
+            time_range["start"] = start_time.isoformat()
+        if end_time:
+            time_range["end"] = end_time.isoformat()
+
+        return {
+            "total_events": total_events,
+            "by_event_type": by_event_type,
+            "by_tool": by_tool,
+            "by_agent": by_agent,
+            "time_range": time_range,
+        }
+
     def _redact_sensitive_data(
         self,
         data: Dict[str, Any],
