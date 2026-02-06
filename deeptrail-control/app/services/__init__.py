@@ -11,6 +11,10 @@ from .agent_session_service import (  # noqa
     SessionExpiredError,
     SessionNotFoundError,
 )
+from .audit_logger_service import (  # noqa
+    AuditLoggerService,
+    get_audit_logger_service,
+)
 from .connected_service_service import (  # noqa
     ConnectedServiceError,
     ConnectedServiceService,
@@ -43,6 +47,9 @@ __all__ = [
     "SessionExpiredError",
     "SessionNotFoundError",
     "AuthenticationResult",
+    # AuditLoggerService
+    "AuditLoggerService",
+    "get_audit_logger_service",
     # VaultClient
     "VaultClient",
     "VaultError",
