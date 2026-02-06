@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx
 import pytest
+import pytest_asyncio
 from nacl.encoding import HexEncoder
 from nacl.signing import SigningKey
 
@@ -56,7 +57,7 @@ def skip_live_tests() -> bool:
 # =============================================================================
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def control_plane_client(control_plane_url: str) -> httpx.AsyncClient:
     """Async HTTP client for Control Plane."""
     async with httpx.AsyncClient(
@@ -66,7 +67,7 @@ async def control_plane_client(control_plane_url: str) -> httpx.AsyncClient:
         yield client
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def gateway_client(gateway_url: str) -> httpx.AsyncClient:
     """Async HTTP client for Gateway."""
     async with httpx.AsyncClient(
@@ -133,7 +134,7 @@ def scenario() -> SarahJourneyScenario:
 # =============================================================================
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def user_token(
     control_plane_client: httpx.AsyncClient,
     scenario: SarahJourneyScenario,
@@ -171,7 +172,7 @@ def _generate_mock_user_token(scenario: SarahJourneyScenario) -> str:
     return f"mock_user_token_{scenario.user.id}"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def delegation_token(
     control_plane_client: httpx.AsyncClient,
     user_token: str,
@@ -228,7 +229,7 @@ def _generate_mock_delegation_token(scenario: SarahJourneyScenario) -> str:
     return f"mock_delegation_token_{scenario.agent.id}"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def agent_jwt(
     control_plane_client: httpx.AsyncClient,
     delegation_token: str,
@@ -286,7 +287,7 @@ def _generate_mock_agent_jwt(scenario: SarahJourneyScenario) -> str:
 # =============================================================================
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def initialized_session(
     gateway_client: httpx.AsyncClient,
     agent_jwt: str,
@@ -336,7 +337,7 @@ def _generate_mock_initialize_response() -> dict[str, Any]:
 # =============================================================================
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def services_available(
     control_plane_url: str,
     gateway_url: str,
