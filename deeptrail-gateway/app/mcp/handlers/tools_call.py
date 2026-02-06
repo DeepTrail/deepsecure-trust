@@ -63,6 +63,7 @@ Error Response:
 """
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -71,9 +72,12 @@ from pydantic import BaseModel, Field
 from ..namespace import NamespaceError, unprefix_tool_name
 from ..protocol import JsonRpcErrorCode, MCPError
 from ..session_manager import BackendMCPSession, MCPSessionManager
+from ...middleware.audit import get_audit_middleware
 from ...middleware.credential_injection import get_credential_injector
 from ...middleware.delegation_validator import get_delegation_validator
 from ...middleware.jwt_validation import AgentContext
+from ...security.fail_closed import FailClosedError, enforce_fail_closed
+from ...security.constraint_checker import get_constraint_checker
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +280,7 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     agent_id = context.get("agent_id", agent_session_id)
     delegated_permissions = context.get("delegated_permissions", [])
     delegation_id = context.get("delegation_id")
+    constraints = context.get("constraints", {})  # E5: Delegation constraints
     
     # Build AgentContext for C6 DelegationValidator
     agent_context: AgentContext | None = None
@@ -286,6 +291,16 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             delegation_id=delegation_id or "",
             session_id=agent_session_id or "",
             delegated_permissions=delegated_permissions,
+        )
+    
+    # E4: Fail-closed security - deny if Control Plane unreachable
+    try:
+        await enforce_fail_closed()
+    except FailClosedError as e:
+        logger.warning(f"FAIL-CLOSED: tools/call denied - {e.reason}")
+        raise MCPError(
+            JsonRpcErrorCode.PERMISSION_DENIED,
+            f"Security denial: Cannot verify permissions - {e.reason}"
         )
     
     # Parse and validate params
@@ -303,6 +318,12 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     
     logger.debug(f"tools/call request: tool={tool_name}, session={agent_session_id}")
     
+    # Get audit middleware (E3)
+    audit_middleware = get_audit_middleware()
+    
+    # Start timing for duration measurement
+    start_time = time.perf_counter()
+    
     # Get session manager
     try:
         session_manager = get_session_manager()
@@ -315,6 +336,7 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     
     # Get agent session
     if not agent_session_id:
+        # E3: Log audit (minimal context since no session)
         await _log_audit(
             None, tool_name, arguments,
             success=False,
@@ -341,11 +363,22 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     try:
         backend_id, original_tool = unprefix_tool_name(tool_name)
     except NamespaceError as e:
-        await _log_audit(
-            agent_session, tool_name, arguments,
-            success=False,
-            error=f"Invalid tool name: {e}"
-        )
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        if agent_context:
+            # E3: Use audit middleware
+            await audit_middleware.log_tool_call(
+                agent_context=agent_context,
+                tool_name=tool_name,
+                arguments=arguments,
+                error=f"Invalid tool name: {e}",
+                duration_ms=duration_ms,
+            )
+        else:
+            await _log_audit(
+                agent_session, tool_name, arguments,
+                success=False,
+                error=f"Invalid tool name: {e}"
+            )
         raise MCPError(
             ToolsCallErrorCode.INVALID_TOOL_NAME,
             f"Invalid tool name format: {tool_name}"
@@ -363,15 +396,26 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     if not validation_result.allowed:
         required_perm = validation_result.required_permission
         error_message = validation_result.error_message or f"Permission denied: {required_perm}"
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
         
-        await _log_audit(
-            agent_session, tool_name, arguments,
-            success=False,
-            error=error_message,
-            required_permission=required_perm,
-            backend=backend_id,
-            denial_reason=validation_result.denial_reason.value if validation_result.denial_reason else None,
-        )
+        if agent_context:
+            # E3: Use audit middleware for permission denied
+            denial_reason = validation_result.denial_reason.value if validation_result.denial_reason else "unknown"
+            await audit_middleware.log_permission_denied(
+                agent_context=agent_context,
+                tool_name=tool_name,
+                required_permission=required_perm or "",
+                denial_reason=denial_reason,
+            )
+        else:
+            await _log_audit(
+                agent_session, tool_name, arguments,
+                success=False,
+                error=error_message,
+                required_permission=required_perm,
+                backend=backend_id,
+                denial_reason=validation_result.denial_reason.value if validation_result.denial_reason else None,
+            )
         raise MCPError(
             ToolsCallErrorCode.PERMISSION_DENIED,
             error_message
@@ -379,31 +423,63 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     
     logger.debug(f"Permission validated: {validation_result.required_permission}")
     
-    # Step 3: Validate constraints (MVP: placeholder)
-    constraint_result = await _validate_constraints(agent_session, tool_name)
+    # Step 3: Validate and increment constraints (E5: ConstraintChecker)
+    constraint_checker = get_constraint_checker()
+    constraint_violation = await constraint_checker.check_and_increment(
+        agent_id=agent_id or "",
+        delegation_id=delegation_id or "",
+        session_id=agent_session_id,
+        constraints=constraints,
+    )
     
-    if not constraint_result["allowed"]:
-        await _log_audit(
-            agent_session, tool_name, arguments,
-            success=False,
-            error=constraint_result["reason"],
-            backend=backend_id
-        )
+    if constraint_violation:
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        error_msg = f"Constraint violated: {constraint_violation.message}"
+        if agent_context:
+            await audit_middleware.log_tool_call(
+                agent_context=agent_context,
+                tool_name=tool_name,
+                arguments=arguments,
+                error=error_msg,
+                duration_ms=duration_ms,
+            )
+        else:
+            await _log_audit(
+                agent_session, tool_name, arguments,
+                success=False,
+                error=error_msg,
+                backend=backend_id
+            )
         raise MCPError(
             ToolsCallErrorCode.CONSTRAINT_VIOLATED,
-            constraint_result["reason"]
+            error_msg,
+            data={
+                "constraint": constraint_violation.constraint_name,
+                "current": constraint_violation.current_value,
+                "limit": constraint_violation.limit_value,
+            }
         )
     
     # Step 4: Get backend session and credentials
     backend_session = session_manager.get_backend_session(agent_session_id, backend_id)
     
     if not backend_session:
-        await _log_audit(
-            agent_session, tool_name, arguments,
-            success=False,
-            error=f"Backend {backend_id} not connected",
-            backend=backend_id
-        )
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        if agent_context:
+            await audit_middleware.log_tool_call(
+                agent_context=agent_context,
+                tool_name=tool_name,
+                arguments=arguments,
+                error=f"Backend {backend_id} not connected",
+                duration_ms=duration_ms,
+            )
+        else:
+            await _log_audit(
+                agent_session, tool_name, arguments,
+                success=False,
+                error=f"Backend {backend_id} not connected",
+                backend=backend_id
+            )
         raise MCPError(
             ToolsCallErrorCode.BACKEND_UNAVAILABLE,
             f"Backend '{backend_id}' not connected for this session"
@@ -415,29 +491,53 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             backend_id=backend_id,
             backend_session=backend_session,
             tool_name=original_tool,
-            arguments=arguments
+            arguments=arguments,
+            agent_context=agent_context,  # E3: Pass context for credential error auditing
         )
+    except MCPError:
+        # Re-raise MCP errors (already logged by _forward_to_backend if credential error)
+        raise
     except Exception as e:
         logger.error(f"Backend call failed: {e}", exc_info=True)
-        await _log_audit(
-            agent_session, tool_name, arguments,
-            success=False,
-            error=f"Backend error: {e}",
-            backend=backend_id
-        )
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        if agent_context:
+            await audit_middleware.log_tool_call(
+                agent_context=agent_context,
+                tool_name=tool_name,
+                arguments=arguments,
+                error=f"Backend error: {e}",
+                duration_ms=duration_ms,
+            )
+        else:
+            await _log_audit(
+                agent_session, tool_name, arguments,
+                success=False,
+                error=f"Backend error: {e}",
+                backend=backend_id
+            )
         raise MCPError(
             ToolsCallErrorCode.TOOL_EXECUTION_ERROR,
             f"Tool execution failed: {e}"
         )
     
-    # Step 6: Log successful call
-    result_summary = _summarize_result(result)
-    await _log_audit(
-        agent_session, tool_name, arguments,
-        success=True,
-        result_summary=result_summary,
-        backend=backend_id
-    )
+    # Step 6: Log successful call using E3 AuditMiddleware
+    duration_ms = int((time.perf_counter() - start_time) * 1000)
+    if agent_context:
+        await audit_middleware.log_tool_call(
+            agent_context=agent_context,
+            tool_name=tool_name,
+            arguments=arguments,
+            result=result,
+            duration_ms=duration_ms,
+        )
+    else:
+        result_summary = _summarize_result(result)
+        await _log_audit(
+            agent_session, tool_name, arguments,
+            success=True,
+            result_summary=result_summary,
+            backend=backend_id
+        )
     
     logger.info(
         f"tools/call success: tool={tool_name}, agent={agent_session.agent_session_id}, "
@@ -462,30 +562,13 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
 # See: app/middleware/delegation_validator.py
 
 
-async def _validate_constraints(
-    agent_session: Any,
-    tool_name: str
-) -> dict[str, Any]:
-    """
-    Validate tool call against delegation constraints.
-    
-    MVP: Always allows. Production implements:
-    - Rate limits (max_actions_per_day)
-    - Quotas (max_requests_per_session)
-    - Time-based constraints
-    
-    Args:
-        agent_session: Agent's session with delegation info
-        tool_name: Tool being called
-    
-    Returns:
-        Dict with:
-            - allowed: bool
-            - reason: str (if denied)
-    """
-    # MVP: Always allow
-    # TODO: Implement constraint validation (E5)
-    return {"allowed": True}
+# NOTE: _validate_constraints has been replaced by E5 ConstraintChecker
+# The ConstraintChecker provides:
+# - max_actions_per_day constraint enforcement
+# - max_actions_per_session constraint enforcement
+# - Proper counter management with ConstraintStore
+# - Support for Redis-backed persistent counters
+# See: app/security/constraint_checker.py
 
 
 # =============================================================================
@@ -497,7 +580,8 @@ async def _forward_to_backend(
     backend_id: str,
     backend_session: BackendMCPSession,
     tool_name: str,
-    arguments: dict[str, Any]
+    arguments: dict[str, Any],
+    agent_context: AgentContext | None = None,
 ) -> dict[str, Any]:
     """
     Forward tool call to backend MCP server with credential injection (C7).
@@ -514,6 +598,7 @@ async def _forward_to_backend(
         backend_session: Backend session with credential reference
         tool_name: Original tool name (without namespace)
         arguments: Tool arguments
+        agent_context: Agent context for E3 audit logging
     
     Returns:
         Backend response with content array
@@ -537,14 +622,25 @@ async def _forward_to_backend(
     
     if not injection_result.success:
         # C7 Fail-closed: No credential = request denied
+        error_msg = injection_result.error_message or "Credential error"
         logger.warning(
             "Credential injection failed for backend %s: %s",
             backend_id,
             injection_result.error.value if injection_result.error else "unknown",
         )
+        
+        # E3: Log credential error to audit
+        if agent_context:
+            audit_middleware = get_audit_middleware()
+            await audit_middleware.log_credential_error(
+                agent_context=agent_context,
+                tool_name=f"{backend_id}.{tool_name}",
+                error_message=error_msg,
+            )
+        
         raise MCPError(
             ToolsCallErrorCode.CREDENTIAL_ERROR,
-            injection_result.error_message or "Credential error"
+            error_msg
         )
     
     # C7: Get auth headers (agent never sees these)

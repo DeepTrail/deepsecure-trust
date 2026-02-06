@@ -43,6 +43,16 @@ from .credential_injection import (
     configure_credential_injector,
     inject_credentials,
 )
+from .audit import (
+    AuditMiddleware,
+    AuditEvent,
+    AuditEventType,
+    get_audit_middleware,
+    configure_audit_middleware,
+    reset_audit_middleware,
+    log_tool_call,
+    log_permission_denied,
+)
 
 __all__ = [
     # JWT Validation (C3)
@@ -71,4 +81,13 @@ __all__ = [
     "get_credential_injector",
     "configure_credential_injector",
     "inject_credentials",
+    # Audit Middleware (E3)
+    "AuditMiddleware",
+    "AuditEvent",
+    "AuditEventType",
+    "get_audit_middleware",
+    "configure_audit_middleware",
+    "reset_audit_middleware",
+    "log_tool_call",
+    "log_permission_denied",
 ]
