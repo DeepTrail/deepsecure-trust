@@ -27,40 +27,55 @@ docs/workstreams/
 
 ```
 ┌─────────────────┐
-│   Design Doc    │
-│ (docs/design/)  │
+│   Design Doc    │  Define API CONTRACTS (canonical source)
+│ (docs/design/)  │  Specify FILE LOCATIONS
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
 │   Workstream    │  Create WORKSTREAM.md
-│    Breakdown    │  Identify parallel/sequential tasks
+│    Breakdown    │  Copy API contracts from design doc
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│  Task Tickets   │  Create individual task files
-│    Created      │  in tasks/ folder
+│  Task Tickets   │  Include SPECIFICATION section
+│    Created      │  (immutable, from design doc)
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│    Execute      │  Work on task using ticket as guide
-│     Tasks       │  Update status as you go
+│    Execute      │  Implement to match spec EXACTLY
+│     Tasks       │  Verify endpoints match
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│   Completion    │  Create report in reports/ folder
-│    Reports      │  Document outcomes, learnings
+│   CONTRACT      │  ← NEW: BLOCKING STEP
+│  VERIFICATION   │  Endpoints match? Files in right place?
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│   Completion    │  Document CONTRACT verification
+│    Reports      │  Document FILE LOCATION verification
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
 │  Update         │  Add learnings to CLAUDE.md
-│  CLAUDE.md      │  if applicable
+│  CLAUDE.md      │  (especially contract/location issues)
 └─────────────────┘
 ```
+
+### Critical Verification Points
+
+| Step | Verification | Common Failure |
+|------|--------------|----------------|
+| Task Execution | Endpoint matches design doc | 404 errors in tests |
+| Task Execution | Async fixtures correct | `AttributeError: 'async_generator'` |
+| Completion | Files in correct location | E2E tests not found |
+| Merge Point | Tests use correct endpoints | Tests fail after merge |
 
 ## Templates
 
@@ -100,6 +115,27 @@ docs/workstreams/
 - **Workstream IDs**: `WS-A`, `WS-B`, `WS-C`, etc.
 - **Task IDs**: `WS-A1`, `WS-A2`, `WS-B1`, etc.
 - **File names**: lowercase with hyphens, e.g., `WS-A1-implement-token-service.md`
+
+## File Organization Rules
+
+> **CRITICAL**: These rules prevent common test failures.
+
+### Cross-Service vs Service-Specific
+
+| Artifact Type | Correct Location | Wrong Location | Why |
+|---------------|------------------|----------------|-----|
+| MVP E2E tests | `tests/e2e/` (ROOT) | `[service]/tests/e2e/` | Spans multiple services |
+| MVP demos | `demos/` (ROOT) | `[service]/demos/` | Demonstrates full system |
+| Demo tests | `tests/demos/` (ROOT) | `[service]/tests/demos/` | Tests cross-service demos |
+| Service unit tests | `[service]/tests/` | Root level | Service-specific |
+
+### Technical Requirements
+
+| Requirement | Correct | Wrong | Error If Wrong |
+|-------------|---------|-------|----------------|
+| Async fixtures | `@pytest_asyncio.fixture` | `@pytest.fixture` | `AttributeError: 'async_generator'` |
+| HTTP client | `httpx.AsyncClient` | `requests` | Blocks async tests |
+| Fixture scope | `scope="function"` | `scope="session"` | Connection issues |
 
 ## Active Workstreams
 

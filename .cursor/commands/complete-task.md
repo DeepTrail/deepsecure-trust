@@ -388,12 +388,27 @@ After creating the report, output:
 - **Demo validated:** [Demo 1, or N/A]
 - **User journey step validated:** [Step 3, or N/A]
 
+### Contract Verification
+| Check | Spec | Implemented | Match |
+|-------|------|-------------|-------|
+| Endpoint path | `/api/v1/from/spec` | `/api/v1/from/impl` | ✅ / ❌ |
+| Request schema | [matches] | [matches] | ✅ / ❌ |
+| Test endpoints | [correct] | [correct] | ✅ / ❌ |
+
+### File Location Verification
+| Artifact | Expected | Actual | Correct? |
+|----------|----------|--------|----------|
+| E2E test | `tests/e2e/` (root) | [actual] | ✅ / ❌ |
+| Demo | `demos/` (root) | [actual] | ✅ / ❌ |
+
 ### Learnings by Category
 | Category | Learning |
 |----------|----------|
 | Protocol | [if any] |
 | Security | [if any] |
 | Integration | [if any] |
+| Contract | [any spec/impl mismatches] |
+| File Org | [any location issues] |
 
 ### CLAUDE.md Update Recommended?
 - [ ] Yes: "[suggested addition]" (Category: [Protocol/Security/Integration/etc.])
@@ -419,6 +434,50 @@ Before generating the report, verify:
 1. `make lint` passes (or note failures)
 2. `pytest [relevant tests]` passes (or document failures)
 3. All acceptance criteria can be evaluated
+4. **Contract verification passes** (see below)
+5. **File locations are correct** (see below)
+
+### Contract Verification (BLOCKING)
+
+**This check MUST pass before task can be completed:**
+
+```bash
+# 1. Extract implemented endpoints
+IMPL_ENDPOINTS=$(grep -r "@router\.\(get\|post\|put\|delete\)" [impl_file] | grep -o '"/api/v1[^"]*"' | sort -u)
+
+# 2. Extract test endpoints
+TEST_ENDPOINTS=$(grep -r '"/api/v1' [test_file] | grep -o '"/api/v1[^"]*"' | sort -u)
+
+# 3. Compare with spec (from task ticket's Specification section)
+```
+
+**If endpoints don't match:**
+- Do NOT complete task
+- Report: "Contract mismatch - implementation uses `/api/v1/X` but spec says `/api/v1/Y`"
+- Fix implementation OR update design doc + spec first
+
+### File Location Verification (BLOCKING)
+
+**Verify cross-service artifacts are at root level:**
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| E2E tests | `ls tests/e2e/test_*_journey.py` | Cross-service tests here |
+| Demos | `ls demos/demo_*.py` | MVP demos here |
+| Demo tests | `ls tests/demos/test_demo_*.py` | Demo tests here |
+
+**If files are in wrong location:**
+- Move to correct location before completing
+- Update any imports that reference old location
+
+### Technical Requirements Verification
+
+```bash
+# Check for common async fixture mistake
+if grep -q "@pytest.fixture" [test_file] && grep -q "async def" [test_file]; then
+  echo "WARNING: Async fixtures should use @pytest_asyncio.fixture"
+fi
+```
 
 ## Example Usage
 

@@ -87,15 +87,85 @@ Before starting this task, ensure:
 
 ---
 
+## Specification (IMMUTABLE AFTER DESIGN APPROVAL)
+
+> **CRITICAL**: This section defines what implementation MUST match exactly.
+> Copy from design doc's API Contracts section. Do not modify without updating design doc first.
+
+### API Contract (if applicable)
+
+| Field | Value |
+|-------|-------|
+| **Method** | `POST` / `GET` / `PUT` / `DELETE` |
+| **Path** | `/api/v1/exact/path/from/design` |
+| **Auth** | Bearer token / JWT / None |
+
+**Request:**
+```json
+{
+  "field": "type - description"
+}
+```
+
+**Response (Success):**
+```json
+{
+  "id": "string",
+  "status": "string"
+}
+```
+
+### Test Endpoint Mapping
+
+| Test Case | Method | Endpoint | Expected Status |
+|-----------|--------|----------|-----------------|
+| Happy path | POST | `/api/v1/exact/path` | 200 |
+| Invalid input | POST | `/api/v1/exact/path` | 400 |
+
+### Technical Requirements
+
+| Requirement | Pattern | Notes |
+|-------------|---------|-------|
+| Async fixtures | `@pytest_asyncio.fixture` | Required for async generators |
+| HTTP client | `httpx.AsyncClient` | Project standard |
+| Error handling | `raise HTTPException(status_code=X)` | FastAPI pattern |
+
+### File Location Rules
+
+| Artifact | Correct Location | Why |
+|----------|------------------|-----|
+| Implementation | `[service]/[module]/` | Service-specific |
+| Unit tests | `[service]/tests/[module]/` | Co-located with impl |
+| E2E tests (if cross-service) | `tests/e2e/` (ROOT) | Spans services |
+
+---
+
 ## Acceptance Criteria
 
+### Functional Criteria
 - [ ] [Specific, measurable criterion 1]
 - [ ] [Specific, measurable criterion 2]
 - [ ] [Specific, measurable criterion 3]
+
+### Contract Verification (REQUIRED)
+- [ ] Endpoint path matches spec exactly: `[path from spec]`
+- [ ] Request schema matches spec
+- [ ] Response schema matches spec
+- [ ] Error responses match spec (status codes, body format)
+- [ ] Tests use correct endpoints from spec
+
+### Technical Criteria
 - [ ] Unit tests added and passing
 - [ ] Integration tests added (if applicable)
+- [ ] Async fixtures use `@pytest_asyncio.fixture` (not `@pytest.fixture`)
 - [ ] No new linting errors introduced
+- [ ] Type hints added for all public functions
 - [ ] Documentation updated (if applicable)
+
+### File Location Verification
+- [ ] Implementation in correct service directory
+- [ ] Tests in correct location (root `tests/e2e/` if cross-service)
+- [ ] No cross-service code in single-service directory
 
 ---
 
@@ -121,7 +191,19 @@ Before starting this task, ensure:
 - [ ] Linting passes: `make lint`
 - [ ] Type checking passes: `mypy deepsecure/`
 - [ ] API contract documented (if this task exposes endpoints)
+- [ ] **Contract verified**: Endpoints match design doc exactly
+- [ ] **Test contracts verified**: Test file uses correct endpoints
 - [ ] Completion report created
+
+### Contract Verification Command
+
+```bash
+# Verify implemented endpoints match spec
+grep -r "router\.\(get\|post\|put\|delete\)" [implementation_file] | grep -o '"/api/v1[^"]*"'
+
+# Compare with spec endpoints
+# Expected: /api/v1/exact/path (from design doc)
+```
 
 ### Integration Complete (validated at merge point)
 

@@ -92,6 +92,33 @@ Secondary: B1 → B2 → D1 → D3 → F1 (if dual-track)
 | 1 | [from design doc] | A1 |
 | 2 | [from design doc] | A3, B3 |
 
+### API Contract Summary
+
+> **CRITICAL**: Extract ALL endpoints from design doc. These are CANONICAL.
+
+| Service | Method | Endpoint | Implementing Task | Test Task |
+|---------|--------|----------|-------------------|-----------|
+| Control | POST | `/api/v1/exact/path` | A1 | F1 |
+| Gateway | POST | `/api/v1/other/path` | B1 | F1 |
+
+### File Organization Plan
+
+| Type | Location | Files | Notes |
+|------|----------|-------|-------|
+| MVP E2E Tests | `tests/e2e/` (ROOT) | `test_[persona]_journey.py` | Cross-service |
+| MVP Demos | `demos/` (ROOT) | `demo_[NN]_*.py` | Cross-service |
+| Demo Tests | `tests/demos/` (ROOT) | `test_demo_[NN].py` | Cross-service |
+| Control Models | `deeptrail-control/models/` | `*.py` | Service-specific |
+| Gateway MCP | `deeptrail-gateway/gateway/mcp/` | `*.py` | Service-specific |
+
+### Technical Requirements Checklist
+
+| Requirement | Pattern | Applies To |
+|-------------|---------|------------|
+| Async fixtures | `@pytest_asyncio.fixture` | All E2E tests |
+| HTTP client | `httpx.AsyncClient` | All async tests |
+| Fixture scope | `scope="function"` for HTTP clients | Avoid connection issues |
+
 ### Dependency Graph
 [ASCII diagram]
 ```

@@ -18,6 +18,24 @@
 | **Tasks Ready** | 0 |
 | **Tasks Blocked** | 0 |
 | **Active Worktrees** | 0 |
+| **Contract Verified** | ✅ / ❌ |
+| **Files at Correct Location** | ✅ / ❌ |
+| **E2E Tests Passing** | ✅ / ❌ / ⏸️ (not run) |
+
+---
+
+## Verification Status (BLOCKING)
+
+> These must pass before MVP can be considered complete.
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Endpoints match design spec | ⏸️ Pending | |
+| Test endpoints match impl | ⏸️ Pending | |
+| E2E tests at root level | ⏸️ Pending | `tests/e2e/` |
+| Demos at root level | ⏸️ Pending | `demos/` |
+| Async fixtures correct | ⏸️ Pending | `@pytest_asyncio.fixture` |
+| All E2E tests passing | ⏸️ Pending | |
 
 ---
 
@@ -113,6 +131,16 @@ Batch 2  [░░░░░░░░░░] 0%   (blocked by Batch 1)
 | ID | Description | Blocking | Severity | Status | Resolution |
 |----|-------------|----------|----------|--------|------------|
 | _None_ | - | - | - | - | - |
+
+### Common MVP Blockers (Reference)
+
+| Issue | Symptom | Root Cause | Fix |
+|-------|---------|------------|-----|
+| Endpoint mismatch | 404 in E2E tests | Test uses wrong path | Compare test URLs vs implementation |
+| Wrong fixture | `AttributeError: 'async_generator'` | `@pytest.fixture` on async | Use `@pytest_asyncio.fixture` |
+| Wrong file location | E2E tests not found | Tests nested in service | Move to `tests/e2e/` (root) |
+| Services down | Tests skipped | Docker not running | `docker compose up -d` |
+| Unimplemented endpoint | 401/500 errors | Feature not built | Implement or mock |
 
 ---
 

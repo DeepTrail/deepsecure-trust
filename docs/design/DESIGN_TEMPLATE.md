@@ -31,11 +31,35 @@
 
 ### Data Models
 
-[Define new data structures, database schemas, API contracts]
+[Define new data structures, database schemas]
 
-### API Changes
+### API Contracts (CANONICAL SOURCE)
 
-[New or modified APIs]
+> **CRITICAL**: This section is the CANONICAL source for all API endpoints.
+> Task tickets, tests, and implementations MUST match these exactly.
+> Any deviation requires updating this design doc first.
+
+#### Service: [Control Plane / Gateway]
+
+| Method | Endpoint | Purpose | Request | Response |
+|--------|----------|---------|---------|----------|
+| POST | `/api/v1/exact/path` | [Purpose] | [Schema or link] | [Schema or link] |
+| GET | `/api/v1/other/path` | [Purpose] | [Params] | [Schema or link] |
+
+**Request/Response Schemas:**
+
+```json
+// POST /api/v1/exact/path - Request
+{
+  "field": "string"
+}
+
+// POST /api/v1/exact/path - Response (200)
+{
+  "id": "uuid",
+  "created_at": "ISO8601"
+}
+```
 
 ### Security Considerations
 
@@ -109,11 +133,64 @@ Workstream B can run entirely in parallel with A.
 - [ ] Test for component X
 - [ ] Test for component Y
 
+**Location:** `[service]/tests/[module]/test_*.py`
+
 ### Integration Tests
 - [ ] Test for workflow Z
 
-### End-to-End Tests
-- [ ] E2E test requiring live backend
+**Location:** `[service]/tests/integration/test_*.py`
+
+### End-to-End Tests (MVP Level)
+
+> **CRITICAL**: E2E tests that span multiple services MUST be at root level, not nested in a single service.
+
+| Test File | Location | What It Validates | Services Required |
+|-----------|----------|-------------------|-------------------|
+| `test_[persona]_journey.py` | `tests/e2e/` (ROOT) | Full user journey | Control + Gateway |
+
+**Location Rules:**
+- Cross-service E2E tests → `tests/e2e/` (root)
+- Service-specific E2E tests → `[service]/tests/e2e/`
+
+### Test Endpoint Verification
+
+> Tests MUST use the exact endpoints from "API Contracts" section above.
+
+| Test | Endpoint Used | Matches Contract? |
+|------|---------------|-------------------|
+| `test_user_login` | `/api/v1/auth/login` | ✅ Verify |
+| `test_agent_auth` | `/api/v1/auth/agent/challenge` | ✅ Verify |
+
+### Technical Requirements for Tests
+
+| Requirement | Correct Pattern | Common Mistake |
+|-------------|-----------------|----------------|
+| Async fixtures | `@pytest_asyncio.fixture` | `@pytest.fixture` (breaks async) |
+| HTTP client | `httpx.AsyncClient` | `requests` (sync) |
+| Fixture scope | `scope="function"` for clients | `scope="session"` (connection issues) |
+
+---
+
+## File Organization
+
+### Cross-Service vs Service-Specific
+
+| Type | Scope | Location | Example |
+|------|-------|----------|---------|
+| MVP demos | Cross-service | `demos/` (root) | `demos/demo_01_*.py` |
+| MVP E2E tests | Cross-service | `tests/e2e/` (root) | `tests/e2e/test_sarah_journey.py` |
+| Demo tests | Cross-service | `tests/demos/` (root) | `tests/demos/test_demo_01.py` |
+| Service unit tests | Single service | `[service]/tests/` | `deeptrail-gateway/tests/mcp/` |
+| Service-specific demos | Single service | `[service]/demos/` | (rare) |
+
+### File Naming Conventions
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| Journey test | `test_[persona]_journey.py` | `test_sarah_journey.py` |
+| Value prop demo | `demo_[NN]_[value].py` | `demo_01_unified_connection.py` |
+| Model | `[entity].py` | `user_session.py` |
+| API router | `[resource]_router.py` | `delegation_router.py` |
 
 ---
 

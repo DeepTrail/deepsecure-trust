@@ -281,3 +281,63 @@ docker compose exec db psql -U deepsecure_user -d deeptrail_controldb
 # Redis access for debugging
 docker compose exec redis redis-cli
 ```
+
+## Common Pitfalls and Learnings
+
+### API Contract Verification
+
+**CRITICAL**: Always verify that implementation endpoints match design doc specifications exactly.
+
+| Common Mistake | Correct Approach |
+|----------------|------------------|
+| Test uses `/api/v1/agents/challenge` | Check design doc - might be `/api/v1/auth/agent/challenge` |
+| Implementing without reading spec | Copy endpoint path from design doc's "API Contracts" section |
+| Tests diverge from implementation | Both must match the canonical spec in design doc |
+
+**Verification command:**
+```bash
+# Check implemented endpoints
+grep -r "@router\.\(get\|post\|put\|delete\)" [file] | grep -o '"/api/v1[^"]*"'
+
+# Check test endpoints
+grep -r '"/api/v1' [test_file] | grep -o '"/api/v1[^"]*"'
+```
+
+### Async Test Fixtures
+
+**CRITICAL**: Use `@pytest_asyncio.fixture` for async fixtures, not `@pytest.fixture`.
+
+```python
+# WRONG - causes "AttributeError: 'async_generator' object has no attribute 'post'"
+@pytest.fixture
+async def client():
+    async with httpx.AsyncClient() as c:
+        yield c
+
+# CORRECT
+import pytest_asyncio
+
+@pytest_asyncio.fixture
+async def client():
+    async with httpx.AsyncClient() as c:
+        yield c
+```
+
+### File Organization Rules
+
+| Artifact Type | Correct Location | Wrong Location |
+|---------------|------------------|----------------|
+| MVP E2E tests (cross-service) | `tests/e2e/` (root) | `deeptrail-gateway/tests/e2e/` |
+| MVP demos (cross-service) | `demos/` (root) | `deeptrail-gateway/demos/` |
+| Demo tests | `tests/demos/` (root) | `deeptrail-gateway/tests/demos/` |
+| Service-specific unit tests | `[service]/tests/` | Root level |
+
+**Rule of thumb**: If it tests/demonstrates functionality spanning multiple services, it belongs at the root level.
+
+### Design → Implementation Workflow
+
+1. **Design doc defines canonical API contracts** - This is the source of truth
+2. **Task tickets copy spec from design doc** - Don't modify without updating design doc
+3. **Implementation must match spec exactly** - Endpoint paths, schemas, error codes
+4. **Tests must match implementation** - Which must match spec
+5. **Contract verification before completion** - Check all three match

@@ -42,6 +42,43 @@
 
 ---
 
+## Contract Verification (REQUIRED)
+
+> **CRITICAL**: All API implementations MUST match the specification from the design doc.
+
+### Endpoint Verification
+
+| Check | Spec (from design) | Implemented | Match? |
+|-------|-------------------|-------------|--------|
+| Endpoint path | `/api/v1/exact/path` | `/api/v1/exact/path` | ✅ / ❌ |
+| HTTP method | `POST` | `POST` | ✅ / ❌ |
+| Request schema | [matches] | [matches] | ✅ / ❌ |
+| Response schema | [matches] | [matches] | ✅ / ❌ |
+| Error responses | [matches] | [matches] | ✅ / ❌ |
+
+### Test Endpoint Verification
+
+| Test File | Endpoint Used | Matches Spec? | Matches Impl? |
+|-----------|---------------|---------------|---------------|
+| `test_*.py` | `/api/v1/path` | ✅ / ❌ | ✅ / ❌ |
+
+### File Location Verification
+
+| Artifact | Expected Location | Actual Location | Correct? |
+|----------|-------------------|-----------------|----------|
+| E2E test (cross-service) | `tests/e2e/` (root) | [actual] | ✅ / ❌ |
+| Demo (cross-service) | `demos/` (root) | [actual] | ✅ / ❌ |
+| Unit test | `[service]/tests/` | [actual] | ✅ / ❌ |
+
+### Technical Requirements Verification
+
+| Requirement | Expected | Actual | Pass? |
+|-------------|----------|--------|-------|
+| Async fixtures | `@pytest_asyncio.fixture` | [actual] | ✅ / ❌ |
+| HTTP client | `httpx.AsyncClient` | [actual] | ✅ / ❌ |
+
+---
+
 ## Implementation Details
 
 ### Approach Taken
@@ -146,6 +183,17 @@
 ### Unexpected Discoveries
 - [Something learned that wasn't anticipated]
 
+### Learnings by Category
+
+| Category | Learning | Add to CLAUDE.md? |
+|----------|----------|-------------------|
+| **Protocol** | [MCP, HTTP, auth-related] | Yes / No |
+| **Security** | [auth, tokens, permissions] | Yes / No |
+| **Integration** | [cross-service, E2E] | Yes / No |
+| **Contract** | [spec/impl mismatches, endpoint issues] | Yes / No |
+| **File Organization** | [location issues, naming] | Yes / No |
+| **Testing** | [fixtures, mocking, async] | Yes / No |
+
 ---
 
 ## CLAUDE.md Updates
@@ -169,8 +217,23 @@ New tasks identified during implementation:
 
 ## Sign-Off
 
+### Quality Checks
 - [ ] All acceptance criteria verified
 - [ ] Tests passing in CI
 - [ ] Code reviewed (if applicable)
 - [ ] Documentation updated
+
+### Contract Verification (BLOCKING)
+- [ ] **Endpoint paths match spec exactly**
+- [ ] **Request/response schemas match spec**
+- [ ] **Test endpoints match implementation**
+- [ ] **Error responses match spec**
+
+### File Organization (BLOCKING)
+- [ ] **Cross-service tests at root level** (`tests/e2e/`)
+- [ ] **Cross-service demos at root level** (`demos/`)
+- [ ] **Async fixtures use `@pytest_asyncio.fixture`**
+
+### Ready for Next Phase
 - [ ] Ready for downstream tasks to proceed
+- [ ] No contract mismatches requiring design doc updates

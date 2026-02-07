@@ -176,6 +176,65 @@ After implementation, verify each acceptance criterion:
 | [criterion 2] | ✅ / ❌ | [how verified] |
 ```
 
+### 6.5 Contract Verification (CRITICAL)
+
+**Before marking complete, verify API contracts match the specification:**
+
+a. **Extract implemented endpoints:**
+```bash
+# For FastAPI routers
+grep -r "@router\.\(get\|post\|put\|delete\)" [implementation_file] | grep -o '"/[^"]*"'
+```
+
+b. **Compare with spec endpoints from task ticket:**
+```markdown
+## Contract Verification
+
+| Spec Endpoint | Implemented Endpoint | Match? |
+|---------------|---------------------|--------|
+| `/api/v1/auth/agent/challenge` | [from grep] | ✅ / ❌ |
+```
+
+c. **Verify test endpoints match:**
+```bash
+# Check test file endpoints
+grep -r '"/api/v1' [test_file] | grep -o '"/api/v1[^"]*"'
+```
+
+d. **If mismatch found:**
+   - STOP - Do not complete task
+   - Determine which is correct (spec or implementation)
+   - If spec is correct → Fix implementation
+   - If implementation is correct → Update design doc FIRST, then update task spec
+
+### 6.6 Technical Requirements Verification
+
+**Verify framework-specific requirements:**
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Async fixtures | `grep "@pytest.fixture" [test_file]` | Should be empty (use `@pytest_asyncio.fixture`) |
+| HTTP client | `grep "httpx.AsyncClient" [test_file]` | Should have matches |
+| File location | `ls tests/e2e/` | E2E tests at root if cross-service |
+
+**Fix common issues before completing:**
+
+```python
+# WRONG - breaks async tests
+@pytest.fixture
+async def client():
+    async with httpx.AsyncClient() as c:
+        yield c
+
+# CORRECT
+import pytest_asyncio
+
+@pytest_asyncio.fixture
+async def client():
+    async with httpx.AsyncClient() as c:
+        yield c
+```
+
 ### 7. Update Task Ticket
 
 Update the task ticket's Execution Log:

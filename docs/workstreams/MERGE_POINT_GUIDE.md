@@ -101,7 +101,37 @@ In your workstream breakdown, create a Merge Points table:
 │  □ No uncommitted changes in worktrees                          │
 │  □ Shared contracts/interfaces aligned                          │
 │                                                                  │
+│  CONTRACT VERIFICATION (CRITICAL - BLOCKING):                   │
+│  □ All endpoints match design doc spec exactly                  │
+│  □ Test endpoints match implementation endpoints                │
+│  □ Request/response schemas match spec                          │
+│                                                                  │
+│  FILE LOCATION VERIFICATION (CRITICAL - BLOCKING):              │
+│  □ E2E tests at root level (tests/e2e/)                        │
+│  □ Demos at root level (demos/)                                 │
+│  □ Demo tests at root level (tests/demos/)                      │
+│                                                                  │
+│  TECHNICAL REQUIREMENTS:                                         │
+│  □ Async fixtures use @pytest_asyncio.fixture                   │
+│  □ HTTP clients use httpx.AsyncClient                           │
+│                                                                  │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+### Contract Verification Commands
+
+```bash
+# Check implemented endpoints
+grep -r "@router\.\(get\|post\|put\|delete\)" [service]/ | grep -o '"/api/v1[^"]*"' | sort -u
+
+# Check test endpoints
+grep -r '"/api/v1' tests/ | grep -o '"/api/v1[^"]*"' | sort -u
+
+# Compare - these should match exactly
+# If they don't, fix BEFORE merging
+
+# Check for async fixture mistakes (should return nothing)
+grep -r "@pytest.fixture" tests/ | grep -B1 "async def"
 ```
 
 ### Phase 2: Push Worktree Changes
@@ -250,6 +280,28 @@ cd /path/to/main-repo
 | **Integration** | At merge point | Cross-component flows | ✅ Always |
 | **Container** | At merge point | Real service interaction | ✅ At key merges |
 | **E2E** | Final merge | Complete user journeys | ✅ Final only |
+
+### E2E Test Success Criteria (Final Merge Point)
+
+> **CRITICAL**: E2E tests validate the complete user journey. All must pass.
+
+| Criterion | How to Verify | Common Failures |
+|-----------|---------------|-----------------|
+| Endpoints match spec | Compare test URLs vs implementation | 404 = endpoint mismatch |
+| Services running | `docker compose ps` | Tests skipped = services down |
+| Auth flow complete | Check token generation | 401 = auth not implemented |
+| Async fixtures correct | No `AttributeError` on fixtures | Use `@pytest_asyncio.fixture` |
+| Files at correct location | `ls tests/e2e/` | Tests not found |
+
+### Common E2E Test Failures and Fixes
+
+| Error | Root Cause | Fix |
+|-------|------------|-----|
+| `404 Not Found` | Test uses wrong endpoint path | Update test to match implementation |
+| `AttributeError: 'async_generator'` | Wrong fixture decorator | `@pytest.fixture` → `@pytest_asyncio.fixture` |
+| Tests skipped | Services not running | `docker compose up -d` |
+| `401 Unauthorized` | Auth flow not implemented | Implement or mock auth endpoint |
+| Test file not found | Wrong location | Move to `tests/e2e/` (root) |
 
 ### Integration Test Categories
 
@@ -505,6 +557,22 @@ Create `docs/workstreams/[feature]/MERGE_POINTS.md`:
 - [ ] `mypy` passes (if used)
 - [ ] No TODO/FIXME blocking merge
 
+### Contract Verification (BLOCKING)
+- [ ] All endpoints match design doc spec exactly
+- [ ] Test endpoints match implementation endpoints
+- [ ] Request/response schemas match spec
+- [ ] No 404/405 errors from endpoint mismatches
+
+### File Location Verification (BLOCKING)
+- [ ] E2E tests at root level (`tests/e2e/`)
+- [ ] Demos at root level (`demos/`)
+- [ ] Demo tests at root level (`tests/demos/`)
+
+### Technical Requirements (BLOCKING)
+- [ ] Async fixtures use `@pytest_asyncio.fixture`
+- [ ] HTTP clients use `httpx.AsyncClient`
+- [ ] No `AttributeError: 'async_generator'` errors
+
 ### Integration Readiness
 - [ ] Shared interfaces aligned
 - [ ] Environment variables documented
@@ -514,6 +582,7 @@ Create `docs/workstreams/[feature]/MERGE_POINTS.md`:
 - [ ] Unit tests: X% coverage
 - [ ] Integration tests written for MP[N]
 - [ ] Test data/fixtures prepared
+- [ ] E2E tests pass with services running
 
 ### Documentation
 - [ ] API changes documented

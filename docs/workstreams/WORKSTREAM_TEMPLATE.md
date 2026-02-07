@@ -96,8 +96,23 @@ WS-A1
 |-----------|-------------|--------|-------|
 | All task tickets created | [date] | ✅ / ⏳ / ❌ | |
 | Core implementation complete | [date] | ✅ / ⏳ / ❌ | |
-| Tests passing | [date] | ✅ / ⏳ / ❌ | |
+| **Contract verification passed** | [date] | ✅ / ⏳ / ❌ | Endpoints match spec |
+| **File locations verified** | [date] | ✅ / ⏳ / ❌ | E2E tests at root |
+| Unit tests passing | [date] | ✅ / ⏳ / ❌ | |
+| E2E tests passing | [date] | ✅ / ⏳ / ❌ | |
 | Ready for integration | [date] | ✅ / ⏳ / ❌ | |
+
+### Verification Checkpoints (BLOCKING)
+
+> These must pass before marking workstream complete.
+
+| Check | Command | Status |
+|-------|---------|--------|
+| Endpoints match spec | `grep -r "@router" \| grep "/api/v1"` | ✅ / ❌ |
+| Tests use correct endpoints | `grep -r '"/api/v1' tests/` | ✅ / ❌ |
+| Async fixtures correct | `grep "@pytest.fixture" tests/ -r` (should be empty for async) | ✅ / ❌ |
+| E2E tests at root | `ls tests/e2e/` | ✅ / ❌ |
+| Demos at root | `ls demos/` | ✅ / ❌ |
 
 ---
 
@@ -114,6 +129,39 @@ This workstream will create or modify:
 
 ### Test Files
 - `tests/path/to/test_file.py`
+
+### File Location Rules
+
+> **CRITICAL**: Cross-service artifacts MUST be at root level, not nested in a single service.
+
+| Artifact Type | Correct Location | Wrong Location |
+|---------------|------------------|----------------|
+| MVP E2E tests (cross-service) | `tests/e2e/` (ROOT) | `[service]/tests/e2e/` |
+| MVP demos (cross-service) | `demos/` (ROOT) | `[service]/demos/` |
+| Demo tests | `tests/demos/` (ROOT) | `[service]/tests/demos/` |
+| Service-specific unit tests | `[service]/tests/` | Root level |
+
+---
+
+## API Contracts (from Design Doc)
+
+> **CRITICAL**: Copy endpoints from design doc's "API Contracts" section.
+> These are CANONICAL - implementation and tests MUST match exactly.
+
+| Service | Method | Endpoint | Task |
+|---------|--------|----------|------|
+| Control | POST | `/api/v1/exact/path` | WS-A1 |
+| Gateway | POST | `/api/v1/other/path` | WS-B1 |
+
+---
+
+## Technical Requirements
+
+| Requirement | Pattern | Applies To |
+|-------------|---------|------------|
+| Async fixtures | `@pytest_asyncio.fixture` | All async tests |
+| HTTP client | `httpx.AsyncClient` | All async HTTP |
+| Fixture scope | `scope="function"` for clients | Avoid connection issues |
 
 ---
 
