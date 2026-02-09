@@ -113,7 +113,7 @@ The feature name determines which files to sync:
 - `docs/workstreams/[feature-name]/STATUS.md` - Task-level status
 - `docs/workstreams/[feature-name]/WORKSTREAM.md` - Workstream overview and task tables
 - `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md` - Execution waves and checkboxes
-- `docs/[feature-name]/EXECUTION_STATUS.md` - Phase-level status
+- `docs/EXECUTION_STATUS.md` - Global portfolio status
 
 ### 2. Identify All Worktrees
 
@@ -245,60 +245,13 @@ e. **Update Summary section:**
    - Update "Current Status" progress percentage
    - Update batch completion indicators
 
-### 8. Update Main Repo EXECUTION_STATUS.md
-
-Update `docs/[feature-name]/EXECUTION_STATUS.md` with comprehensive updates:
-
-a. **Update Current Status Overview (top section):**
-   - Update Workflow Phase Status ASCII art progress bars to reflect actual progress
-   - Update metrics table:
-     - "Current Batch" - update to current active batch
-     - "Overall Progress" - recalculate percentage (e.g., "31.8% (14/44 tasks complete)")
-
-b. **Update Phase 3: Execution section:**
-   - Batch Overview table:
-     - Update Status column (⏸️ Blocked → 🔄 In Progress → ✅ Complete)
-     - Update task completion indicator (e.g., "22%")
-   - Merge Points table:
-     - Update MP status when converging tasks complete (⏸️ Pending → ✅ Complete)
-     - Add merge completion date
-
-c. **Update Phase 4: Learning section:**
-   - Update task completion count (e.g., "14/44 tasks complete")
-
-d. **Update Demo Validation Status:**
-   - For each demo, check if ALL validating tasks are complete
-   - Update Status column (⏸️ Pending → 🔄 Partial → ✅ Complete)
-   - Update "All Complete?" column (❌ → ✅)
-
-e. **Update Sarah's Journey Validation Status:**
-   - For each step, check if ALL implementing tasks are complete
-   - Update Status column (⏸️ Pending → 🔄 Partial → ✅ Complete)
-   - Update "All Complete?" column (❌ → ✅)
-
-f. **Update Command Execution Log:**
-   - Add sync event entry:
-     ```
-     | [date] | /sync-worktree-status | ✅ | Synced [N] worktrees, [X] tasks consolidated |
-     ```
-
-g. **Update Timeline:**
-   - Add sync event entry with date and summary:
-     ```
-     | [date] | `/sync-worktree-status` - progress [X]% ([Y]/[Z]), Batch [N] at [M]% |
-     ```
-
-h. **Update Milestones:**
-   - Check if any milestones are now complete based on batch completion
-   - Update Status column (⏸️ Blocked → ✅ Complete)
-   - Add Completed date
-
-### 9. Update Global EXECUTION_STATUS.md
+### 8. Update Global EXECUTION_STATUS.md
 
 Update `docs/EXECUTION_STATUS.md` with:
-- Updated progress percentage for this design
+- Updated progress percentage for this design in "Active Designs" table
+- Move to "Completed" section if all tasks complete
 
-### 10. Copy Completion Reports to Main Repo
+### 9. Copy Completion Reports to Main Repo
 
 ```bash
 # For each worktree
@@ -363,7 +316,6 @@ To force sync anyway: `/sync-worktree-status [feature-name] --force`
 - `docs/workstreams/[feature-name]/STATUS.md` ✅
 - `docs/workstreams/[feature-name]/WORKSTREAM.md` ✅
 - `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md` ✅
-- `docs/[feature-name]/EXECUTION_STATUS.md` ✅
 - `docs/EXECUTION_STATUS.md` ✅
 - Copied [N] completion reports ✅
 
@@ -404,10 +356,9 @@ To avoid manual syncing, consider running this after each merge point:
 4. Update main repo's `docs/workstreams/my-feature/STATUS.md`
 5. Update main repo's `docs/workstreams/my-feature/WORKSTREAM.md`
 6. Update main repo's `docs/workstreams/my-feature/BATCH_EXECUTION_PLAN.md`
-7. Update main repo's `docs/my-feature/EXECUTION_STATUS.md`
-8. Update main repo's `docs/EXECUTION_STATUS.md`
-9. Copy completion reports from worktrees to main repo
-10. Report consolidated status
+7. Update main repo's `docs/EXECUTION_STATUS.md`
+8. Copy completion reports from worktrees to main repo
+9. Report consolidated status
 
 ---
 
@@ -418,23 +369,6 @@ To avoid manual syncing, consider running this after each merge point:
 | `docs/workstreams/[feature]/STATUS.md` | Task-level status (batches, tasks, ready/complete) | ✅ Yes |
 | `docs/workstreams/[feature]/WORKSTREAM.md` | Workstream overview, task tables, progress | ✅ Yes |
 | `docs/workstreams/[feature]/BATCH_EXECUTION_PLAN.md` | Execution waves, checkboxes, commands | ✅ Yes |
-| `docs/[feature]/EXECUTION_STATUS.md` | Phase-level status (see detailed sections below) | ✅ Yes |
 | `docs/EXECUTION_STATUS.md` | Global portfolio status | ✅ Yes |
 | `docs/workstreams/[feature]/reports/` | Completion reports | ✅ Yes (copied) |
 | `docs/workstreams/[feature]/tasks/` | Task tickets | ❌ No (read only) |
-
-### EXECUTION_STATUS.md Sections Updated
-
-| Section | Updated? | Details |
-|---------|----------|---------|
-| Current Status Overview (ASCII art) | ✅ Yes | Progress bars, metrics table |
-| Phase 3: Batch Overview | ✅ Yes | Status, completion % |
-| Phase 3: Merge Points | ✅ Yes | MP status when tasks complete |
-| Phase 4: Learning | ✅ Yes | Task completion count |
-| Demo Validation Status | ✅ Yes | Status per demo |
-| Sarah's Journey Validation | ✅ Yes | Status per step |
-| Command Execution Log | ✅ Yes | Sync event entry |
-| Timeline | ✅ Yes | Sync event with progress |
-| Milestones | ✅ Yes | Milestone completion |
-| Quality Gates | ❌ No | Updated by `/run-checks` only |
-| Blockers & Risks | ❌ No | Manual updates only |

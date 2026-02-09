@@ -159,8 +159,7 @@ StrReplace:
 **Files to update in MAIN REPO (using absolute paths):**
 1. `$MAIN_REPO/docs/workstreams/[feature]/STATUS.md` - Task status, metrics
 2. `$MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md` - Batch status, task table
-3. `$MAIN_REPO/docs/[feature]/EXECUTION_STATUS.md` - Phase tracking
-4. `$MAIN_REPO/docs/EXECUTION_STATUS.md` - Global portfolio
+3. `$MAIN_REPO/docs/EXECUTION_STATUS.md` - Global portfolio (update progress %)
 
 7. **Automatically update STATUS.md (MAIN REPO - Consolidated View):**
 
@@ -254,36 +253,7 @@ WORKSTREAM_FILE="$MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md"
    - If all their dependencies are now met, update their status to `ready`
    - Create task tickets for newly ready tasks if not already created
 
-9. **Update `$MAIN_REPO/docs/[design-name]/EXECUTION_STATUS.md`** (per-design execution):
-
-```bash
-EXEC_STATUS="$MAIN_REPO/docs/[design-name]/EXECUTION_STATUS.md"
-```
-
-**Use the StrReplace tool to update this file:**
-   
-   a. **Update Phase 3 batch status:**
-      - If batch is complete, mark batch as ✅
-      - Update batch completion percentage
-   
-   b. **Check phase completion:**
-      - If all batches complete, update Phase 3 to ✅ Complete
-      - Update Phase 4 status if learnings captured
-   
-   c. **Update demo/journey validation:**
-      - If task validates a demo, check if all demo tasks complete
-      - If task validates a user journey step, update status
-   
-   d. **Add to Command Execution Log:**
-      - Entry: `| [date] | /complete-task [WS-ID] | ✅ | Completed in [worktree-name] |`
-   
-   e. **Update Milestones:**
-      - Check if any milestones are now complete
-   
-   f. **Update Overall Progress in metrics table:**
-      - Update "Overall Progress" row
-
-10. **Update `$MAIN_REPO/docs/EXECUTION_STATUS.md`** (global portfolio):
+9. **Update `$MAIN_REPO/docs/EXECUTION_STATUS.md`** (global portfolio):
 
 ```bash
 GLOBAL_STATUS="$MAIN_REPO/docs/EXECUTION_STATUS.md"
@@ -312,8 +282,7 @@ MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 | 5 | `StrReplace` | Task ticket | Update status to `completed` |
 | 7 | `StrReplace` | STATUS.md | Update task status, metrics |
 | 7.5 | `StrReplace` | WORKSTREAM.md | Update batch status, task table |
-| 9 | `StrReplace` | EXECUTION_STATUS.md (per-design) | Update batch, command log |
-| 10 | `StrReplace` | EXECUTION_STATUS.md (global) | Update global progress |
+| 9 | `StrReplace` | EXECUTION_STATUS.md (global) | Update global progress % |
 
 ---
 
@@ -332,15 +301,13 @@ MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 | 2 | `$MAIN_REPO/docs/workstreams/[feature]/reports/[WS-ID]-completion.md` | **Write** | **CREATE completion report in main repo** |
 | 3 | `$MAIN_REPO/docs/workstreams/[feature]/STATUS.md` | StrReplace | Task → Complete, metrics, batch progress |
 | 4 | `$MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md` | StrReplace | All Tasks table, Batch Execution Model, Progress, History |
-| 5 | `$MAIN_REPO/docs/[design]/EXECUTION_STATUS.md` | StrReplace | Batch status, command log, demos/journey |
-| 6 | `$MAIN_REPO/docs/EXECUTION_STATUS.md` | StrReplace | Global progress % |
-| 7 | `docs/workstreams/[feature]/tasks/[WS-ID]-*.md` | StrReplace | Task ticket → status: completed |
+| 5 | `$MAIN_REPO/docs/EXECUTION_STATUS.md` | StrReplace | Global progress % |
+| 6 | `docs/workstreams/[feature]/tasks/[WS-ID]-*.md` | StrReplace | Task ticket → status: completed |
 
-**Example absolute paths** (substitute `[feature]` and `[design]` with actual names):
+**Example absolute paths** (substitute `[feature]` with actual name):
 ```
 $MAIN_REPO/docs/workstreams/[feature]/STATUS.md
 $MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md
-$MAIN_REPO/docs/[design]/EXECUTION_STATUS.md
 $MAIN_REPO/docs/EXECUTION_STATUS.md
 
 # Concrete example for virtual-mcp-server-mvp:

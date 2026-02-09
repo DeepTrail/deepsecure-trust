@@ -150,7 +150,7 @@ async def test_with_mock(mock_post):
 
 | Type | Pattern | Example |
 |------|---------|---------|
-| E2E test | `test_[journey]_[persona].py` | `test_sarah_journey.py` |
+| E2E test | `test_[persona]_journey.py` | `test_sarah_journey.py` |
 | Demo | `demo_[number]_[value_prop].py` | `demo_01_unified_connection.py` |
 | Unit test | `test_[module].py` | `test_session_manager.py` |
 

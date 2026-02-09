@@ -1,6 +1,6 @@
 # [Feature Name]: Task Status
 
-> **Execution Status:** [EXECUTION_STATUS.md](../../[feature-name]/EXECUTION_STATUS.md) ← Phase tracking
+> **Global Status:** [EXECUTION_STATUS.md](../../EXECUTION_STATUS.md) ← Portfolio overview
 >
 > **Workstream Details:** [WORKSTREAM.md](./WORKSTREAM.md)
 >
@@ -202,4 +202,4 @@ This STATUS.md file is automatically updated by:
 
 ---
 
-*This is the task status file. For phase-level execution tracking, see [EXECUTION_STATUS.md](../../[feature-name]/EXECUTION_STATUS.md).*
+*This is the task status file. For global portfolio status, see [EXECUTION_STATUS.md](../../EXECUTION_STATUS.md).*

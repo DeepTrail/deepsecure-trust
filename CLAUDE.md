@@ -341,3 +341,39 @@ async def client():
 3. **Implementation must match spec exactly** - Endpoint paths, schemas, error codes
 4. **Tests must match implementation** - Which must match spec
 5. **Contract verification before completion** - Check all three match
+
+### Backend Service File Path Conventions
+
+**IMPORTANT**: When creating files in backend services, follow these actual conventions (not design doc paths):
+
+| Design Doc Pattern | Actual Pattern | Convention |
+|--------------------|----------------|------------|
+| `[service]/models/` | `[service]/app/models/` | FastAPI `app/` prefix |
+| `[service]/services/` | `[service]/app/services/` | FastAPI `app/` prefix |
+| `[service]/api/[domain]/` | `[service]/app/api/v1/endpoints/` | Versioned, flat |
+| `[service]/gateway/` | `[service]/app/` | Use `app/` not domain name |
+| `middleware/[security].py` | `security/[security].py` | Security separation |
+
+**Naming Conventions:**
+- Services: Always use `*_service.py` suffix (e.g., `[domain]_service.py`)
+- Validation: Use descriptive names (e.g., `[x]_validation.py` not `[x]_auth.py`)
+- Constraints: Use active verbs (e.g., `[x]_checker.py` not `[x]s.py`)
+- Related endpoints: Consolidate into single files by domain
+
+**Directory Structure:**
+```
+[service-name]/
+├── app/
+│   ├── api/v1/endpoints/    ← Flat, versioned API endpoints
+│   ├── models/              ← SQLAlchemy/Pydantic models
+│   ├── services/            ← Business logic (*_service.py)
+│   ├── middleware/          ← Request/response handling
+│   ├── security/            ← Security concerns (fail-closed, constraints)
+│   └── [domain]/            ← Domain modules
+├── tests/
+└── migrations/
+```
+
+**Service directories in this project:**
+- `deeptrail-control/` - Control Plane service
+- `deeptrail-gateway/` - Gateway service

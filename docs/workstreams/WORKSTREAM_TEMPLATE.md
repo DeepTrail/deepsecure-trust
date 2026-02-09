@@ -24,7 +24,34 @@
 
 ---
 
-## Parallelization
+## Parallelization Strategy
+
+> This section records the worktree decision for this feature.
+
+### Worktree Assignment
+
+| Worktree | Branch | Services | Workstreams | This Workstream? |
+|----------|--------|----------|-------------|------------------|
+| `[feature]-control` | `feature/[feature]-control` | deeptrail-control | A, C, E (partial) | ✅ / ❌ |
+| `[feature]-gateway` | `feature/[feature]-gateway` | deeptrail-gateway | B, D, E (partial) | ✅ / ❌ |
+
+### Decision Rationale
+
+**Setup:** [X] worktrees based on service boundaries
+
+**Why this decision:**
+- [Workstream A] and [Workstream B] are fully parallel (no shared dependencies until MP[X])
+- [Service 1] and [Service 2] have separate codebases
+- Enables [X] Claude instances working simultaneously
+
+**Alternatives Considered:**
+- [X+1] worktrees (one per major workstream) - Rejected: overhead not worth it
+- 1 worktree (sequential) - Rejected: misses parallelization opportunity
+- Clones instead of worktrees - Rejected: worktrees sufficient, saves disk space
+
+---
+
+## Workstream Dependencies
 
 ### Can Run In Parallel With
 - Workstream B: [name] - [why parallel is safe]

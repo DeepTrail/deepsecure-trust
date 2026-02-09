@@ -4,15 +4,30 @@
 >
 > **Last Updated:** January 2026
 
-Lightweight dashboard tracking all active designs. For detailed tracking, see each design's STATUS.md.
+Lightweight dashboard tracking all active designs. For detailed tracking, see each design's STATUS.md in `docs/workstreams/`.
+
+---
+
+## Status Tracking (2-Tier)
+
+```
+docs/
+├── EXECUTION_STATUS.md                   ← THIS FILE: Global portfolio overview
+│
+└── workstreams/[design-name]/
+    ├── STATUS.md                         ← DETAILED: Batches, tasks, worktrees, progress
+    ├── WORKSTREAM.md                     ← Workstream overview and task tables
+    ├── tasks/                            ← Task tickets
+    └── reports/                          ← Completion reports
+```
 
 ---
 
 ## Active Designs
 
-| Design | Phase | Progress | Status | Execution Status | Task Status |
-|--------|-------|----------|--------|------------------|-------------|
-| [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | Phase 3: Execution | 22.7% (10/44) | ⏳ Active | [EXECUTION_STATUS.md](./virtual-mcp-server-mvp/EXECUTION_STATUS.md) | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
+| Design | Phase | Progress | Status | Detailed Status |
+|--------|-------|----------|--------|-----------------|
+| [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Phase 4: Complete | 100% (43/43) | ✅ Complete | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
 
 ---
 
@@ -23,9 +38,9 @@ Lightweight dashboard tracking all active designs. For detailed tracking, see ea
 │                           PORTFOLIO DASHBOARD                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Total Designs: 1 active, 0 completed, 0 planned                            │
-│  Total Tasks:   44 (10 done, 0 in progress, 2 ready, 32 pending)            │
-│  Overall:       22.7% complete                                               │
+│  Total Designs: 1 complete, 0 active, 0 planned                             │
+│  Total Tasks:   43 (43 done, 0 in progress, 0 ready, 0 pending)             │
+│  Overall:       100% complete                                                │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -41,17 +56,15 @@ _No designs currently in this phase_
 _No designs currently in this phase_
 
 ### Phase 3: Execution
-| Design | Batch | Tasks Done | Next Action |
-|--------|-------|------------|-------------|
-| Virtual MCP Server MVP | 3/9 | 10/44 | `/execute-task WS-A7` |
+_No designs currently in this phase_
 
 ### Phase 4: Learning
 _No designs currently in this phase_
 
 ### ✅ Completed
-| Design | Completed | Tasks | Learnings |
+| Design | Completed | Tasks | Breakdown |
 |--------|-----------|-------|-----------|
-| _None yet_ | - | - | - |
+| Virtual MCP Server MVP | Feb 2026 | 43/43 | [Breakdown](./deepsecure-virtual-mcp-server-mvp-breakdown.md) |
 
 ---
 
@@ -91,10 +104,9 @@ cat docs/workstreams/[design]/STATUS.md
 This file is updated when:
 - `/breakdown-design` → Add design to "Active Designs"
 - `/create-workstream` → Update design phase
-- Design completes a phase → Move to next phase section
-- All tasks complete → Move to "Completed"
+- Design completes → Move to "Completed" section
 
-For detailed tracking (phases, batches, tasks, milestones), see each design's:
+For detailed tracking (batches, tasks, worktrees), see:
 `docs/workstreams/[design]/STATUS.md`
 
 ---

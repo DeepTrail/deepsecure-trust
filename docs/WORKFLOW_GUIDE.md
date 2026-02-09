@@ -26,26 +26,25 @@ This command automates all phases with checkpoints for human approval. See `.cur
 | `TASK_BREAKDOWN.md` | Methodology reference (prompts, patterns) |
 | `deepsecure-virtual-mcp-server-mvp-breakdown.md` | Real-world example breakdown |
 
-### Status Tracking Hierarchy
+### Status Tracking Hierarchy (2-Tier)
 
 ```
 docs/
-├── EXECUTION_STATUS.md                   ← GLOBAL PORTFOLIO: All designs, one-line status
-│
-├── [design-name]/                        ← PER-DESIGN EXECUTION FOLDER
-│   └── EXECUTION_STATUS.md               ← EXECUTION: Phase 1-4, commands, milestones
+├── EXECUTION_STATUS.md                   ← GLOBAL PORTFOLIO: All designs overview
 │
 └── workstreams/[design-name]/
-    ├── STATUS.md                         ← TASKS: Batches, task status, worktrees
-    └── tasks/[WS-ID]-*.md                ← PER-TASK: Acceptance, execution log
+    ├── STATUS.md                         ← DETAILED: Batches, tasks, worktrees, progress
+    ├── WORKSTREAM.md                     ← Workstream overview and task tables
+    ├── tasks/[WS-ID]-*.md                ← PER-TASK: Ticket, acceptance criteria
+    └── reports/[WS-ID]-completion.md     ← Completion reports
 ```
 
 | File | Scope | Contains |
 |------|-------|----------|
-| `docs/EXECUTION_STATUS.md` | All designs | Portfolio dashboard, links |
-| `docs/[design]/EXECUTION_STATUS.md` | One design | Phases, commands, demos, milestones |
-| `docs/workstreams/[design]/STATUS.md` | One design | Batches, tasks, worktrees |
-| `docs/workstreams/[design]/tasks/*.md` | One task | Ticket, acceptance, execution log |
+| `docs/EXECUTION_STATUS.md` | All designs | Portfolio dashboard, progress %, links to STATUS.md |
+| `docs/workstreams/[design]/STATUS.md` | One design | Batches, tasks, worktrees, detailed progress |
+| `docs/workstreams/[design]/tasks/*.md` | One task | Ticket, acceptance criteria |
+| `docs/workstreams/[design]/reports/*.md` | One task | Completion report, artifacts |
 
 ### Real-World Example
 
@@ -53,7 +52,7 @@ For a complete worked example of this workflow applied to a real feature:
 - **Design Document:** `docs/design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md`
 - **Breakdown:** `docs/deepsecure-virtual-mcp-server-mvp-breakdown.md`
 
-This example demonstrates all concepts: 6 workstreams, 44 tasks, 9 batches, merge points, and acceptance mapping.
+This example demonstrates all concepts: 6 workstreams, 43 tasks, 9 batches, merge points, and acceptance mapping.
 
 ---
 

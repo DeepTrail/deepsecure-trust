@@ -127,6 +127,47 @@ Workstream B can run entirely in parallel with A.
 
 ---
 
+## Parallelization Strategy
+
+> This section documents the decision for how to parallelize work across worktrees/instances.
+
+### Service Boundaries
+
+| Service | Directory | Workstreams | Independent Until |
+|---------|-----------|-------------|-------------------|
+| [Service 1] | `[service-1]/` | WS-A, WS-C (partial) | MP1 |
+| [Service 2] | `[service-2]/` | WS-B, WS-D | MP1 |
+
+### Worktree Recommendation
+
+| Worktree | Branch Pattern | Services | Workstreams | Rationale |
+|----------|----------------|----------|-------------|-----------|
+| `[feature]-control` | `feature/[feature]-control` | deeptrail-control | A, C (partial) | Control plane changes |
+| `[feature]-gateway` | `feature/[feature]-gateway` | deeptrail-gateway | B, D | Gateway changes |
+
+### Tradeoff Analysis
+
+| Option | Pros | Cons | Decision |
+|--------|------|------|----------|
+| **Git Worktrees** | Disk efficient, shared .git, consistent config | Git locks can conflict on heavy ops | ✅ Recommended |
+| Multiple Clones | Complete isolation, no lock conflicts | Disk heavy, config/env sync overhead | ❌ Overkill for most |
+| Single Worktree | Simple, no sync issues | Misses parallelization opportunity | ❌ Sequential only |
+
+### Why This Setup
+
+- **[X] worktrees** based on service boundaries (not workstream count)
+- Workstreams A and B are fully parallel until Merge Point 1
+- Each worktree maps to a distinct service directory
+- Enables [X] Claude instances working simultaneously on independent code
+
+### Merge Points
+
+| Point | Converging From | Enables | When |
+|-------|-----------------|---------|------|
+| MP1 | Worktree 1 + Worktree 2 | Integration workstreams | After Batch [N] |
+
+---
+
 ## Testing Strategy
 
 ### Unit Tests
@@ -177,8 +218,8 @@ Workstream B can run entirely in parallel with A.
 
 | Type | Scope | Location | Example |
 |------|-------|----------|---------|
-| MVP demos | Cross-service | `demos/` (root) | `demos/demo_01_*.py` |
-| MVP E2E tests | Cross-service | `tests/e2e/` (root) | `tests/e2e/test_sarah_journey.py` |
+| MVP demos | Cross-service | `demos/` (root) | `demos/demo_01_[value].py` |
+| MVP E2E tests | Cross-service | `tests/e2e/` (root) | `tests/e2e/test_[persona]_journey.py` |
 | Demo tests | Cross-service | `tests/demos/` (root) | `tests/demos/test_demo_01.py` |
 | Service unit tests | Single service | `[service]/tests/` | `deeptrail-gateway/tests/mcp/` |
 | Service-specific demos | Single service | `[service]/demos/` | (rare) |

@@ -53,14 +53,6 @@ b. **`$MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md`**:
    - In "Progress" section: Increment "In Progress" count, decrement "Ready" count
    - In "Workstreams" table: Update workstream status to `in_progress` if first task
 
-c. **`$MAIN_REPO/docs/[design-name]/EXECUTION_STATUS.md`**:
-   
-   - Update "Phase 3: Execution" status to "⏳ In Progress" if this is the first task
-   - Add entry to "Command Execution Log" table:
-     ```
-     | [date] | /execute-task [WS-ID] | Started | In [worktree-name] |
-     ```
-
 **Why:** Worktrees have separate working directories. Without updating the main repo, 
 there's no consolidated view of progress across parallel worktrees.
 
@@ -378,7 +370,6 @@ MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 |------|------|---------|
 | Task starts | `$MAIN_REPO/docs/workstreams/[feature]/STATUS.md` | Task → In Progress, metrics |
 | Task starts | `$MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md` | All Tasks table, Progress section |
-| Task starts | `$MAIN_REPO/docs/[design]/EXECUTION_STATUS.md` | Command log entry |
 | Task completes | Trigger `/complete-task` which updates all status files |
 
 ---
@@ -387,5 +378,5 @@ MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 - Task tickets: `docs/workstreams/[feature]/tasks/`
 - STATUS.md: `docs/workstreams/[feature]/STATUS.md`
 - WORKSTREAM.md: `docs/workstreams/[feature]/WORKSTREAM.md`
-- EXECUTION_STATUS.md (per-design): `docs/[design-name]/EXECUTION_STATUS.md`
+- EXECUTION_STATUS.md (global): `docs/EXECUTION_STATUS.md`
 - Workflow guide: `docs/WORKFLOW_GUIDE.md`

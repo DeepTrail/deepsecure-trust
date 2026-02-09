@@ -63,13 +63,10 @@ Create a new workstream folder structure with overview document.
 
 5. **Update status files:**
    
-   a. **Update `docs/[design-name]/EXECUTION_STATUS.md`** (per-design execution):
-      - Update Phase 2 step 2b (`/create-workstream`) to ✅ with link
-      - Update Phase 2 step 2c (STATUS.md) to ✅ with link
-      - Add entry to "Command Execution Log"
-   
-   b. **Update `docs/EXECUTION_STATUS.md`** (global portfolio):
+   a. **Update `docs/EXECUTION_STATUS.md`** (global portfolio):
       - Add design to "Active Designs" if not present
+      - Set phase to "Phase 2: Planning"
+      - Link to `docs/workstreams/[design-name]/STATUS.md` for detailed tracking
 
 ## Template Location
 `docs/workstreams/WORKSTREAM_TEMPLATE.md`

@@ -134,9 +134,15 @@ Before starting this task, ensure:
 
 | Artifact | Correct Location | Why |
 |----------|------------------|-----|
-| Implementation | `[service]/[module]/` | Service-specific |
+| Service Models | `[service]/app/models/` | FastAPI `app/` prefix |
+| Service Logic | `[service]/app/services/*_service.py` | Use `_service` suffix |
+| Service API | `[service]/app/api/v1/endpoints/` | Versioned, flat structure |
+| Domain Modules | `[service]/app/[domain]/` | FastAPI `app/` prefix |
+| Security Modules | `[service]/app/security/` | Separate from middleware |
+| Middleware | `[service]/app/middleware/` | Request handling only |
 | Unit tests | `[service]/tests/[module]/` | Co-located with impl |
-| E2E tests (if cross-service) | `tests/e2e/` (ROOT) | Spans services |
+| E2E tests (cross-service) | `tests/e2e/` (ROOT) | Spans services |
+| MVP Demos | `demos/` (ROOT) | Not `examples/` (SDK-only) |
 
 ---
 
