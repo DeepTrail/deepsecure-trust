@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     delegation,
     internal,
     policies,
+    users,
     vault,
 )
 
@@ -22,6 +23,7 @@ api_router.include_router(
     tags=["agent-auth"],
 )
 api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
+api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(vault.router, prefix="/vault", tags=["vault"])
 api_router.include_router(policies.router, prefix="/policies", tags=["policies"])
 api_router.include_router(

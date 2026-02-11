@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr
+from typing import Any, Dict, Optional
 
 from app import schemas, crud
 from app.api import deps
@@ -13,13 +15,84 @@ import httpx
 import uuid
 from app.core.exceptions import TokenValidationError, PolicyNotFoundError, ExternalServiceError, NetworkTimeoutError, ConfigurationError, BootstrapError
 import logging
-from typing import Any, Dict
+import jwt
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
 # bootstrap_service is already imported as singleton instance from app.services.bootstrap_service
+
+
+# =============================================================================
+# User Login Schemas
+# =============================================================================
+
+
+class UserLoginRequest(BaseModel):
+    """Request body for user login."""
+    email: EmailStr
+    password: str
+
+
+class UserLoginResponse(BaseModel):
+    """Response for successful user login."""
+    token: str
+    user: Dict[str, Any]
+    expires_in: int = 28800  # 8 hours
+
+
+# =============================================================================
+# User Login Endpoint (Step 2 of Sarah's Journey)
+# =============================================================================
+
+
+@router.post("/login", response_model=UserLoginResponse)
+def user_login(
+    *,
+    db: deps.DbDep,
+    login_request: UserLoginRequest,
+):
+    """
+    Authenticate a user and return a JWT token.
+    
+    This is Step 2 of Sarah's Journey: Sarah Authenticates.
+    
+    In the MVP, this is a simplified implementation that:
+    - Accepts email/password (password not validated in MVP)
+    - Returns a JWT token
+    
+    Production would integrate with enterprise IdP (Okta/Entra ID).
+    """
+    # MVP: Accept any password for demo purposes
+    # Production: Validate against IdP
+    
+    # Generate a unique session ID
+    session_id = f"usess-{uuid.uuid4()}"
+    
+    # Generate JWT token
+    token_data = {
+        "sub": login_request.email,
+        "session_id": session_id,
+        "organization_id": "org-acme-001",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=8),
+        "iat": datetime.now(timezone.utc),
+    }
+    token = jwt.encode(token_data, settings.SECRET_KEY, algorithm="HS256")
+    
+    logger.info(f"User logged in: {login_request.email}")
+    
+    return UserLoginResponse(
+        token=token,
+        user={
+            "email": login_request.email,
+            "id": login_request.email,
+            "organization_id": "org-acme-001",
+        },
+        expires_in=28800,
+    )
+
 
 @router.post("/challenge", response_model=schemas.ChallengeResponse)
 def request_challenge(

@@ -11,6 +11,7 @@ Handlers are registered with the MCPProtocolHandler from the protocol module.
 
 from .initialize import (
     handle_initialize,
+    configure_initialize_handler,
     InitializeParams,
     InitializeResult,
     SUPPORTED_PROTOCOL_VERSIONS,
@@ -38,6 +39,7 @@ from .tools_call import (
 __all__ = [
     # Initialize handler (B2)
     "handle_initialize",
+    "configure_initialize_handler",
     "InitializeParams",
     "InitializeResult",
     "SUPPORTED_PROTOCOL_VERSIONS",

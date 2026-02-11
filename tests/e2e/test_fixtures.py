@@ -52,11 +52,14 @@ class TestUser:
 # =============================================================================
 
 
+import time
+
+
 @dataclass
 class TestAgent:
     """Test agent configuration (SDR-Assistant)."""
 
-    id: str = "agent-sdr-001"
+    id: str = field(default_factory=lambda: f"agent-sdr-{int(time.time())}")
     name: str = "SDR-Assistant"
     description: str = "Sales Development Representative AI Assistant"
     organization_id: str = "org-acme-001"
@@ -187,12 +190,16 @@ class SarahJourneyScenario:
             },
         }
 
-    def get_agent_register_request(self, public_key_hex: str) -> dict[str, Any]:
-        """Get agent registration request payload."""
+    def get_agent_register_request(self, public_key: str) -> dict[str, Any]:
+        """Get agent registration request payload.
+        
+        Args:
+            public_key: Base64-encoded Ed25519 public key (32 bytes).
+        """
         return {
             "agent_id": self.agent.id,
             "name": self.agent.name,
-            "public_key": public_key_hex,
+            "public_key": public_key,
         }
 
 

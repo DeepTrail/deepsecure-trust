@@ -18,6 +18,7 @@ Security Properties:
 import base64
 import logging
 import secrets
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
@@ -32,6 +33,14 @@ from app.models.delegation import DelegationToken
 from app.services.delegation_service import DelegationService
 
 logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Module-level storage for pending challenges (MVP)
+# Production: Use Redis with TTL
+# ─────────────────────────────────────────────────────────────────
+
+_pending_challenges: Dict[str, Tuple[str, datetime]] = {}
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -82,16 +91,30 @@ class SessionNotFoundError(AgentSessionError):
 
 
 @dataclass
+class MVPSession:
+    """Simplified session for MVP (no database).
+    
+    Represents an agent session without requiring database tables.
+    """
+    id: str
+    agent_id: str
+    party_type: "PartyType"
+    expires_at: datetime
+    scoped_permissions: List[str]
+    owner_email: str
+
+
+@dataclass
 class AuthenticationResult:
     """Result of successful agent authentication.
 
     Attributes:
-        session: The created AgentSession
+        session: The created AgentSession or MVPSession
         token: The signed JWT token
         expires_in: Seconds until token expires
     """
 
-    session: AgentSession
+    session: any  # AgentSession or MVPSession
     token: str
     expires_in: int
 
@@ -143,9 +166,9 @@ class AgentSessionService:
         self.jwt_secret = jwt_secret
         self.agent_registry = agent_registry or {}
 
-        # In-memory pending challenges (MVP)
+        # Use module-level storage for pending challenges (MVP)
+        # This ensures challenges persist across service instances
         # Production: Use Redis with TTL
-        self._pending_challenges: Dict[str, Tuple[str, datetime]] = {}
 
     # ─────────────────────────────────────────────────────────────────
     # Challenge-Response Authentication
@@ -176,7 +199,7 @@ class AgentSessionService:
         expires_at = datetime.now(timezone.utc) + timedelta(
             seconds=self.CHALLENGE_TTL_SECONDS
         )
-        self._pending_challenges[agent_id] = (nonce, expires_at)
+        _pending_challenges[agent_id] = (nonce, expires_at)
 
         logger.info(f"Challenge created for agent {agent_id}, expires in 5 minutes")
         return nonce
@@ -213,14 +236,14 @@ class AgentSessionService:
             raise AgentNotFoundError(f"Agent '{agent_id}' not found in registry")
 
         # 2. Verify challenge is valid
-        if agent_id not in self._pending_challenges:
+        if agent_id not in _pending_challenges:
             logger.warning(f"No pending challenge for agent: {agent_id}")
             raise ChallengeExpiredError("No pending challenge for this agent")
 
-        stored_challenge, expires_at = self._pending_challenges[agent_id]
+        stored_challenge, expires_at = _pending_challenges[agent_id]
 
         if datetime.now(timezone.utc) > expires_at:
-            del self._pending_challenges[agent_id]
+            del _pending_challenges[agent_id]
             logger.warning(f"Challenge expired for agent: {agent_id}")
             raise ChallengeExpiredError("Challenge has expired")
 
@@ -234,23 +257,18 @@ class AgentSessionService:
             raise InvalidSignatureError("Signature verification failed")
 
         # 4. Clear the used challenge (single-use)
-        del self._pending_challenges[agent_id]
+        del _pending_challenges[agent_id]
 
-        # 5. Get valid delegation for this agent
-        delegation = self._get_valid_delegation(agent_id, delegation_id)
-        if not delegation:
-            logger.warning(f"No valid delegation found for agent: {agent_id}")
-            raise NoDelegationError(
-                f"No valid delegation found for agent '{agent_id}'"
-            )
+        # MVP: Simplified session creation without database
+        # Production would validate delegation and create database session
+        
+        # 5. Create in-memory session
+        session = self._create_mvp_session(agent_id, party_type)
 
-        # 6. Create agent session
-        session = self._create_session(agent_id, delegation, party_type)
+        # 6. Generate JWT
+        token = self._generate_mvp_jwt(agent_id, session)
 
-        # 7. Generate JWT
-        token = self._generate_jwt(session)
-
-        # 8. Calculate expires_in
+        # 7. Calculate expires_in
         expires_in = int(self.SESSION_TTL_HOURS * 3600)
 
         logger.info(
@@ -301,6 +319,73 @@ class AgentSessionService:
         except Exception as e:
             logger.error(f"Signature verification error: {e}")
             return False
+
+    # ─────────────────────────────────────────────────────────────────
+    # MVP Simplified Methods (no database tables required)
+    # ─────────────────────────────────────────────────────────────────
+
+    def _create_mvp_session(
+        self,
+        agent_id: str,
+        party_type: PartyType = PartyType.FIRST_PARTY,
+    ) -> "MVPSession":
+        """Create an in-memory session for MVP (no database).
+        
+        This bypasses the database tables that don't exist yet.
+        """
+        # Import here to avoid circular imports
+        from app.api.v1.endpoints.delegation import get_delegation_for_agent
+        
+        session_id = f"asess-{uuid.uuid4().hex[:12]}"
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            hours=self.SESSION_TTL_HOURS
+        )
+        
+        # MVP: Get actual permissions from in-memory delegation storage
+        delegation = get_delegation_for_agent(agent_id)
+        if delegation:
+            scoped_permissions = delegation.get("permissions", [])
+            owner_email = delegation.get("user_id", "sarah@acme.com")
+            logger.info(
+                f"Found delegation for agent {agent_id} with "
+                f"{len(scoped_permissions)} permissions"
+            )
+        else:
+            # Fallback if no delegation found (shouldn't happen in normal flow)
+            scoped_permissions = []
+            owner_email = "sarah@acme.com"
+            logger.warning(
+                f"No delegation found for agent {agent_id}, using empty permissions"
+            )
+        
+        return MVPSession(
+            id=session_id,
+            agent_id=agent_id,
+            party_type=party_type,
+            expires_at=expires_at,
+            scoped_permissions=scoped_permissions,
+            owner_email=owner_email,
+        )
+
+    def _generate_mvp_jwt(self, agent_id: str, session: "MVPSession") -> str:
+        """Generate a simplified JWT for MVP.
+        
+        Uses HS256 symmetric signing with claims matching Gateway expectations.
+        """
+        now = datetime.now(timezone.utc)
+        payload = {
+            "iss": self.JWT_ISSUER,
+            "aud": self.JWT_AUDIENCE,
+            "sub": agent_id,
+            "iat": int(now.timestamp()),
+            "exp": int(session.expires_at.timestamp()),
+            "session_id": session.id,
+            "owner": session.owner_email,
+            "delegated_permissions": session.scoped_permissions,
+            "delegation_id": "mvp-delegation",  # Placeholder for MVP
+        }
+        
+        return jwt.encode(payload, self.jwt_secret, algorithm=self.JWT_ALGORITHM)
 
     def _get_valid_delegation(
         self,
@@ -706,8 +791,8 @@ class AgentSessionService:
         Returns:
             The pending challenge nonce, or None if none exists
         """
-        if agent_id in self._pending_challenges:
-            challenge, expires_at = self._pending_challenges[agent_id]
+        if agent_id in _pending_challenges:
+            challenge, expires_at = _pending_challenges[agent_id]
             if datetime.now(timezone.utc) <= expires_at:
                 return challenge
         return None
@@ -721,12 +806,12 @@ class AgentSessionService:
         now = datetime.now(timezone.utc)
         expired = [
             agent_id
-            for agent_id, (_, expires_at) in self._pending_challenges.items()
+            for agent_id, (_, expires_at) in _pending_challenges.items()
             if now > expires_at
         ]
 
         for agent_id in expired:
-            del self._pending_challenges[agent_id]
+            del _pending_challenges[agent_id]
 
         if expired:
             logger.debug(f"Cleared {len(expired)} expired challenges")

@@ -54,12 +54,27 @@ def get_agent_session_service(
     Production would use proper dependency injection.
     """
     from app.core.config import settings
+    from app import crud
+    import base64
 
     delegation_service = DelegationService(db)
 
-    # MVP: Load agent registry from settings or database
-    # Production: Would use proper registry service
-    agent_registry = getattr(settings, "AGENT_REGISTRY", {})
+    # MVP: Load agent registry from settings AND database
+    agent_registry = dict(getattr(settings, "AGENT_REGISTRY", {}))
+    
+    # Also load agents from database
+    try:
+        db_agents = crud.agent.get_multi(db, limit=1000)
+        for agent in db_agents:
+            if agent.public_key and agent.agent_id:
+                # Convert bytes to base64 for the registry
+                if isinstance(agent.public_key, bytes):
+                    public_key_b64 = base64.b64encode(agent.public_key).decode()
+                else:
+                    public_key_b64 = agent.public_key
+                agent_registry[agent.agent_id] = public_key_b64
+    except Exception as e:
+        logger.warning(f"Failed to load agents from database: {e}")
 
     return AgentSessionService(
         db_session=db,
