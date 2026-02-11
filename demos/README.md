@@ -2,7 +2,91 @@
 
 This directory contains demonstration scripts that showcase the value propositions of the Virtual MCP Server pattern.
 
-## Overview
+## Interactive Sarah's Journey Demo
+
+An interactive version of Sarah's Journey that lets you experience the demo from multiple stakeholder perspectives.
+
+### Features
+
+- **5 Personas**: Switch between IT Admin, Sarah (Developer), Vendor, Agent, and Security Officer
+- **10 Steps**: Complete journey from org setup to audit review
+- **Interactive Prompts**: Make choices at each step
+- **Split Views**: See actions from both user and vendor perspectives
+- **Auto Mode**: Run without prompts for quick testing
+
+### Prerequisites
+
+- Python 3.10+
+- Backend services running (or use `--skip-api` for dry run)
+- Dependencies: `pip install rich questionary`
+
+### Quick Start
+
+```bash
+# Full interactive demo
+python demo_sarah_journey_interactive.py
+
+# Quick test (no API calls, no prompts)
+python demo_sarah_journey_interactive.py --auto --skip-api
+
+# Show all options
+python demo_sarah_journey_interactive.py --help
+```
+
+### CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--persona PERSONA` | Starting persona | `sarah` |
+| `--start-step N` | Start from step N (1-10) | `1` |
+| `--auto` | Auto-advance without prompts | off |
+| `--skip-api` | Skip API calls (dry run) | off |
+| `-v, --verbose` | Verbose output | off |
+
+### Personas
+
+| ID | Name | Role |
+|----|------|------|
+| `it_admin` | IT Admin | Enterprise Administrator |
+| `sarah` | Sarah | Sales Development Representative |
+| `vendor` | AI Agent Vendor | Third-Party AI Platform Provider |
+| `agent` | SDR-Assistant | AI Agent (running on vendor infrastructure) |
+| `security` | Security Officer | Enterprise Security & Compliance |
+
+### The 10 Steps
+
+| Step | Primary Persona | Description |
+|------|-----------------|-------------|
+| 1 | IT Admin | Organization Setup |
+| 2 | Sarah | Install SDK & Authenticate |
+| 3 | Sarah | Connect External Tools |
+| 4 | Sarah + Vendor | Create Agent Identity (split view) |
+| 5 | Agent + Vendor | Agent Registration (cryptographic handshake) |
+| 6 | Sarah + Vendor | Grant Permissions (split view) |
+| 7 | Agent | Tool Discovery |
+| 8 | Agent | Agent Runtime (credential injection) |
+| 9 | Agent + Security | Permission Enforcement (denial demo) |
+| 10 | All Personas | Audit Review (round-robin) |
+
+### Examples
+
+```bash
+# Start as IT Admin
+python demo_sarah_journey_interactive.py --persona it_admin
+
+# Resume from step 5
+python demo_sarah_journey_interactive.py --start-step 5
+
+# Vendor perspective demo
+python demo_sarah_journey_interactive.py --persona vendor --start-step 4
+
+# Security audit focus
+python demo_sarah_journey_interactive.py --persona security --start-step 9
+```
+
+---
+
+## Feature Demos Overview
 
 The Virtual MCP Server Gateway provides a unified interface for AI agents to access multiple backend MCP servers. These demos illustrate the key benefits:
 

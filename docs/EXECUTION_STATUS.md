@@ -28,7 +28,8 @@ docs/
 | Design | Phase | Progress | Status | Detailed Status |
 |--------|-------|----------|--------|-----------------|
 | [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Phase 4: Complete | 100% (43/43) | ✅ Complete | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
-| [Interactive Demo](.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | ⏳ Phase 2: Planning | 0% (0/9) | ⏳ Planning | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
+| [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | Phase 3: Execution | 56% (5/9) | ⏳ In Progress | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
+
 
 ---
 
@@ -40,8 +41,8 @@ docs/
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Total Designs: 1 complete, 1 active, 0 planned                             │
-│  Total Tasks:   52 (43 done, 0 in progress, 0 ready, 9 pending)             │
-│  Overall:       83% complete                                                 │
+│  Total Tasks:   52 (47 done, 0 in progress, 1 ready, 4 pending)             │
+│  Overall:       90% complete                                                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
