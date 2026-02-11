@@ -82,21 +82,30 @@ async def gateway_client(gateway_url: str) -> httpx.AsyncClient:
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def agent_keypair() -> dict[str, Any]:
     """
     Generate Ed25519 keypair for agent authentication.
+    
+    Session-scoped to ensure consistent keypair across all tests.
 
     Returns:
-        Dict with private_key, public_key, and public_key_hex
+        Dict with private_key, public_key, public_key_hex, and public_key_base64
     """
+    import base64
+    
     private_key = SigningKey.generate()
     public_key = private_key.verify_key
+
+    # Get raw bytes for base64 encoding
+    public_key_bytes = public_key.encode()  # Raw 32 bytes
+    public_key_b64 = base64.b64encode(public_key_bytes).decode()
 
     return {
         "private_key": private_key,
         "public_key": public_key,
         "public_key_hex": public_key.encode(encoder=HexEncoder).decode(),
+        "public_key_base64": public_key_b64,
     }
 
 
@@ -109,13 +118,13 @@ def sign_challenge(private_key: SigningKey, challenge: str) -> str:
         challenge: Challenge string to sign
 
     Returns:
-        Hex-encoded signature
+        Base64url-encoded signature
     """
-    signature = private_key.sign(
-        challenge.encode(),
-        encoder=HexEncoder,
-    ).signature
-    return signature.decode()
+    import base64
+    
+    signed = private_key.sign(challenge.encode())
+    # Return base64url-encoded signature (not hex)
+    return base64.urlsafe_b64encode(signed.signature).decode()
 
 
 # =============================================================================
@@ -123,10 +132,13 @@ def sign_challenge(private_key: SigningKey, challenge: str) -> str:
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def scenario() -> SarahJourneyScenario:
-    """Get the default test scenario."""
-    return DEFAULT_SCENARIO
+    """Get the default test scenario.
+    
+    Session-scoped to ensure consistent agent ID across all tests.
+    """
+    return SarahJourneyScenario()
 
 
 # =============================================================================
@@ -188,9 +200,9 @@ async def delegation_token(
     try:
         # Register agent
         await control_plane_client.post(
-            "/api/v1/agents",
+            "/api/v1/agents/",
             headers={"Authorization": f"Bearer {user_token}"},
-            json=scenario.get_agent_register_request(agent_keypair["public_key_hex"]),
+            json=scenario.get_agent_register_request(agent_keypair["public_key_base64"]),
         )
 
         # Connect services
@@ -210,7 +222,7 @@ async def delegation_token(
 
         # Create delegation
         response = await control_plane_client.post(
-            "/api/v1/delegations",
+            "/api/v1/auth/delegate",
             headers={"Authorization": f"Bearer {user_token}"},
             json=scenario.get_delegation_request(),
         )
@@ -245,7 +257,7 @@ async def agent_jwt(
     try:
         # Request challenge
         challenge_response = await control_plane_client.post(
-            "/api/v1/agents/challenge",
+            "/api/v1/auth/agent/challenge",
             json={"agent_id": scenario.agent.id},
         )
 
@@ -259,7 +271,7 @@ async def agent_jwt(
 
         # Verify and get JWT
         verify_response = await control_plane_client.post(
-            "/api/v1/agents/verify",
+            "/api/v1/auth/agent/verify",
             json={
                 "agent_id": scenario.agent.id,
                 "challenge": challenge,
@@ -269,7 +281,7 @@ async def agent_jwt(
         )
 
         if verify_response.status_code == 200:
-            return verify_response.json()["jwt"]
+            return verify_response.json()["access_token"]
 
         return _generate_mock_agent_jwt(scenario)
 

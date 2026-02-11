@@ -92,12 +92,97 @@ The Virtual MCP Server Gateway provides a unified interface for AI agents to acc
 
 | Demo | Title | Key Value |
 |------|-------|-----------|
+| **E2E** | **Sarah's Journey** | **Complete 10-step journey with full I/O** |
 | 1 | Unified Connection | One gateway, multiple backends |
 | 2 | Filtered Visibility | Agents see only delegated tools |
 | 3 | Delegation Execution | Agent acts on behalf of user |
 | 4 | Permission Enforcement | Unauthorized tools rejected |
 | 5 | Unified Audit | All actions logged under agent identity |
 | 6 | Fail-Closed Security | Secure handling of failures |
+
+---
+
+## 🌟 Sarah's Journey - Complete E2E Demo (Recommended)
+
+**The definitive demo that shows the complete Virtual MCP Server workflow with full JSON input/output.**
+
+This demo walks through all 10 steps of Sarah's Journey from the MVP design document:
+
+1. Enterprise Registration (pre-seeded)
+2. Sarah Authenticates (`POST /api/v1/auth/login`)
+3. Sarah Connects Notion & Slack (`POST /api/v1/users/me/services/connect`)
+4. Sarah Delegates to Agent (`POST /api/v1/agents/`, `POST /api/v1/auth/delegate`)
+5. Agent Authenticates (`POST /api/v1/auth/agent/challenge`, `POST /api/v1/auth/agent/verify`)
+6. Agent Connects to Gateway (`POST /mcp` - initialize)
+7. Agent Discovers Tools (`POST /mcp` - tools/list)
+8. Agent Executes Tool (`POST /mcp` - tools/call)
+9. Agent Denied on Non-Delegated Tool (`POST /mcp` - tools/call - permission denied)
+10. Sarah Reviews Audit Trail (`GET /api/v1/audit/events`)
+
+### Running the Demo
+
+```bash
+# Start services first
+docker compose up -d deeptrail-control deeptrail-gateway
+
+# Wait for services to be ready
+sleep 5
+
+# Run the complete journey demo
+python demos/demo_sarah_journey_e2e.py
+```
+
+### Example Output (Summary)
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║           Sarah's Journey - Virtual MCP Server MVP Demo              ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Step 2: Sarah Authenticates
+>>> REQUEST
+POST http://localhost:8000/api/v1/auth/login
+  Body: {"email": "sarah@acme.com", "password": "secure_password"}
+
+<<< RESPONSE (SUCCESS)
+  Status: 200
+  Body: {"token": "eyJhbGciOiJIUzI1NiIs...", "user": {...}}
+
+✅ Sarah authenticated successfully
+
+...
+
+Step 7: Agent Discovers Tools (Filtered by Delegation)
+>>> REQUEST
+POST http://localhost:8002/mcp
+  Body: {"jsonrpc": "2.0", "method": "tools/list", "id": 2, "params": {}}
+
+<<< RESPONSE (SUCCESS)
+  Body: {"result": {"tools": [
+    {"name": "notion.search_pages", ...},
+    {"name": "slack.search_messages", ...},
+    {"name": "slack.list_channels", ...}
+  ]}}
+
+✅ Discovered 4 tools (filtered by delegation)
+
+...
+
+╔══════════════════════════════════════════════════════════════════════╗
+║              ✅ Sarah's Journey Complete - All 10 Steps Passed!      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Value Propositions Demonstrated:
+  1. ✓ Unified MCP Connection
+  2. ✓ Delegation-Based Consent
+  3. ✓ Tool Filtering
+  4. ✓ Namespace Resolution
+  5. ✓ Permission Enforcement
+  6. ✓ Audit Trail
+  7. ✓ Credential Isolation
+```
+
+---
 
 ## Prerequisites
 
