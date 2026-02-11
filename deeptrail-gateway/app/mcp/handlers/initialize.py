@@ -22,8 +22,24 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from ..protocol import JsonRpcErrorCode, MCPError
+from ..session_manager import MCPSessionManager
 
 logger = logging.getLogger(__name__)
+
+# Global session manager - will be set during app initialization
+_session_manager: MCPSessionManager | None = None
+
+
+def configure_initialize_handler(session_manager: MCPSessionManager) -> None:
+    """Configure the initialize handler with required dependencies."""
+    global _session_manager
+    _session_manager = session_manager
+    logger.info("initialize handler configured")
+
+
+def get_session_manager() -> MCPSessionManager | None:
+    """Get the configured session manager (can be None for MVP)."""
+    return _session_manager
 
 # =============================================================================
 # Constants
@@ -156,7 +172,10 @@ async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
             "serverInfo": {"name": "DeepTrail Virtual MCP Server", "version": "0.1.0"}
         }
     """
-    # Remove internal context if present (passed by MCPProtocolHandler)
+    # Extract context before removing (passed by MCPProtocolHandler)
+    context = params.pop("_context", {})
+    
+    # Remove any other internal params
     params = {k: v for k, v in params.items() if not k.startswith("_")}
     
     # Validate and parse params
@@ -187,6 +206,66 @@ async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
         f"version={init_params.clientInfo.version} "
         f"protocol={init_params.protocolVersion}"
     )
+    
+    # Create agent session if session manager is configured and we have agent context
+    agent_session_id = context.get("agent_session_id")
+    delegated_permissions = context.get("delegated_permissions", [])
+    delegator = context.get("delegator", "")
+    
+    session_manager = get_session_manager()
+    if session_manager and agent_session_id:
+        # Create mock backend sessions based on permissions
+        # For MVP, we create backend sessions for notion and slack if permissions exist
+        connected_services = []
+        
+        # Check for notion permissions
+        notion_perms = [p for p in delegated_permissions if p.startswith("notion:")]
+        if notion_perms:
+            # Create tools from permissions (e.g., notion:pages:search -> search_pages)
+            notion_tools = []
+            for perm in notion_perms:
+                parts = perm.split(":")
+                if len(parts) >= 3:
+                    # Map permission to tool name (e.g., pages:search -> search_pages)
+                    tool_name = f"{parts[2]}_{parts[1]}" if len(parts) == 3 else parts[2]
+                    notion_tools.append(tool_name)
+            
+            connected_services.append({
+                "service_id": "notion",
+                "oauth_token_ref": f"vault://notion-oauth-{agent_session_id}",
+                "available_tools": notion_tools or ["search_pages", "get_page"],
+            })
+        
+        # Check for slack permissions
+        slack_perms = [p for p in delegated_permissions if p.startswith("slack:")]
+        if slack_perms:
+            slack_tools = []
+            for perm in slack_perms:
+                parts = perm.split(":")
+                if len(parts) >= 3:
+                    tool_name = f"{parts[2]}_{parts[1]}" if len(parts) == 3 else parts[2]
+                    slack_tools.append(tool_name)
+            
+            connected_services.append({
+                "service_id": "slack",
+                "oauth_token_ref": f"vault://slack-oauth-{agent_session_id}",
+                "available_tools": slack_tools or ["send_message"],
+            })
+        
+        # Create the agent session
+        try:
+            session_manager.create_agent_session(
+                agent_session_id=agent_session_id,
+                delegator=delegator,
+                delegated_permissions=delegated_permissions,
+                connected_services=connected_services,
+            )
+            logger.info(
+                f"Created agent session: {agent_session_id} for {delegator} "
+                f"with {len(connected_services)} backend(s)"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create agent session: {e}")
     
     # Build response
     result = InitializeResult(
