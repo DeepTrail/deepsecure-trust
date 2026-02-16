@@ -2,7 +2,7 @@
 
 > **Workflow Guide:** [WORKFLOW_GUIDE.md](./WORKFLOW_GUIDE.md)
 >
-> **Last Updated:** January 2026
+> **Last Updated:** February 2026
 
 Lightweight dashboard tracking all active designs. For detailed tracking, see each design's STATUS.md in `docs/workstreams/`.
 
@@ -28,6 +28,8 @@ docs/
 | Design | Phase | Progress | Status | Detailed Status |
 |--------|-------|----------|--------|-----------------|
 | [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Phase 4: Complete | 100% (43/43) | ✅ Complete | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
+| [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | Phase 3: Execution | 56% (5/9) | ⏳ In Progress | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
+
 
 ---
 
@@ -38,9 +40,9 @@ docs/
 │                           PORTFOLIO DASHBOARD                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Total Designs: 1 complete, 0 active, 0 planned                             │
-│  Total Tasks:   43 (43 done, 0 in progress, 0 ready, 0 pending)             │
-│  Overall:       100% complete                                                │
+│  Total Designs: 1 complete, 1 active, 0 planned                             │
+│  Total Tasks:   52 (47 done, 0 in progress, 1 ready, 4 pending)             │
+│  Overall:       90% complete                                                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -53,7 +55,9 @@ docs/
 _No designs currently in this phase_
 
 ### Phase 2: Planning
-_No designs currently in this phase_
+| Design | Tasks | Breakdown | Next Step |
+|--------|-------|-----------|-----------|
+| Interactive Demo | 9 | [Breakdown](./interactive-demo-breakdown.md) | `/create-workstream interactive-demo` |
 
 ### Phase 3: Execution
 _No designs currently in this phase_

@@ -2,18 +2,187 @@
 
 This directory contains demonstration scripts that showcase the value propositions of the Virtual MCP Server pattern.
 
-## Overview
+## Interactive Sarah's Journey Demo
+
+An interactive version of Sarah's Journey that lets you experience the demo from multiple stakeholder perspectives.
+
+### Features
+
+- **5 Personas**: Switch between IT Admin, Sarah (Developer), Vendor, Agent, and Security Officer
+- **10 Steps**: Complete journey from org setup to audit review
+- **Interactive Prompts**: Make choices at each step
+- **Split Views**: See actions from both user and vendor perspectives
+- **Auto Mode**: Run without prompts for quick testing
+
+### Prerequisites
+
+- Python 3.10+
+- Backend services running (or use `--skip-api` for dry run)
+- Dependencies: `pip install rich questionary`
+
+### Quick Start
+
+```bash
+# Full interactive demo
+python demo_sarah_journey_interactive.py
+
+# Quick test (no API calls, no prompts)
+python demo_sarah_journey_interactive.py --auto --skip-api
+
+# Show all options
+python demo_sarah_journey_interactive.py --help
+```
+
+### CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--persona PERSONA` | Starting persona | `sarah` |
+| `--start-step N` | Start from step N (1-10) | `1` |
+| `--auto` | Auto-advance without prompts | off |
+| `--skip-api` | Skip API calls (dry run) | off |
+| `-v, --verbose` | Verbose output | off |
+
+### Personas
+
+| ID | Name | Role |
+|----|------|------|
+| `it_admin` | IT Admin | Enterprise Administrator |
+| `sarah` | Sarah | Sales Development Representative |
+| `vendor` | AI Agent Vendor | Third-Party AI Platform Provider |
+| `agent` | SDR-Assistant | AI Agent (running on vendor infrastructure) |
+| `security` | Security Officer | Enterprise Security & Compliance |
+
+### The 10 Steps
+
+| Step | Primary Persona | Description |
+|------|-----------------|-------------|
+| 1 | IT Admin | Organization Setup |
+| 2 | Sarah | Install SDK & Authenticate |
+| 3 | Sarah | Connect External Tools |
+| 4 | Sarah + Vendor | Create Agent Identity (split view) |
+| 5 | Agent + Vendor | Agent Registration (cryptographic handshake) |
+| 6 | Sarah + Vendor | Grant Permissions (split view) |
+| 7 | Agent | Tool Discovery |
+| 8 | Agent | Agent Runtime (credential injection) |
+| 9 | Agent + Security | Permission Enforcement (denial demo) |
+| 10 | All Personas | Audit Review (round-robin) |
+
+### Examples
+
+```bash
+# Start as IT Admin
+python demo_sarah_journey_interactive.py --persona it_admin
+
+# Resume from step 5
+python demo_sarah_journey_interactive.py --start-step 5
+
+# Vendor perspective demo
+python demo_sarah_journey_interactive.py --persona vendor --start-step 4
+
+# Security audit focus
+python demo_sarah_journey_interactive.py --persona security --start-step 9
+```
+
+---
+
+## Feature Demos Overview
 
 The Virtual MCP Server Gateway provides a unified interface for AI agents to access multiple backend MCP servers. These demos illustrate the key benefits:
 
 | Demo | Title | Key Value |
 |------|-------|-----------|
+| **E2E** | **Sarah's Journey** | **Complete 10-step journey with full I/O** |
 | 1 | Unified Connection | One gateway, multiple backends |
 | 2 | Filtered Visibility | Agents see only delegated tools |
 | 3 | Delegation Execution | Agent acts on behalf of user |
 | 4 | Permission Enforcement | Unauthorized tools rejected |
 | 5 | Unified Audit | All actions logged under agent identity |
 | 6 | Fail-Closed Security | Secure handling of failures |
+
+---
+
+## 🌟 Sarah's Journey - Complete E2E Demo (Recommended)
+
+**The definitive demo that shows the complete Virtual MCP Server workflow with full JSON input/output.**
+
+This demo walks through all 10 steps of Sarah's Journey from the MVP design document:
+
+1. Enterprise Registration (pre-seeded)
+2. Sarah Authenticates (`POST /api/v1/auth/login`)
+3. Sarah Connects Notion & Slack (`POST /api/v1/users/me/services/connect`)
+4. Sarah Delegates to Agent (`POST /api/v1/agents/`, `POST /api/v1/auth/delegate`)
+5. Agent Authenticates (`POST /api/v1/auth/agent/challenge`, `POST /api/v1/auth/agent/verify`)
+6. Agent Connects to Gateway (`POST /mcp` - initialize)
+7. Agent Discovers Tools (`POST /mcp` - tools/list)
+8. Agent Executes Tool (`POST /mcp` - tools/call)
+9. Agent Denied on Non-Delegated Tool (`POST /mcp` - tools/call - permission denied)
+10. Sarah Reviews Audit Trail (`GET /api/v1/audit/events`)
+
+### Running the Demo
+
+```bash
+# Start services first
+docker compose up -d deeptrail-control deeptrail-gateway
+
+# Wait for services to be ready
+sleep 5
+
+# Run the complete journey demo
+python demos/demo_sarah_journey_e2e.py
+```
+
+### Example Output (Summary)
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║           Sarah's Journey - Virtual MCP Server MVP Demo              ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Step 2: Sarah Authenticates
+>>> REQUEST
+POST http://localhost:8000/api/v1/auth/login
+  Body: {"email": "sarah@acme.com", "password": "secure_password"}
+
+<<< RESPONSE (SUCCESS)
+  Status: 200
+  Body: {"token": "eyJhbGciOiJIUzI1NiIs...", "user": {...}}
+
+✅ Sarah authenticated successfully
+
+...
+
+Step 7: Agent Discovers Tools (Filtered by Delegation)
+>>> REQUEST
+POST http://localhost:8002/mcp
+  Body: {"jsonrpc": "2.0", "method": "tools/list", "id": 2, "params": {}}
+
+<<< RESPONSE (SUCCESS)
+  Body: {"result": {"tools": [
+    {"name": "notion.search_pages", ...},
+    {"name": "slack.search_messages", ...},
+    {"name": "slack.list_channels", ...}
+  ]}}
+
+✅ Discovered 4 tools (filtered by delegation)
+
+...
+
+╔══════════════════════════════════════════════════════════════════════╗
+║              ✅ Sarah's Journey Complete - All 10 Steps Passed!      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Value Propositions Demonstrated:
+  1. ✓ Unified MCP Connection
+  2. ✓ Delegation-Based Consent
+  3. ✓ Tool Filtering
+  4. ✓ Namespace Resolution
+  5. ✓ Permission Enforcement
+  6. ✓ Audit Trail
+  7. ✓ Credential Isolation
+```
+
+---
 
 ## Prerequisites
 

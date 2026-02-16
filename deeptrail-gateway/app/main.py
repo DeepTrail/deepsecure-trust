@@ -53,7 +53,17 @@ from .middleware.secret_injection import SecretInjectionMiddleware
 
 # MCP Protocol imports
 from .mcp.protocol import MCPProtocolHandler, JsonRpcErrorCode, MCPMethod
-from .mcp.handlers import handle_initialize
+from .mcp.handlers import (
+    handle_initialize, 
+    handle_tools_list, 
+    handle_tools_call,
+    configure_initialize_handler,
+    configure_tools_list_handler,
+    configure_tools_call_handler,
+)
+from .mcp.session_manager import MCPSessionManager
+from .mcp.tool_cache import ToolCache
+from .security.fail_closed import configure_health_checker
 
 # Configure basic logging
 logging.basicConfig(
@@ -138,13 +148,40 @@ app.add_middleware(JWTValidationMiddleware, control_plane_url=config.control_pla
 # MCP Protocol Handler Setup
 # =============================================================================
 
+# Configure fail-closed security with control plane health checks
+configure_health_checker(
+    control_plane_url=config.control_plane_url,
+    timeout_seconds=5.0,
+    circuit_breaker_threshold=5,
+    circuit_breaker_reset_seconds=30.0,
+)
+logger.info(f"Health checker configured with control plane URL: {config.control_plane_url}")
+
+# Initialize MCP Session Manager and Tool Cache
+mcp_session_manager = MCPSessionManager()
+mcp_tool_cache = ToolCache()
+
+# Configure MCP method handlers with dependencies
+configure_initialize_handler(
+    session_manager=mcp_session_manager,
+)
+configure_tools_list_handler(
+    session_manager=mcp_session_manager,
+    tool_cache=mcp_tool_cache,
+)
+configure_tools_call_handler(
+    session_manager=mcp_session_manager,
+    backend_client=None,  # MVP: No backend forwarding yet
+    audit_logger=None,  # MVP: Basic audit logging
+)
+
 # Initialize MCP Protocol Handler for Virtual MCP Server
 mcp_protocol_handler = MCPProtocolHandler()
 
 # Register MCP method handlers
 mcp_protocol_handler.register_handler(MCPMethod.INITIALIZE, handle_initialize)
-# TODO: Register tools/list handler (B6)
-# TODO: Register tools/call handler (B7)
+mcp_protocol_handler.register_handler(MCPMethod.TOOLS_LIST, handle_tools_list)
+mcp_protocol_handler.register_handler(MCPMethod.TOOLS_CALL, handle_tools_call)
 
 # Global exception handlers
 @app.exception_handler(ValidationError)
@@ -438,11 +475,24 @@ async def mcp_endpoint(request: Request):
         # Read raw request body
         raw_body = await request.body()
         
-        # Extract context from request state (populated by middleware)
+        # Extract context from request state (populated by JWTValidationMiddleware)
+        agent_context = getattr(request.state, "agent_context", None)
+        
+        # Build context for MCP handlers
         context = {
-            "agent_info": getattr(request.state, "agent_info", None),
             "request_id": request.headers.get("X-Request-ID"),
         }
+        
+        # Map agent context to handler-expected fields
+        if agent_context:
+            context.update({
+                "agent_session_id": agent_context.session_id,
+                "agent_id": agent_context.agent_id,
+                "delegator": agent_context.owner,
+                "delegated_permissions": agent_context.delegated_permissions,
+                "delegation_id": agent_context.delegation_id,
+                "constraints": {},  # MVP: No constraints enforcement yet
+            })
         
         # Handle the MCP request
         response = await mcp_protocol_handler.handle_request(raw_body, context=context)

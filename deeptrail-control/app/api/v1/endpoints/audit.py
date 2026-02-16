@@ -22,6 +22,13 @@ from app.services.audit_logger_service import AuditLoggerService
 router = APIRouter()
 
 
+# =============================================================================
+# MVP In-memory audit storage (bypasses database)
+# =============================================================================
+
+_mvp_audit_events: list[dict[str, Any]] = []
+
+
 # Request/Response Models
 
 
@@ -154,43 +161,48 @@ AuditLoggerServiceDep = Annotated[
         400: {"model": AuditError, "description": "Invalid event type"},
     },
     summary="Log an audit event",
-    description="Log an audit event to the database. Called by the Gateway's audit middleware.",
+    description="Log an audit event. Called by the Gateway's audit middleware.",
 )
 def log_event(
     request: LogEventRequest,
-    service: AuditLoggerServiceDep,
 ) -> LogEventResponse:
     """Log an audit event.
 
     Called by the Gateway's audit middleware to log tool calls.
+    MVP: Uses in-memory storage instead of database.
     """
-    try:
-        event_id = service.log_event(
-            event_type=request.event_type,
-            on_behalf_of=request.on_behalf_of,
-            agent_id=request.agent_id,
-            organization_id=request.organization_id,
-            tool=request.tool,
-            arguments=request.arguments,
-            result_summary=request.result_summary,
-            error=request.error,
-            duration_ms=request.duration_ms,
-            session_id=request.session_id,
-            agent_session_id=request.agent_session_id,
-            mcp_session_id=request.mcp_session_id,
-            delegation_id=request.delegation_id,
-            extra_data=request.extra_data,
-        )
-
-        return LogEventResponse(
-            event_id=event_id,
-            timestamp=datetime.now(timezone.utc),
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+    import uuid
+    
+    # Generate event ID
+    event_id = f"evt-{uuid.uuid4().hex[:12]}"
+    timestamp = datetime.now(timezone.utc)
+    
+    # Store event in memory
+    event = {
+        "id": event_id,
+        "timestamp": timestamp.isoformat(),
+        "event_type": request.event_type,
+        "on_behalf_of": request.on_behalf_of,
+        "agent_id": request.agent_id,
+        "organization_id": request.organization_id,
+        "tool": request.tool,
+        "arguments": request.arguments,
+        "result_summary": request.result_summary,
+        "error": request.error,
+        "duration_ms": request.duration_ms,
+        "session_id": request.session_id,
+        "agent_session_id": request.agent_session_id,
+        "mcp_session_id": request.mcp_session_id,
+        "delegation_id": request.delegation_id,
+        "extra_data": request.extra_data,
+    }
+    
+    _mvp_audit_events.append(event)
+    
+    return LogEventResponse(
+        event_id=event_id,
+        timestamp=timestamp,
+    )
 
 
 @router.get(
@@ -200,7 +212,6 @@ def log_event(
     description="Query audit events with filters. Used by the dashboard to display audit trails.",
 )
 def query_events(
-    service: AuditLoggerServiceDep,
     agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
     on_behalf_of: Optional[str] = Query(None, description="Filter by user"),
     organization_id: Optional[str] = Query(None, description="Filter by org"),
@@ -215,32 +226,51 @@ def query_events(
     """Query audit events.
 
     Used by the dashboard to display Sarah's audit trail.
+    MVP: Uses in-memory storage instead of database.
     """
-    events = service.query_events(
-        agent_id=agent_id,
-        on_behalf_of=on_behalf_of,
-        organization_id=organization_id,
-        event_type=event_type,
-        start_time=start_time,
-        end_time=end_time,
-        tool=tool,
-        delegation_id=delegation_id,
-        limit=limit,
-        offset=offset,
-    )
-
-    # Get total count for pagination
-    total = service.count_events(
-        agent_id=agent_id,
-        on_behalf_of=on_behalf_of,
-        organization_id=organization_id,
-        event_type=event_type,
-        start_time=start_time,
-        end_time=end_time,
-    )
+    # MVP: Use in-memory storage instead of database
+    filtered_events = _mvp_audit_events.copy()
+    
+    # Apply filters
+    if agent_id:
+        filtered_events = [e for e in filtered_events if e.get("agent_id") == agent_id]
+    if on_behalf_of:
+        filtered_events = [e for e in filtered_events if e.get("on_behalf_of") == on_behalf_of]
+    if event_type:
+        filtered_events = [e for e in filtered_events if e.get("event_type") == event_type]
+    if tool:
+        filtered_events = [e for e in filtered_events if e.get("tool") == tool]
+    
+    # Sort by timestamp descending
+    filtered_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+    
+    # Apply pagination
+    total = len(filtered_events)
+    paginated = filtered_events[offset:offset + limit]
+    
+    # Convert to response format
+    events = []
+    for e in paginated:
+        events.append(AuditEventResponse(
+            id=e.get("id", "unknown"),
+            timestamp=datetime.fromisoformat(e.get("timestamp", datetime.now(timezone.utc).isoformat())),
+            event_type=e.get("event_type", "unknown"),
+            agent_id=e.get("agent_id"),
+            on_behalf_of=e.get("on_behalf_of", "unknown"),
+            organization_id=e.get("organization_id"),
+            tool=e.get("tool"),
+            arguments=e.get("arguments"),
+            result_summary=e.get("result_summary"),
+            reason=e.get("reason"),
+            session_id=e.get("session_id"),
+            agent_session_id=e.get("agent_session_id"),
+            mcp_session_id=e.get("mcp_session_id"),
+            delegation_id=e.get("delegation_id"),
+            extra_data=e.get("extra_data"),
+        ))
 
     return QueryEventsResponse(
-        events=[AuditEventResponse.model_validate(e) for e in events],
+        events=events,
         total=total,
         limit=limit,
         offset=offset,
