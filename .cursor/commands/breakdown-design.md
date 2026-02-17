@@ -32,6 +32,148 @@ If you skip this step, you risk creating over-scoped tasks.
 
 ---
 
+## 📁 Actual Directory Structure Reference (CANONICAL)
+
+**IMPORTANT:** Use these EXACT paths when generating commands. Do NOT guess paths.
+
+### Repository Root (`/Users/imaxxs/repositories/deepsecure-mvp/`)
+
+```
+deepsecure-mvp/
+├── demos/                          # Cross-service demos (NOT examples/)
+│   ├── demo_01_*.py
+│   ├── demo_sarah_journey_e2e.py
+│   └── interactive/
+├── tests/                          # Root-level SDK/integration tests
+│   ├── _core/
+│   ├── commands/
+│   ├── demos/                      # Demo validation tests
+│   ├── e2e/                        # End-to-end tests
+│   └── sdk/
+├── deepsecure/                     # Python SDK
+├── deeptrail-control/              # Control Plane service
+├── deeptrail-gateway/              # Gateway service
+├── docs/
+│   └── workstreams/
+│       └── [feature]/
+│           ├── WORKSTREAM.md
+│           ├── STATUS.md
+│           ├── BATCH_EXECUTION_PLAN.md
+│           ├── MERGE_POINTS.md
+│           ├── CODEBASE_ANALYSIS.md
+│           ├── tasks/
+│           └── reports/
+└── examples/                       # SDK examples ONLY (not demos)
+```
+
+### Control Plane (`deeptrail-control/`)
+
+```
+deeptrail-control/
+├── app/
+│   ├── api/
+│   │   └── v1/
+│   │       └── endpoints/          # API endpoints (*.py)
+│   ├── core/                       # Config, settings
+│   ├── crud/                       # Database operations
+│   ├── db/                         # Database setup
+│   ├── models/                     # SQLAlchemy models
+│   ├── schemas/                    # Pydantic schemas
+│   ├── services/                   # Business logic (*_service.py)
+│   └── tests/                      # App-level tests (rarely used)
+│       └── services/
+├── tests/                          # ⚠️ ACTUAL test location (NOT tests/unit/)
+│   ├── api/
+│   │   └── v1/
+│   ├── crud/
+│   ├── models/
+│   ├── schemas/                    # ✅ tests/schemas/ (NOT tests/unit/schemas/)
+│   ├── services/                   # ✅ tests/services/ (NOT tests/unit/services/)
+│   └── utils/
+└── alembic/
+    └── versions/
+```
+
+### Gateway (`deeptrail-gateway/`)
+
+```
+deeptrail-gateway/
+├── app/
+│   ├── backends/                   # Backend API clients (*_client.py)
+│   ├── core/                       # Config, settings
+│   ├── mcp/                        # MCP protocol handlers
+│   │   └── handlers/
+│   ├── middleware/                 # Request/response middleware
+│   └── security/                   # Security modules
+├── tests/                          # ⚠️ ACTUAL test location (NOT tests/unit/)
+│   ├── backends/                   # ✅ tests/backends/ (NOT tests/unit/backends/)
+│   ├── mcp/
+│   │   └── handlers/
+│   ├── middleware/                 # ✅ tests/middleware/ (NOT tests/unit/middleware/)
+│   └── security/                   # ✅ tests/security/ (NOT tests/unit/security/)
+└── (no alembic - gateway is stateless)
+```
+
+### ⚠️ Common Path Mistakes to AVOID
+
+| ❌ WRONG Path | ✅ CORRECT Path | Service |
+|---------------|-----------------|---------|
+| `tests/unit/schemas/` | `tests/schemas/` | Control |
+| `tests/unit/services/` | `tests/services/` | Control |
+| `tests/unit/models/` | `tests/models/` | Control |
+| `tests/unit/backends/` | `tests/backends/` | Gateway |
+| `tests/unit/middleware/` | `tests/middleware/` | Gateway |
+| `tests/unit/security/` | `tests/security/` | Gateway |
+| `tests/integration/` | `tests/` (root-level) | Both |
+| `examples/` (for demos) | `demos/` | Root |
+| `deeptrail-control/services/` | `deeptrail-control/app/services/` | Control |
+| `deeptrail-gateway/backends/` | `deeptrail-gateway/app/backends/` | Gateway |
+
+### Absolute Path Templates
+
+When generating validation commands, use these absolute path templates:
+
+```bash
+# Main repo
+cd /Users/imaxxs/repositories/deepsecure-mvp
+
+# Control Plane
+cd /Users/imaxxs/repositories/deepsecure-mvp/deeptrail-control
+
+# Gateway
+cd /Users/imaxxs/repositories/deepsecure-mvp/deeptrail-gateway
+
+# Worktrees (when created)
+cd /Users/imaxxs/repositories/mvp-prod-control/deeptrail-control
+cd /Users/imaxxs/repositories/mvp-prod-gateway/deeptrail-gateway
+```
+
+### Test Command Templates
+
+```bash
+# Control Plane tests
+cd /Users/imaxxs/repositories/deepsecure-mvp/deeptrail-control
+pytest tests/schemas/ -v           # Schema tests
+pytest tests/services/ -v          # Service tests
+pytest tests/models/ -v            # Model tests
+pytest tests/api/v1/ -v            # API tests
+
+# Gateway tests
+cd /Users/imaxxs/repositories/deepsecure-mvp/deeptrail-gateway
+pytest tests/backends/ -v          # Backend client tests
+pytest tests/middleware/ -v        # Middleware tests
+pytest tests/security/ -v          # Security tests
+pytest tests/mcp/ -v               # MCP handler tests
+
+# Root-level tests
+cd /Users/imaxxs/repositories/deepsecure-mvp
+pytest tests/e2e/ -v               # E2E tests
+pytest tests/demos/ -v             # Demo validation tests
+python demos/demo_sarah_journey_e2e.py  # E2E demo
+```
+
+---
+
 ## Instructions
 
 1. **Read the design document** provided by the user (or use the file path given)
@@ -204,15 +346,24 @@ Secondary: B1 → B2 → D1 → D3 → F1 (if dual-track)
 │   ├── api/
 │   │   └── v1/
 │   │       └── endpoints/     ← Flat structure, grouped by domain
+│   ├── core/                  ← Config, settings
 │   ├── models/                ← SQLAlchemy/Pydantic models
+│   ├── schemas/               ← Pydantic schemas (Control only)
 │   ├── services/              ← Business logic (*_service.py)
-│   ├── middleware/            ← Request/response handling
-│   ├── security/              ← Security-specific (fail-closed, constraints)
-│   └── [domain]/              ← Domain-specific modules (e.g., mcp/)
-├── tests/
-│   ├── unit/
-│   └── integration/
-└── migrations/
+│   ├── middleware/            ← Request/response handling (Gateway only)
+│   ├── security/              ← Security-specific (Gateway only)
+│   ├── backends/              ← Backend API clients (Gateway only)
+│   └── mcp/                   ← MCP handlers (Gateway only)
+├── tests/                     ← ⚠️ NO unit/ subdirectory!
+│   ├── api/                   ← API tests (Control)
+│   ├── schemas/               ← Schema tests (Control)
+│   ├── services/              ← Service tests (Control)
+│   ├── models/                ← Model tests (Control)
+│   ├── backends/              ← Backend tests (Gateway)
+│   ├── middleware/            ← Middleware tests (Gateway)
+│   ├── security/              ← Security tests (Gateway)
+│   └── mcp/                   ← MCP tests (Gateway)
+└── alembic/                   ← Migrations (Control only)
 ```
 
 ### Technical Requirements Checklist
