@@ -28,7 +28,8 @@ docs/
 | Design | Phase | Progress | Status | Detailed Status |
 |--------|-------|----------|--------|-----------------|
 | [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Phase 4: Complete | 100% (43/43) | ✅ Complete | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
-| [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | Phase 3: Execution | 56% (5/9) | ⏳ In Progress | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
+| [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | ✅ Phase 4: Complete | 100% (9/9) | ✅ Complete | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
+| [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | Phase 2: Planning | 0% (0/32) | ⏸️ Planned | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
 
 
 ---
@@ -40,9 +41,9 @@ docs/
 │                           PORTFOLIO DASHBOARD                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Total Designs: 1 complete, 1 active, 0 planned                             │
-│  Total Tasks:   52 (47 done, 0 in progress, 1 ready, 4 pending)             │
-│  Overall:       90% complete                                                 │
+│  Total Designs: 2 complete, 0 active, 1 planned                             │
+│  Total Tasks:   84 (52 done, 0 in progress, 0 ready, 32 pending)            │
+│  Overall:       62% complete                                                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -57,7 +58,7 @@ _No designs currently in this phase_
 ### Phase 2: Planning
 | Design | Tasks | Breakdown | Next Step |
 |--------|-------|-----------|-----------|
-| Interactive Demo | 9 | [Breakdown](./interactive-demo-breakdown.md) | `/create-workstream interactive-demo` |
+| MVP Production Readiness | 32 | [Breakdown](./mvp-production-readiness-breakdown.md) | `/create-task-spec P0-B1 mvp-production-readiness` |
 
 ### Phase 3: Execution
 _No designs currently in this phase_
@@ -69,6 +70,7 @@ _No designs currently in this phase_
 | Design | Completed | Tasks | Breakdown |
 |--------|-----------|-------|-----------|
 | Virtual MCP Server MVP | Feb 2026 | 43/43 | [Breakdown](./deepsecure-virtual-mcp-server-mvp-breakdown.md) |
+| Interactive Demo | Feb 2026 | 9/9 | [Breakdown](./interactive-demo-breakdown.md) |
 
 ---
 
