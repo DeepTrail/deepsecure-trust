@@ -24,13 +24,17 @@ Create a new workstream folder structure with overview document.
 2. **Create the directory structure:**
    ```
    docs/workstreams/[feature-name]/
-   ├── WORKSTREAM.md
-   ├── STATUS.md           ← Execution progress tracking
+   ├── WORKSTREAM.md           ← Workstream overview
+   ├── STATUS.md               ← Execution progress tracking
+   ├── MERGE_POINTS.md         ← Merge point definitions (REQUIRED)
    ├── tasks/
    │   └── .gitkeep
    └── reports/
        └── .gitkeep
    ```
+   
+   **Note:** `CODEBASE_ANALYSIS.md` should already exist from pre-breakdown exploration.
+   `BATCH_EXECUTION_PLAN.md` is created by `/create-batch-execution-plan`.
 
 2b. **Create git worktrees (if parallel execution):**
    ```bash
@@ -68,10 +72,39 @@ Create a new workstream folder structure with overview document.
    - Files affected section
    - Risk assessment if applicable
 
-4. **Update the workstreams README:**
+4. **Create MERGE_POINTS.md** (REQUIRED):
+   
+   Reference: `docs/workstreams/MERGE_POINT_GUIDE.md`
+   
+   Must include:
+   - One merge point per phase boundary
+   - Pre-merge checklist for each merge point
+   - Integration test scripts (if applicable)
+   - Clear "Reached" vs "Not Reached" status
+   
+   **Template sections:**
+   ```markdown
+   # Merge Points: [Feature Name]
+   
+   ## Overview
+   [Description of merge point strategy]
+   
+   ## Merge Point 1: [Name]
+   - **Status:** ⏳ NOT REACHED | ✅ REACHED
+   - **Purpose:** [What this merge point validates]
+   - **Contributing Tasks:** [Task IDs]
+   - **Pre-Merge Checklist:**
+     - [ ] [Verification item 1]
+     - [ ] [Verification item 2]
+   
+   ## Merge Point 2: [Name]
+   ...
+   ```
+
+5. **Update the workstreams README:**
    - Add entry to "Active Workstreams" table in `docs/workstreams/README.md`
 
-5. **Update status files:**
+6. **Update status files:**
    
    a. **Update `docs/EXECUTION_STATUS.md`** (global portfolio):
       - Add design to "Active Designs" if not present
@@ -92,6 +125,8 @@ Create a new workstream folder structure with overview document.
 ```
 [feature-name]/
 ├── WORKSTREAM.md      ✅ Created
+├── STATUS.md          ✅ Created
+├── MERGE_POINTS.md    ✅ Created
 ├── tasks/             ✅ Created
 └── reports/           ✅ Created
 ```
@@ -115,6 +150,37 @@ Create a new workstream folder structure with overview document.
 Workstream is ready for task ticket creation.
 ```
 
+---
+
+## ⚠️ Verification Checklist (MANDATORY)
+
+Before declaring workstream creation complete, verify ALL files exist:
+
+| File | Required | Purpose |
+|------|----------|---------|
+| `WORKSTREAM.md` | ✅ YES | Workstream overview and tasks |
+| `STATUS.md` | ✅ YES | Progress tracking |
+| `MERGE_POINTS.md` | ✅ YES | Merge point definitions |
+| `tasks/` | ✅ YES | Task ticket folder |
+| `reports/` | ✅ YES | Completion reports folder |
+
+**Verification command:**
+```bash
+FEATURE="[feature-name]"
+ls -la docs/workstreams/${FEATURE}/
+```
+
+**Expected output:**
+```
+WORKSTREAM.md
+STATUS.md
+MERGE_POINTS.md
+tasks/
+reports/
+```
+
+**If any file is missing, create it BEFORE declaring complete.**
+
 ## Example Usage
 
 User: "Create a workstream for the MCP gateway token service feature"
@@ -122,7 +188,11 @@ User: "Create a workstream for the MCP gateway token service feature"
 Then create:
 ```
 docs/workstreams/mcp-gateway-token-service/
-├── WORKSTREAM.md
+├── WORKSTREAM.md      ← Workstream overview
+├── STATUS.md          ← Progress tracking
+├── MERGE_POINTS.md    ← Merge point definitions
 ├── tasks/
+│   └── .gitkeep
 └── reports/
+    └── .gitkeep
 ```
