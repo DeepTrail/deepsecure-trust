@@ -26,6 +26,63 @@ Generate a comprehensive batch execution plan with wave analysis, dependency gra
 
 ---
 
+## 📁 Directory Structure Reference (CANONICAL)
+
+**IMPORTANT:** Use these EXACT paths when generating validation commands. Do NOT use `tests/unit/`.
+
+### Test Paths (⚠️ NO `unit/` subdirectory!)
+
+| Service | Test Type | ✅ CORRECT Path | ❌ WRONG Path |
+|---------|-----------|-----------------|---------------|
+| Control | Schemas | `tests/schemas/` | `tests/unit/schemas/` |
+| Control | Services | `tests/services/` | `tests/unit/services/` |
+| Control | Models | `tests/models/` | `tests/unit/models/` |
+| Control | API | `tests/api/v1/` | `tests/unit/api/` |
+| Gateway | Backends | `tests/backends/` | `tests/unit/backends/` |
+| Gateway | Middleware | `tests/middleware/` | `tests/unit/middleware/` |
+| Gateway | Security | `tests/security/` | `tests/unit/security/` |
+| Gateway | MCP | `tests/mcp/` | `tests/unit/mcp/` |
+
+### Absolute Path Templates
+
+```bash
+# Main repo
+MAIN_REPO="/Users/imaxxs/repositories/deepsecure-mvp"
+
+# Control Plane
+CONTROL="${MAIN_REPO}/deeptrail-control"
+
+# Gateway
+GATEWAY="${MAIN_REPO}/deeptrail-gateway"
+
+# Worktrees (when created)
+WORKTREE_CONTROL="/Users/imaxxs/repositories/mvp-prod-control"
+WORKTREE_GATEWAY="/Users/imaxxs/repositories/mvp-prod-gateway"
+```
+
+### Validation Command Templates
+
+Always use absolute paths in generated commands:
+
+```bash
+# Control Plane validation
+cd /Users/imaxxs/repositories/deepsecure-mvp/deeptrail-control
+pytest tests/schemas/ -v
+pytest tests/services/ -v
+
+# Gateway validation
+cd /Users/imaxxs/repositories/deepsecure-mvp/deeptrail-gateway
+pytest tests/backends/ -v
+pytest tests/middleware/ -v
+
+# E2E validation
+cd /Users/imaxxs/repositories/deepsecure-mvp
+python demos/demo_sarah_journey_e2e.py
+pytest tests/e2e/ -v
+```
+
+---
+
 ## Instructions
 
 ### 1. Read the Breakdown Document
@@ -375,6 +432,106 @@ After creating the execution plan:
    git add docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md
    git commit -m "Add batch execution plan for [feature-name]"
    ```
+
+---
+
+## ⚠️ Output Verification Checklist (MANDATORY)
+
+**Before declaring the batch execution plan complete, verify ALL sections exist.**
+
+### Required Sections Checklist
+
+| # | Section | Required? | Purpose |
+|---|---------|-----------|---------|
+| 1 | **Quick Reference** | ✅ YES | Status tracking table with Complete column |
+| 2 | **Worktree Reference** | ✅ YES | Path, Branch, Workstreams mapping |
+| 3 | **Per-Batch: Dependencies** | ✅ YES | Table with Worktree column |
+| 4 | **Per-Batch: Wave Analysis** | ✅ YES | Table format (Control \| Gateway columns) |
+| 5 | **Per-Batch: Visual Dependency Graph** | ✅ YES | ASCII showing CONTROL/GATEWAY |
+| 6 | **Per-Batch: Execution Strategy** | ✅ YES | Text description |
+| 7 | **Per-Batch: Commands** | ✅ YES | `/create-task-spec`, `/create-task-ticket`, `/execute-task`, `/complete-task` |
+| 8 | **Per-Batch: Summary** | ✅ YES | Table with Metric/Value format |
+| 9 | **Overall Execution Summary** | ✅ YES | Batch overview, merge points, total commands |
+| 10 | **Critical Path** | ✅ YES | ASCII diagram |
+| 11 | **Quick Start Commands** | ✅ YES | Copy-paste ready |
+
+### Per-Batch Command Template (MUST include ALL)
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# BATCH [N] - [DESCRIPTION]
+# ═══════════════════════════════════════════════════════════════
+
+# --- Create Task Specs (from main repo, in Plan mode) ---
+cd /path/to/main/repo
+/plan
+/create-task-spec [batch] [feature-name]
+
+# --- Create Task Tickets (from main repo) ---
+/create-task-ticket WS-[ID] [feature-name]
+...
+
+# ───────────────────────────────────────────────────────────────
+# WAVE 1: [tasks]
+# ───────────────────────────────────────────────────────────────
+
+# Terminal 1: [worktree]
+cd /path/to/worktree
+/execute-task WS-[ID] [feature-name]
+/complete-task WS-[ID] [feature-name]
+
+# Terminal 2: [worktree]
+cd /path/to/other-worktree
+/execute-task WS-[ID] [feature-name]
+/complete-task WS-[ID] [feature-name]
+
+# ⏸️ WAIT: [dependency description if needed]
+
+# ───────────────────────────────────────────────────────────────
+# WAVE 2: [tasks]
+# ───────────────────────────────────────────────────────────────
+...
+
+# --- Sync Status (from main repo) ---
+cd /path/to/main/repo
+/sync-worktree-status [feature-name]
+```
+
+### Verification Command
+
+Before completing, grep for required sections:
+
+```bash
+FEATURE="[feature-name]"
+FILE="docs/workstreams/${FEATURE}/BATCH_EXECUTION_PLAN.md"
+
+echo "=== Section Verification ==="
+grep -q "## Quick Reference" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING: Quick Reference"
+grep -q "## Worktree Reference" $FILE && echo "✅ Worktree Reference" || echo "❌ MISSING: Worktree Reference"
+grep -q "### Dependencies" $FILE && echo "✅ Dependencies tables" || echo "❌ MISSING: Dependencies tables"
+grep -q "### Wave Analysis" $FILE && echo "✅ Wave Analysis tables" || echo "❌ MISSING: Wave Analysis tables"
+grep -q "### Visual Dependency Graph" $FILE && echo "✅ Visual Graphs" || echo "❌ MISSING: Visual Graphs"
+grep -q "### Execution Strategy" $FILE && echo "✅ Execution Strategy" || echo "❌ MISSING: Execution Strategy"
+grep -q "### Commands" $FILE && echo "✅ Commands sections" || echo "❌ MISSING: Commands sections"
+grep -q "/create-task-spec" $FILE && echo "✅ /create-task-spec" || echo "❌ MISSING: /create-task-spec"
+grep -q "/create-task-ticket" $FILE && echo "✅ /create-task-ticket" || echo "❌ MISSING: /create-task-ticket"
+grep -q "/execute-task" $FILE && echo "✅ /execute-task" || echo "❌ MISSING: /execute-task"
+grep -q "/complete-task" $FILE && echo "✅ /complete-task" || echo "❌ MISSING: /complete-task"
+grep -q "### Summary" $FILE && echo "✅ Summary tables" || echo "❌ MISSING: Summary tables"
+grep -q "## Overall Execution Summary" $FILE && echo "✅ Overall Summary" || echo "❌ MISSING: Overall Summary"
+grep -q "### Critical Path" $FILE && echo "✅ Critical Path" || echo "❌ MISSING: Critical Path"
+echo "=== Verification Complete ==="
+```
+
+### Why This Matters
+
+**Lesson Learned (Feb 2026):** The `mvp-production-readiness` batch plan was created without:
+- Quick Reference table
+- Worktree Reference table  
+- Per-batch Commands with `/create-task-spec`, `/execute-task`, etc.
+- Per-batch Summary tables
+
+This made it inconsistent with `virtual-mcp-server-mvp` and harder to execute.
 
 ---
 
