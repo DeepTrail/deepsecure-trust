@@ -120,5 +120,125 @@ def get_current_active_agent(
 
 # (Removed commented out OAuth2 code)
 
+# --- Agent JWT Claims Dependency ---
+
+# OAuth2 scheme for agent JWTs (no auto_error to handle manually)
+agent_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/agent/verify", auto_error=False)
+
+
+def get_current_agent_claims(
+    token: str = Depends(agent_oauth2_scheme),
+) -> dict:
+    """Extract and validate claims from an Agent Session JWT.
+
+    This dependency decodes the Agent JWT issued during challenge-response
+    authentication and returns the claims dict containing:
+    - sub: Agent ID
+    - owner: User ID (e.g., sarah@acme.com) - the delegator
+    - delegated_permissions: List of permissions delegated to the agent
+    - session_id: Session identifier
+    - delegation_id: Reference to the delegation
+
+    Used by endpoints that need to verify agent permissions without
+    fetching the agent from the database.
+
+    Returns:
+        dict: JWT claims with user_id (from 'owner') and delegated_permissions
+
+    Raises:
+        HTTPException 401: If JWT is missing, invalid, or expired
+    """
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "unauthorized", "message": "Missing authorization token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    payload = security.decode_token(token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "unauthorized", "message": "Invalid or expired token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Validate required claims for agent JWT
+    # Agent JWTs use 'owner' for user_id and 'sub' for agent_id
+    # NOTE: 'sub' is agent_id, NOT user_id - do not confuse them
+    user_id = payload.get("owner")
+    delegated_permissions = payload.get("delegated_permissions", [])
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "unauthorized", "message": "Invalid token: missing user identity"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Return normalized claims
+    return {
+        "user_id": user_id,
+        "agent_id": payload.get("sub"),
+        "delegated_permissions": delegated_permissions,
+        "session_id": payload.get("session_id"),
+        "delegation_id": payload.get("delegation_id"),
+    }
+
+
+# Type alias for agent claims dependency
+AgentClaimsDep = Annotated[dict, Depends(get_current_agent_claims)]
+
+
+# --- Internal Token Authentication (Gateway-to-Control) ---
+
+# Header scheme for internal API token
+internal_token_header_scheme = APIKeyHeader(name="Authorization", auto_error=False)
+
+
+def verify_internal_token(
+    authorization: str = Depends(internal_token_header_scheme),
+) -> str:
+    """Verify internal API token for gateway-to-control calls.
+
+    This is used for internal service-to-service communication where
+    the gateway needs to call control plane endpoints on behalf of users.
+    The user identity is passed via X-User-ID header, not extracted from
+    a JWT.
+
+    Args:
+        authorization: Authorization header value (Bearer token).
+
+    Returns:
+        The validated token string.
+
+    Raises:
+        HTTPException 401: If token is missing or invalid.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "unauthorized", "message": "Invalid or missing internal token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = authorization.split(" ", 1)[1]
+
+    # Validate against configured internal token
+    if token != settings.GATEWAY_INTERNAL_API_TOKEN:
+        logger.warning("Invalid internal API token received")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "unauthorized", "message": "Invalid internal token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return token
+
+
+# Type alias for internal token dependency
+InternalTokenDep = Annotated[str, Depends(verify_internal_token)]
+
+
 # You can add more dependencies here later, e.g., for role checks
 # def get_current_active_admin(...): ... 

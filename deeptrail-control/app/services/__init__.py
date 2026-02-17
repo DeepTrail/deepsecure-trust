@@ -29,6 +29,15 @@ from .delegation_service import (  # noqa
     ValidationResult,
 )
 from .user_session_service import UserSessionService  # noqa
+from .oauth_service import (  # noqa
+    OAuthConfigError,
+    OAuthError,
+    OAuthExchangeError,
+    OAuthRefreshError,
+    OAuthService,
+    OAuthStateError,
+    get_oauth_service,
+)
 from .vault_client import (  # noqa
     DecryptionError,
     TokenNotFoundError,
@@ -68,4 +77,12 @@ __all__ = [
     "ValidationResult",
     # UserSessionService
     "UserSessionService",
+    # OAuthService
+    "OAuthService",
+    "OAuthError",
+    "OAuthConfigError",
+    "OAuthStateError",
+    "OAuthExchangeError",
+    "OAuthRefreshError",
+    "get_oauth_service",
 ] 

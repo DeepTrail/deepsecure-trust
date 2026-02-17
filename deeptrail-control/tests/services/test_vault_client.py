@@ -9,17 +9,24 @@ Tests cover:
 - Reference format validation
 - Error handling
 - Key management
+- Token expiration tracking
+- Token refresh operations
+- Usage tracking
+- Expiring token identification
 """
 
 import json
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from cryptography.fernet import Fernet
 
 from app.services.vault_client import (
     DecryptionError,
+    StoredTokenData,
+    TokenMetadata,
     VaultClient,
 )
 
@@ -90,12 +97,17 @@ class TestStoreAndRetrieveToken:
     def test_retrieve_token_returns_original_data(
         self, vault: VaultClient, sample_token_data: dict
     ):
-        """retrieve_token should return the exact data that was stored."""
+        """retrieve_token should return the data that was stored, plus metadata."""
         ref = vault.store_token("user@example.com", "slack", sample_token_data)
 
         retrieved = vault.retrieve_token(ref)
 
-        assert retrieved == sample_token_data
+        # Check original token fields are present
+        for key, value in sample_token_data.items():
+            assert retrieved[key] == value
+        # Check metadata is included
+        assert "metadata" in retrieved
+        assert "created_at" in retrieved["metadata"]
 
     def test_retrieve_nonexistent_token_returns_none(self, vault: VaultClient):
         """retrieve_token should return None for unknown reference."""
@@ -113,8 +125,11 @@ class TestStoreAndRetrieveToken:
         ref2 = vault.store_token(user_id, "slack", sample_token_data)
 
         assert ref1 != ref2
-        assert vault.retrieve_token(ref1) == sample_token_data
-        assert vault.retrieve_token(ref2) == sample_token_data
+        retrieved1 = vault.retrieve_token(ref1)
+        retrieved2 = vault.retrieve_token(ref2)
+        for key, value in sample_token_data.items():
+            assert retrieved1[key] == value
+            assert retrieved2[key] == value
 
     def test_store_tokens_for_different_users(
         self, vault: VaultClient, sample_token_data: dict
@@ -136,8 +151,11 @@ class TestStoreAndRetrieveToken:
         # References should be different (both valid)
         assert ref1 != ref2
         # Both should be retrievable
-        assert vault.retrieve_token(ref1) == sample_token_data
-        assert vault.retrieve_token(ref2) == sample_token_data
+        retrieved1 = vault.retrieve_token(ref1)
+        retrieved2 = vault.retrieve_token(ref2)
+        for key, value in sample_token_data.items():
+            assert retrieved1[key] == value
+            assert retrieved2[key] == value
 
 
 # ============================================================================
@@ -281,7 +299,9 @@ class TestUpdateToken:
         result = vault.update_token(ref, new_data)
 
         assert result is True
-        assert vault.retrieve_token(ref) == new_data
+        retrieved = vault.retrieve_token(ref)
+        for key, value in new_data.items():
+            assert retrieved[key] == value
 
     def test_update_nonexistent_token_returns_false(self, vault: VaultClient):
         """update_token should return False for unknown reference."""
@@ -302,7 +322,8 @@ class TestUpdateToken:
         vault.update_token(ref, new_data)
 
         # Same reference should still work
-        assert vault.retrieve_token(ref) == new_data
+        retrieved = vault.retrieve_token(ref)
+        assert retrieved["access_token"] == "updated"
 
 
 # ============================================================================
@@ -412,7 +433,8 @@ class TestKeyManagement:
         ref = vault.store_token("user@example.com", "service", sample_token_data)
         retrieved = vault.retrieve_token(ref)
 
-        assert retrieved == sample_token_data
+        for key, value in sample_token_data.items():
+            assert retrieved[key] == value
 
     def test_vault_loads_key_from_environment(
         self, sample_token_data: dict, monkeypatch
@@ -424,7 +446,9 @@ class TestKeyManagement:
         vault = VaultClient()  # No key argument
 
         ref = vault.store_token("user@example.com", "service", sample_token_data)
-        assert vault.retrieve_token(ref) == sample_token_data
+        retrieved = vault.retrieve_token(ref)
+        for key, value in sample_token_data.items():
+            assert retrieved[key] == value
 
     def test_vault_generates_ephemeral_key_if_none(self, sample_token_data: dict):
         """VaultClient should generate ephemeral key if none provided."""
@@ -436,7 +460,9 @@ class TestKeyManagement:
 
         # Should still work (with ephemeral key)
         ref = vault.store_token("user@example.com", "service", sample_token_data)
-        assert vault.retrieve_token(ref) == sample_token_data
+        retrieved = vault.retrieve_token(ref)
+        for key, value in sample_token_data.items():
+            assert retrieved[key] == value
 
 
 # ============================================================================
@@ -494,13 +520,16 @@ class TestEdgeCases:
         """Should handle empty token data."""
         ref = vault.store_token("user@example.com", "service", {})
 
-        assert vault.retrieve_token(ref) == {}
+        retrieved = vault.retrieve_token(ref)
+        # Should have metadata but no token fields (except metadata)
+        assert "metadata" in retrieved
+        assert len([k for k in retrieved if k != "metadata"]) == 0
 
     def test_store_complex_token_data(self, vault: VaultClient):
         """Should handle complex nested token data."""
         complex_data = {
             "access_token": "abc",
-            "metadata": {
+            "token_metadata": {
                 "scopes": ["read", "write"],
                 "user": {"id": 123, "name": "Test"},
             },
@@ -512,7 +541,11 @@ class TestEdgeCases:
         ref = vault.store_token("user@example.com", "service", complex_data)
         retrieved = vault.retrieve_token(ref)
 
-        assert retrieved == complex_data
+        # Check all original fields are present
+        for key, value in complex_data.items():
+            assert retrieved[key] == value
+        # Also has metadata
+        assert "metadata" in retrieved
 
     def test_user_id_without_at_sign(
         self, vault: VaultClient, sample_token_data: dict
@@ -521,7 +554,9 @@ class TestEdgeCases:
         ref = vault.store_token("simple_user_id", "service", sample_token_data)
 
         assert "simple_user_id" in ref
-        assert vault.retrieve_token(ref) == sample_token_data
+        retrieved = vault.retrieve_token(ref)
+        for key, value in sample_token_data.items():
+            assert retrieved[key] == value
 
     def test_service_id_with_special_chars(
         self, vault: VaultClient, sample_token_data: dict
@@ -530,4 +565,383 @@ class TestEdgeCases:
         ref = vault.store_token("user@example.com", "my-service_v2", sample_token_data)
 
         assert "my-service_v2" in ref
-        assert vault.retrieve_token(ref) == sample_token_data
+        retrieved = vault.retrieve_token(ref)
+        for key, value in sample_token_data.items():
+            assert retrieved[key] == value
+
+
+# ============================================================================
+# Token Expiration Tests
+# ============================================================================
+
+
+class TestTokenExpiration:
+    """Tests for token expiration tracking."""
+
+    def test_store_with_expiration_sets_expires_at(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """store_token with expires_in should set expires_at."""
+        ref = vault.store_token(
+            "user@example.com", "service", sample_token_data, expires_in=3600
+        )
+
+        retrieved = vault.retrieve_token(ref)
+
+        assert retrieved["metadata"]["expires_at"] is not None
+        # Parse the ISO timestamp and verify it's ~1 hour from now
+        expires_at = datetime.fromisoformat(retrieved["metadata"]["expires_at"])
+        now = datetime.now(timezone.utc)
+        # Should be between 59 and 61 minutes from now
+        delta = expires_at - now
+        assert 3500 < delta.total_seconds() < 3700
+
+    def test_store_without_expiration_has_null_expires_at(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """store_token without expires_in should have expires_at=None."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+
+        retrieved = vault.retrieve_token(ref)
+
+        assert retrieved["metadata"]["expires_at"] is None
+
+    def test_store_sets_created_at(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """store_token should set created_at timestamp."""
+        before = datetime.now(timezone.utc)
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+        after = datetime.now(timezone.utc)
+
+        retrieved = vault.retrieve_token(ref)
+
+        created_at = datetime.fromisoformat(retrieved["metadata"]["created_at"])
+        assert before <= created_at <= after
+
+    def test_is_token_expired_returns_true_for_expired(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """is_token_expired should return True for expired tokens."""
+        # Store with 0 second expiration (already expired)
+        ref = vault.store_token(
+            "user@example.com", "service", sample_token_data, expires_in=0
+        )
+
+        # Should be expired immediately
+        assert vault.is_token_expired(ref) is True
+
+    def test_is_token_expired_returns_false_for_valid(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """is_token_expired should return False for valid tokens."""
+        ref = vault.store_token(
+            "user@example.com", "service", sample_token_data, expires_in=3600
+        )
+
+        assert vault.is_token_expired(ref) is False
+
+    def test_is_token_expired_returns_false_for_no_expiration(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """is_token_expired should return False for tokens with no expiration."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+
+        assert vault.is_token_expired(ref) is False
+
+    def test_is_token_expired_returns_false_for_nonexistent(
+        self, vault: VaultClient
+    ):
+        """is_token_expired should return False for nonexistent tokens."""
+        assert vault.is_token_expired("vault://nonexistent-abc123") is False
+
+
+# ============================================================================
+# Token Usage Tracking Tests
+# ============================================================================
+
+
+class TestUsageTracking:
+    """Tests for token usage tracking."""
+
+    def test_retrieve_updates_last_used_at(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """retrieve_token should update last_used_at when update_usage=True."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+
+        # First retrieval
+        retrieved = vault.retrieve_token(ref, update_usage=True)
+
+        assert retrieved["metadata"]["last_used_at"] is not None
+
+    def test_retrieve_without_update_does_not_change_last_used_at(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """retrieve_token should not update last_used_at when update_usage=False."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+
+        # First retrieval with update
+        vault.retrieve_token(ref, update_usage=True)
+        first_used = vault.retrieve_token(ref, update_usage=False)["metadata"][
+            "last_used_at"
+        ]
+
+        # Second retrieval without update
+        import time
+
+        time.sleep(0.01)  # Small delay
+        second_used = vault.retrieve_token(ref, update_usage=False)["metadata"][
+            "last_used_at"
+        ]
+
+        assert first_used == second_used
+
+    def test_initial_last_used_at_is_none(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """Newly stored tokens should have last_used_at=None."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+
+        # Retrieve without updating usage
+        retrieved = vault.retrieve_token(ref, update_usage=False)
+
+        assert retrieved["metadata"]["last_used_at"] is None
+
+
+# ============================================================================
+# Token Refresh Tests
+# ============================================================================
+
+
+class TestRefreshToken:
+    """Tests for refresh_token method."""
+
+    def test_refresh_token_updates_access_token(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """refresh_token should update the access_token."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+
+        result = vault.refresh_token(ref, new_access_token="new_access_token_xyz")
+
+        assert result is True
+        retrieved = vault.retrieve_token(ref)
+        assert retrieved["access_token"] == "new_access_token_xyz"
+
+    def test_refresh_token_updates_refresh_token(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """refresh_token should update refresh_token if provided."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+
+        vault.refresh_token(
+            ref,
+            new_access_token="new_access",
+            new_refresh_token="new_refresh_token_xyz",
+        )
+
+        retrieved = vault.retrieve_token(ref)
+        assert retrieved["refresh_token"] == "new_refresh_token_xyz"
+
+    def test_refresh_token_preserves_refresh_token_if_not_provided(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """refresh_token should keep existing refresh_token if not provided."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+        original_refresh = sample_token_data["refresh_token"]
+
+        vault.refresh_token(ref, new_access_token="new_access")
+
+        retrieved = vault.retrieve_token(ref)
+        assert retrieved["refresh_token"] == original_refresh
+
+    def test_refresh_token_recalculates_expires_at(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """refresh_token should recalculate expires_at if new_expires_in provided."""
+        ref = vault.store_token(
+            "user@example.com", "service", sample_token_data, expires_in=60
+        )
+        original_expires = vault.retrieve_token(ref, update_usage=False)["metadata"][
+            "expires_at"
+        ]
+
+        # Refresh with new expiration
+        vault.refresh_token(ref, new_access_token="new", new_expires_in=7200)
+
+        new_expires = vault.retrieve_token(ref, update_usage=False)["metadata"][
+            "expires_at"
+        ]
+        assert new_expires != original_expires
+        # New expiration should be ~2 hours from now
+        expires_at = datetime.fromisoformat(new_expires)
+        now = datetime.now(timezone.utc)
+        delta = expires_at - now
+        assert 7100 < delta.total_seconds() < 7300
+
+    def test_refresh_token_increments_refresh_count(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """refresh_token should increment refresh_count."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+
+        # First refresh
+        vault.refresh_token(ref, new_access_token="access1")
+        count1 = vault.retrieve_token(ref)["metadata"]["refresh_count"]
+
+        # Second refresh
+        vault.refresh_token(ref, new_access_token="access2")
+        count2 = vault.retrieve_token(ref)["metadata"]["refresh_count"]
+
+        assert count1 == 1
+        assert count2 == 2
+
+    def test_refresh_nonexistent_token_returns_false(self, vault: VaultClient):
+        """refresh_token should return False for nonexistent tokens."""
+        result = vault.refresh_token(
+            "vault://nonexistent-abc123", new_access_token="test"
+        )
+
+        assert result is False
+
+
+# ============================================================================
+# Get Expiring Tokens Tests
+# ============================================================================
+
+
+class TestGetExpiringTokens:
+    """Tests for get_expiring_tokens method."""
+
+    def test_returns_expiring_tokens(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """get_expiring_tokens should return tokens expiring within threshold."""
+        # Store token expiring in 5 minutes
+        ref = vault.store_token(
+            "user@example.com", "service", sample_token_data, expires_in=300
+        )
+
+        expiring = vault.get_expiring_tokens(threshold_minutes=15)
+
+        assert ref in expiring
+
+    def test_excludes_non_expiring_tokens(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """get_expiring_tokens should exclude tokens with longer expiration."""
+        # Store token expiring in 2 hours
+        ref = vault.store_token(
+            "user@example.com", "service", sample_token_data, expires_in=7200
+        )
+
+        expiring = vault.get_expiring_tokens(threshold_minutes=15)
+
+        assert ref not in expiring
+
+    def test_excludes_no_expiration_tokens(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """get_expiring_tokens should exclude tokens with no expiration."""
+        ref = vault.store_token("user@example.com", "service", sample_token_data)
+
+        expiring = vault.get_expiring_tokens(threshold_minutes=15)
+
+        assert ref not in expiring
+
+    def test_returns_multiple_expiring_tokens(
+        self, vault: VaultClient, sample_token_data: dict
+    ):
+        """get_expiring_tokens should return all expiring tokens."""
+        ref1 = vault.store_token("user1@example.com", "s1", sample_token_data, expires_in=60)
+        ref2 = vault.store_token("user2@example.com", "s2", sample_token_data, expires_in=120)
+        ref3 = vault.store_token("user3@example.com", "s3", sample_token_data, expires_in=7200)
+
+        expiring = vault.get_expiring_tokens(threshold_minutes=15)
+
+        assert ref1 in expiring
+        assert ref2 in expiring
+        assert ref3 not in expiring
+
+
+# ============================================================================
+# Token Metadata Data Classes Tests
+# ============================================================================
+
+
+class TestTokenMetadataDataClass:
+    """Tests for TokenMetadata dataclass."""
+
+    def test_to_dict_with_all_fields(self):
+        """TokenMetadata.to_dict should serialize all fields."""
+        now = datetime.now(timezone.utc)
+        metadata = TokenMetadata(
+            created_at=now,
+            expires_at=now + timedelta(hours=1),
+            last_used_at=now,
+            refresh_count=5,
+        )
+
+        result = metadata.to_dict()
+
+        assert result["created_at"] == now.isoformat()
+        assert result["expires_at"] == (now + timedelta(hours=1)).isoformat()
+        assert result["last_used_at"] == now.isoformat()
+        assert result["refresh_count"] == 5
+
+    def test_to_dict_with_none_fields(self):
+        """TokenMetadata.to_dict should handle None fields."""
+        now = datetime.now(timezone.utc)
+        metadata = TokenMetadata(
+            created_at=now,
+            expires_at=None,
+            last_used_at=None,
+        )
+
+        result = metadata.to_dict()
+
+        assert result["created_at"] == now.isoformat()
+        assert result["expires_at"] is None
+        assert result["last_used_at"] is None
+
+    def test_from_dict_roundtrip(self):
+        """TokenMetadata should round-trip through to_dict/from_dict."""
+        now = datetime.now(timezone.utc)
+        original = TokenMetadata(
+            created_at=now,
+            expires_at=now + timedelta(hours=1),
+            last_used_at=now,
+            refresh_count=3,
+        )
+
+        restored = TokenMetadata.from_dict(original.to_dict())
+
+        assert restored.created_at == original.created_at
+        assert restored.expires_at == original.expires_at
+        assert restored.last_used_at == original.last_used_at
+        assert restored.refresh_count == original.refresh_count
+
+
+class TestStoredTokenDataDataClass:
+    """Tests for StoredTokenData dataclass."""
+
+    def test_to_dict_serializes_correctly(self, sample_token_data: dict):
+        """StoredTokenData.to_dict should serialize token and metadata."""
+        now = datetime.now(timezone.utc)
+        metadata = TokenMetadata(created_at=now)
+        stored = StoredTokenData(token_data=sample_token_data, metadata=metadata)
+
+        result = stored.to_dict()
+
+        assert result["token_data"] == sample_token_data
+        assert result["metadata"]["created_at"] == now.isoformat()
+
+    def test_from_dict_handles_legacy_format(self, sample_token_data: dict):
+        """StoredTokenData.from_dict should handle legacy format (no metadata wrapper)."""
+        # Legacy format: just the token data, no metadata wrapper
+        stored = StoredTokenData.from_dict(sample_token_data)
+
+        assert stored.token_data == sample_token_data
+        assert stored.metadata.created_at is not None
+        assert stored.metadata.refresh_count == 0
