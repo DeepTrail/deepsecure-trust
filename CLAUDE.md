@@ -710,6 +710,57 @@ AGENT_JWT=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/verify \
   | jq -r '.access_token')
 ```
 
+### MCP Gateway Protocol Flow (CRITICAL)
+
+**CRITICAL**: The Gateway requires an `initialize` call before any `tools/call` requests. Calling `tools/call` without initialization returns:
+```json
+{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"Session not found. Call initialize first.","data":null}}
+```
+
+**Required MCP Call Sequence:**
+1. `initialize` - Establishes session, returns server info
+2. `tools/list` (optional) - Lists available tools based on agent permissions
+3. `tools/call` - Actually executes a tool (requires active session)
+
+**Initialize Example:**
+```bash
+# Step 1: Initialize MCP session
+curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "id": 1,
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "test-agent", "version": "1.0.0"}
+    }
+  }'
+# Expected: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{...}}}
+
+# Step 2: Now tools/call will work
+curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "id": 2,
+    "params": {"name": "notion.search_pages", "arguments": {"query": "test"}}
+  }'
+```
+
+**Common Mistakes:**
+| Mistake | Fix |
+|---------|-----|
+| Calling `tools/call` without `initialize` | Always call `initialize` first |
+| Using static `AGENT_JWT` placeholder | Create real Agent JWT via challenge-response flow |
+| Reusing session after timeout | Re-initialize if session expired |
+
+**Reference Implementation:** See `demos/demo_sarah_journey_e2e.py` → `step_06_mcp_initialize()` for correct flow.
+
 ### API Contract Verification
 
 **CRITICAL**: Always verify that implementation endpoints match design doc specifications exactly.
@@ -892,6 +943,7 @@ async def client():
 | Feb 2026 | Vault refresh needs Internal Token + X-User-ID | Fixed 401 "Invalid internal token" errors | Token Types for API Validation |
 | Feb 2026 | MERGE_POINTS.md missing critical sections | Added 18-section template requirement | MERGE_POINTS.md Required Sections |
 | Feb 2026 | Task tickets must have mandatory sections | Standardized across workstreams | Task Ticket Structure Requirements |
+| Feb 2026 | MCP Gateway requires `initialize` before `tools/call` | Fixed "Session not found" errors in validation | MCP Gateway Protocol Flow |
 
 ### How to Add New Lessons
 

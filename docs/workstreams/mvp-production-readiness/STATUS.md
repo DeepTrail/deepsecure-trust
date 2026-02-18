@@ -1,8 +1,8 @@
 # MVP Production Readiness: Status
 
-> **Last Updated:** February 17, 2026
-> **Current Phase:** Phase 1 (P1) - 🔄 **Real Backend Integration**
-> **Overall Progress:** P0 100% | P1 ~83% (P1-B1 + P1-B2 complete: 10/12 tasks) | P2 0%
+> **Last Updated:** February 18, 2026
+> **Current Phase:** Phase 1 (P1) - ✅ **COMPLETE**
+> **Overall Progress:** P0 100% | P1 100% (P1-B1 + P1-B2 + P1-B3 complete: 12/12 tasks) | P2 0%
 ---
 
 ## ⚠️ Important Clarification
@@ -70,7 +70,7 @@ The E2E demo passes all 10 steps, but this validates that:
 | Phase | Description | Status | Progress | Notes |
 |-------|-------------|--------|----------|-------|
 | **P0** | E2E Flow Verification | ✅ Complete | 100% | Endpoints exist, formats correct, flow works |
-| **P1** | Replace Mocks with Real Code | 🔄 In Progress | 83% | P1-B1 ✅, P1-B2 ✅, P1-B3 ⏳ |
+| **P1** | Replace Mocks with Real Code | ✅ Complete | 100% | P1-B1 ✅, P1-B2 ✅, P1-B3 ✅ |
 | **P2** | Production Hardening | Blocked by P1 | 0% | IdP, PII masking, prompt injection |
 
 ---
@@ -117,19 +117,19 @@ The E2E demo passes all 10 steps, but this validates that:
 | **WS-G3** | Slack REST API calls (7 tools) | ✅ Complete | [Report](./reports/WS-G3-completion.md) |
 | **WS-G4** | HubSpot CRM REST API calls (9 tools) | ✅ Complete | [Report](./reports/WS-G4-completion.md) |
 
-### P1-B3: Credential Injection (⏳ PENDING)
+### P1-B3: Credential Injection (✅ COMPLETE)
 
-| Task | Description | Status |
-|------|-------------|--------|
-| **WS-H1** | Gateway credential injection from vault | ⏳ Ready |
-| **WS-H2** | Token refresh integration | ⏳ Ready |
+| Task | Description | Status | Report |
+|------|-------------|--------|--------|
+| **WS-H1** | Gateway credential injection from vault | ✅ Complete | [Report](./reports/WS-H1-completion.md) |
+| **WS-H2** | Token refresh integration | ✅ Complete | [Report](./reports/WS-H2-completion.md) |
 
 ### Remaining Mock Locations
 
 | Mock | File | Line | Required Change | Status |
 |------|------|------|-----------------|--------|
 | Login accepts any password | `auth.py` | 68 | Implement real validation or IdP | ⏳ P2 |
-| Credential injection mock | `credential_injection.py` | 293 | Call vault API (WS-H1) | ⏳ P1-B3 |
+| Credential injection mock | `credential_injection.py` | 293 | Call vault API (WS-H1) | ✅ Complete |
 | Audit logs locally | `audit.py` | 348 | Wire to Control Plane DB | ⏳ P2 |
 |
 | Task | Current Mock | Required Change | Status |
@@ -140,11 +140,11 @@ The E2E demo passes all 10 steps, but this validates that:
 | **WS-G3** | Tool calls return mock strings (Slack) | Implement real Slack REST API calls | ✅ Complete |
 | **WS-G4** | Tool calls return mock strings (HubSpot) | Implement real HubSpot CRM REST API calls | ✅ Complete |
 | **P1-1** | Login accepts any password | Implement real password validation or IdP redirect | ⏳ Ready |
-| **P1-2** | Credential injection returns mock token | Call Control Plane vault API for real tokens | ⏳ Ready |
+| **P1-2** | Credential injection returns mock token | Call Control Plane vault API for real tokens | ✅ Complete (WS-H1) |
 | **P1-3** | Tool calls return mock strings | Implement real REST API calls to Notion/Slack | ⏳ Ready |
 | **P1-4** | Audit logs locally | Wire Gateway audit events to Control Plane DB | ⏳ Ready |
 | **P1-5** | OAuth tokens in-memory | Persist to encrypted vault storage | ⏳ Ready |
-| **P1-6** | Token refresh not implemented | Implement refresh flow via Control Plane | ⏳ Ready |
+| **P1-6** | Token refresh not implemented | Implement refresh flow via Control Plane | ✅ Complete (WS-H2) |
 
 ### Code Locations to Modify
 
@@ -182,7 +182,7 @@ deeptrail-gateway/app/middleware/credential_injection.py:357-375
 |-------|--------|---------|-------|
 | **MP1** | ✅ Reached | E2E flow verified | P1 unblocked, but mocks still present |
 | **MP2** | ✅ Reached | Vault API ready | E2, E3 complete - real token storage working |
-| **MP3** | ⏳ Pending | P1 complete | Needs H1, H2 (credential injection) |
+| **MP3** | ✅ Reached | P1 complete | H1, H2 complete (credential injection) |
 
 ---
 
@@ -199,6 +199,10 @@ deeptrail-gateway/app/middleware/credential_injection.py:357-375
 
 | Date | Change | By |
 |------|--------|-----|
+| Feb 18, 2026 | **P1 COMPLETE:** WS-H1 + WS-H2 done, P1-B3 complete, MP3 reached (12/12 P1 tasks) | Claude |
+| Feb 18, 2026 | **WS-H2 COMPLETED:** Token refresh integration (E3 API call with internal token + X-User-ID) | Claude |
+| Feb 18, 2026 | **WS-H1 COMPLETED:** Gateway credential injection from vault (E2 API call with Agent JWT) | Claude |
+| Feb 18, 2026 | **BUG FIX:** E2/E3 vault endpoints now query ConnectedService DB; VaultClient singleton; users.py writes to DB | Claude |
 | Feb 17, 2026 | **STATUS UPDATE:** P1-B1 + P1-B2 fully complete (10/12 P1 tasks), MP2 reached | Claude |
 | Feb 17, 2026 | **WS-G4 COMPLETED:** HubSpot CRM REST API calls (9 tools: contacts + deals CRUD) | Claude |
 | Feb 17, 2026 | **WS-G3 COMPLETED:** Slack REST API calls (7 tools with direct httpx calls) | Claude |

@@ -281,7 +281,8 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     delegated_permissions = context.get("delegated_permissions", [])
     delegation_id = context.get("delegation_id")
     constraints = context.get("constraints", {})  # E5: Delegation constraints
-    
+    agent_jwt_token = context.get("agent_jwt_token")  # H1: Raw JWT for vault API calls
+
     # Build AgentContext for C6 DelegationValidator
     agent_context: AgentContext | None = None
     if agent_session_id and delegated_permissions:
@@ -493,6 +494,7 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             tool_name=original_tool,
             arguments=arguments,
             agent_context=agent_context,  # E3: Pass context for credential error auditing
+            agent_jwt_token=agent_jwt_token,  # H1: Raw JWT for vault API calls
         )
     except MCPError:
         # Re-raise MCP errors (already logged by _forward_to_backend if credential error)
@@ -582,6 +584,7 @@ async def _forward_to_backend(
     tool_name: str,
     arguments: dict[str, Any],
     agent_context: AgentContext | None = None,
+    agent_jwt_token: str | None = None,
 ) -> dict[str, Any]:
     """
     Forward tool call to backend MCP server with credential injection (C7).
@@ -618,6 +621,8 @@ async def _forward_to_backend(
     injection_result = await injector.inject_credentials(
         credential_ref=cred_ref,
         backend_id=backend_id,
+        agent_jwt_token=agent_jwt_token,
+        user_id=agent_context.owner if agent_context else None,
     )
     
     if not injection_result.success:

@@ -15,7 +15,7 @@ Key test areas:
 
 import logging
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -668,5 +668,397 @@ class TestEdgeCases:
         }
         
         headers = injector._format_auth_headers(token_data, "notion")
-        
+
         assert headers["Authorization"] == "Bearer token+with/special=chars&here"
+
+
+# =============================================================================
+# Test: Real Vault Fetch (WS-H1)
+# =============================================================================
+
+
+class TestRealVaultFetch:
+    """Tests for real Control Plane E2 API integration (WS-H1)."""
+
+    @pytest.fixture
+    def injector_with_vault(self) -> CredentialInjector:
+        """Create a CredentialInjector with Control Plane configured."""
+        return CredentialInjector(
+            control_plane_url="http://localhost:8000",
+            cache_ttl_seconds=60,
+            internal_api_token="gateway-internal-secret-token",
+        )
+
+    @pytest.mark.asyncio
+    async def test_fetch_calls_correct_url(self, injector_with_vault):
+        """H1: Should call /api/v1/vault/tokens/{service_id} not {credential_ref}."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access_token": "real_token",
+            "token_type": "bearer",
+            "expires_in": 3600,
+        }
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            result = await injector_with_vault._fetch_from_vault(
+                credential_ref="vault://sarah-notion-abc123",
+                backend_id="notion",
+                agent_jwt_token="jwt-token-xyz",
+            )
+
+        assert result is not None
+        assert result["access_token"] == "real_token"
+        # Verify URL uses backend_id, not credential_ref
+        call_args = mock_client.get.call_args
+        url = call_args[0][0] if call_args[0] else call_args[1].get("url", "")
+        assert "/api/v1/vault/tokens/notion" in url
+        assert "vault://sarah-notion-abc123" not in url
+
+    @pytest.mark.asyncio
+    async def test_fetch_sends_agent_jwt(self, injector_with_vault):
+        """H1: Should send Authorization: Bearer <agent_jwt> header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"access_token": "tok", "token_type": "bearer"}
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            await injector_with_vault._fetch_from_vault(
+                credential_ref="vault://ref",
+                backend_id="notion",
+                agent_jwt_token="my-agent-jwt-123",
+            )
+
+        call_kwargs = mock_client.get.call_args[1]
+        assert call_kwargs["headers"]["Authorization"] == "Bearer my-agent-jwt-123"
+
+    @pytest.mark.asyncio
+    async def test_fetch_returns_none_without_jwt(self, injector_with_vault):
+        """H1: Should return None if no agent JWT provided."""
+        result = await injector_with_vault._fetch_from_vault(
+            credential_ref="vault://ref",
+            backend_id="notion",
+            agent_jwt_token=None,
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_handles_403_forbidden(self, injector_with_vault):
+        """H1: Should return None on 403 (service not delegated)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            result = await injector_with_vault._fetch_from_vault(
+                credential_ref="vault://ref",
+                backend_id="notion",
+                agent_jwt_token="jwt",
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_handles_404_not_found(self, injector_with_vault):
+        """H1: Should return None on 404 (service not connected)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            result = await injector_with_vault._fetch_from_vault(
+                credential_ref="vault://ref",
+                backend_id="notion",
+                agent_jwt_token="jwt",
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_handles_timeout(self, injector_with_vault):
+        """H1: Should return None on timeout."""
+        import httpx
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            result = await injector_with_vault._fetch_from_vault(
+                credential_ref="vault://ref",
+                backend_id="notion",
+                agent_jwt_token="jwt",
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_mvp_mode_still_returns_mock(self):
+        """H1: MVP mock path should still work when control_plane_url is None."""
+        injector = CredentialInjector()  # No control_plane_url
+        result = await injector._fetch_from_vault(
+            credential_ref="vault://ref",
+            backend_id="notion",
+            agent_jwt_token="jwt",
+        )
+        assert result is not None
+        assert result["access_token"] == "mock_access_token_never_exposed_to_agent"
+
+    @pytest.mark.asyncio
+    async def test_inject_credentials_threads_jwt_to_fetch(self, injector_with_vault):
+        """H1: inject_credentials should thread agent_jwt to _fetch_from_vault."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access_token": "real_token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+        }
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            result = await injector_with_vault.inject_credentials(
+                credential_ref="vault://sarah-notion-abc123",
+                backend_id="notion",
+                agent_jwt_token="threaded-jwt",
+            )
+
+        assert result.success is True
+        assert "Authorization" in result.headers
+        # Verify JWT was threaded to the HTTP call
+        call_kwargs = mock_client.get.call_args[1]
+        assert call_kwargs["headers"]["Authorization"] == "Bearer threaded-jwt"
+
+
+# =============================================================================
+# Test: Real Token Refresh (WS-H2)
+# =============================================================================
+
+
+class TestRealTokenRefresh:
+    """Tests for real Control Plane E3 API integration (WS-H2)."""
+
+    @pytest.fixture
+    def injector_with_vault_and_token(self) -> CredentialInjector:
+        """Create injector with Control Plane and internal token configured."""
+        return CredentialInjector(
+            control_plane_url="http://localhost:8000",
+            cache_ttl_seconds=60,
+            internal_api_token="gateway-internal-secret-token",
+        )
+
+    @pytest.mark.asyncio
+    async def test_refresh_calls_correct_url(self, injector_with_vault_and_token):
+        """H2: Should call /api/v1/vault/tokens/{service_id}/refresh."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access_token": "new_token",
+            "token_type": "bearer",
+            "refreshed": True,
+            "message": "Token refreshed",
+        }
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        token_data = {"access_token": "old", "refresh_token": "refresh_me"}
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            result = await injector_with_vault_and_token._refresh_token(
+                credential_ref="vault://ref",
+                token_data=token_data,
+                backend_id="notion",
+                user_id="sarah@acme.com",
+            )
+
+        assert result is not None
+        assert result["access_token"] == "new_token"
+        call_args = mock_client.post.call_args
+        url = call_args[0][0] if call_args[0] else call_args[1].get("url", "")
+        assert "/api/v1/vault/tokens/notion/refresh" in url
+
+    @pytest.mark.asyncio
+    async def test_refresh_sends_internal_token(self, injector_with_vault_and_token):
+        """H2: Should send Authorization: Bearer <internal-token>."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"access_token": "new", "refreshed": True}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        token_data = {"access_token": "old", "refresh_token": "refresh_me"}
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            await injector_with_vault_and_token._refresh_token(
+                "ref", token_data, "notion", "sarah@acme.com"
+            )
+
+        call_kwargs = mock_client.post.call_args[1]
+        assert call_kwargs["headers"]["Authorization"] == "Bearer gateway-internal-secret-token"
+
+    @pytest.mark.asyncio
+    async def test_refresh_sends_x_user_id(self, injector_with_vault_and_token):
+        """H2: Should send X-User-ID header."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"access_token": "new", "refreshed": True}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        token_data = {"access_token": "old", "refresh_token": "refresh_me"}
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            await injector_with_vault_and_token._refresh_token(
+                "ref", token_data, "notion", "sarah@acme.com"
+            )
+
+        call_kwargs = mock_client.post.call_args[1]
+        assert call_kwargs["headers"]["X-User-ID"] == "sarah@acme.com"
+
+    @pytest.mark.asyncio
+    async def test_refresh_sends_force_false_body(self, injector_with_vault_and_token):
+        """H2: Should send {"force": false} body."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"access_token": "new", "refreshed": True}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        token_data = {"access_token": "old", "refresh_token": "refresh_me"}
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            await injector_with_vault_and_token._refresh_token(
+                "ref", token_data, "notion", "sarah@acme.com"
+            )
+
+        call_kwargs = mock_client.post.call_args[1]
+        assert call_kwargs["json"] == {"force": False}
+
+    @pytest.mark.asyncio
+    async def test_refresh_returns_none_without_internal_token(self):
+        """H2: Should return None if no internal_api_token configured."""
+        injector = CredentialInjector(
+            control_plane_url="http://localhost:8000",
+            # No internal_api_token
+        )
+        token_data = {"access_token": "expired", "refresh_token": "refresh_me"}
+        result = await injector._refresh_token("ref", token_data, "notion", "sarah@acme.com")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_returns_none_without_user_id(self, injector_with_vault_and_token):
+        """H2: Should return None if no user_id provided."""
+        token_data = {"access_token": "expired", "refresh_token": "refresh_me"}
+        result = await injector_with_vault_and_token._refresh_token(
+            "ref", token_data, "notion", None
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_handles_400(self, injector_with_vault_and_token):
+        """H2: Should return None on 400 (no refresh token on server)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        token_data = {"access_token": "old", "refresh_token": "refresh_me"}
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            result = await injector_with_vault_and_token._refresh_token(
+                "ref", token_data, "notion", "sarah@acme.com"
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_handles_502(self, injector_with_vault_and_token):
+        """H2: Should return None on 502 (provider error)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 502
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        token_data = {"access_token": "old", "refresh_token": "refresh_me"}
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            result = await injector_with_vault_and_token._refresh_token(
+                "ref", token_data, "notion", "sarah@acme.com"
+            )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_invalidates_cache(self, injector_with_vault_and_token):
+        """H2: Should invalidate cached credential_ref after successful refresh."""
+        # Pre-populate cache
+        injector_with_vault_and_token._token_cache["vault://ref"] = (
+            {"access_token": "old"}, time.time()
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"access_token": "new", "refreshed": True}
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        token_data = {"access_token": "old", "refresh_token": "refresh_me"}
+
+        with patch("app.middleware.credential_injection.httpx.AsyncClient", return_value=mock_client):
+            await injector_with_vault_and_token._refresh_token(
+                "vault://ref", token_data, "notion", "sarah@acme.com"
+            )
+
+        assert "vault://ref" not in injector_with_vault_and_token._token_cache
+
+    @pytest.mark.asyncio
+    async def test_refresh_mvp_mode_returns_none(self):
+        """H2: MVP mode should still return None for refresh."""
+        injector = CredentialInjector()  # No control_plane_url
+        token_data = {"access_token": "old", "refresh_token": "refresh_me"}
+        result = await injector._refresh_token("ref", token_data, "notion", "sarah@acme.com")
+        assert result is None

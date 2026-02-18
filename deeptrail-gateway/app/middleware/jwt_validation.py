@@ -274,6 +274,7 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
             # Store in request state for downstream middleware
             request.state.agent_context = agent_context
             request.state.jwt_payload = jwt_payload
+            request.state.agent_jwt_token = token  # Raw JWT for vault API calls
 
             # Legacy compatibility: also set individual fields
             request.state.agent_id = agent_context.agent_id

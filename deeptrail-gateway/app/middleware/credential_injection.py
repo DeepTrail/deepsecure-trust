@@ -147,16 +147,19 @@ class CredentialInjector:
         self,
         control_plane_url: str | None = None,
         cache_ttl_seconds: int = 60,
+        internal_api_token: str | None = None,
     ):
         """
         Initialize the credential injector.
-        
+
         Args:
             control_plane_url: URL to Control Plane for vault access
             cache_ttl_seconds: How long to cache tokens (short-lived for security)
+            internal_api_token: Internal API token for Gateway-to-Control calls (E3 refresh)
         """
         self.control_plane_url = control_plane_url
         self.cache_ttl_seconds = cache_ttl_seconds
+        self.internal_api_token = internal_api_token
         # Brief cache: credential_ref -> (token_data, cached_at)
         self._token_cache: dict[str, tuple[dict[str, Any], float]] = {}
     
@@ -164,23 +167,27 @@ class CredentialInjector:
         self,
         credential_ref: str | None,
         backend_id: str,
+        agent_jwt_token: str | None = None,
+        user_id: str | None = None,
     ) -> InjectionResult:
         """
         Get authorization headers for a backend request.
-        
+
         This is the main entry point for credential injection. It:
         1. Validates the credential reference exists
         2. Retrieves the token from the vault
         3. Handles token expiration/refresh
         4. Returns properly formatted authorization headers
-        
+
         Args:
             credential_ref: Vault reference (e.g., "vault://sarah-notion-abc123")
             backend_id: Backend identifier for formatting headers
-            
+            agent_jwt_token: Raw Agent JWT for E2 vault API auth
+            user_id: User ID (owner) for E3 token refresh
+
         Returns:
             InjectionResult with headers or error
-            
+
         Security:
             - Returns ONLY headers, not raw token
             - Agent receives error message, not token details
@@ -196,10 +203,10 @@ class CredentialInjector:
                 InjectionError.NO_CREDENTIAL_REF,
                 "No credential configured for this backend"
             )
-        
+
         # Step 2: Retrieve token from vault
-        token_data = await self._get_token(credential_ref)
-        
+        token_data = await self._get_token(credential_ref, backend_id, agent_jwt_token)
+
         if token_data is None:
             # Log partial ref only for security
             ref_preview = credential_ref[:20] if len(credential_ref) > 20 else credential_ref
@@ -212,14 +219,16 @@ class CredentialInjector:
                 InjectionError.TOKEN_NOT_FOUND,
                 "Credential not found. User may need to re-authorize."
             )
-        
+
         # Step 3: Check if token expired and needs refresh
         if self._is_token_expired(token_data):
             logger.info(
                 "Token expired, attempting refresh for backend %s",
                 backend_id,
             )
-            refreshed = await self._refresh_token(credential_ref, token_data)
+            refreshed = await self._refresh_token(
+                credential_ref, token_data, backend_id, user_id
+            )
             
             if refreshed is None:
                 return InjectionResult.fail(
@@ -245,27 +254,33 @@ class CredentialInjector:
     async def _get_token(
         self,
         credential_ref: str,
+        backend_id: str = "",
+        agent_jwt_token: str | None = None,
     ) -> dict[str, Any] | None:
         """
         Retrieve token from vault (with brief caching).
-        
+
         Args:
             credential_ref: Vault reference
-            
+            backend_id: Service identifier (e.g., "notion") for E2 URL
+            agent_jwt_token: Raw Agent JWT for E2 auth
+
         Returns:
             Token data dict or None if not found
         """
         now = time.time()
-        
+
         # Check cache first (brief TTL for security)
         if credential_ref in self._token_cache:
             token_data, cached_at = self._token_cache[credential_ref]
             if now - cached_at < self.cache_ttl_seconds:
                 logger.debug("Token cache hit for credential_ref")
                 return token_data
-        
+
         # Fetch from vault
-        token_data = await self._fetch_from_vault(credential_ref)
+        token_data = await self._fetch_from_vault(
+            credential_ref, backend_id, agent_jwt_token
+        )
         
         if token_data:
             # Cache briefly
@@ -276,16 +291,20 @@ class CredentialInjector:
     async def _fetch_from_vault(
         self,
         credential_ref: str,
+        backend_id: str = "",
+        agent_jwt_token: str | None = None,
     ) -> dict[str, Any] | None:
         """
-        Fetch token from vault (Control Plane API or local vault).
-        
-        MVP: Uses mock token response
-        Production: HashiCorp Vault, AWS Secrets Manager, etc.
-        
+        Fetch token from Control Plane vault API (E2 endpoint).
+
+        MVP: Uses mock token response when control_plane_url is None.
+        Production: Calls GET /api/v1/vault/tokens/{service_id} with Agent JWT.
+
         Args:
             credential_ref: Vault reference (e.g., "vault://sarah-notion-abc123")
-            
+            backend_id: Service identifier (e.g., "notion") for E2 URL path
+            agent_jwt_token: Raw Agent JWT for Authorization header
+
         Returns:
             Token data or None
         """
@@ -299,27 +318,44 @@ class CredentialInjector:
                 "token_type": "Bearer",
                 "expires_in": 3600,
             }
-        
+
+        # Production: Call Control Plane E2 endpoint
+        if not agent_jwt_token:
+            logger.error(
+                "No agent JWT available for vault fetch (service: %s)", backend_id
+            )
+            return None
+
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"{self.control_plane_url}/api/v1/vault/tokens/{credential_ref}",
+                    f"{self.control_plane_url}/api/v1/vault/tokens/{backend_id}",
+                    headers={"Authorization": f"Bearer {agent_jwt_token}"},
                     timeout=5.0,
                 )
-                
+
                 if response.status_code == 200:
                     return response.json()
+                elif response.status_code == 403:
+                    logger.warning(
+                        "Vault 403: service %s not delegated", backend_id
+                    )
+                    return None
                 elif response.status_code == 404:
+                    logger.warning(
+                        "Vault 404: service %s not connected", backend_id
+                    )
                     return None
                 else:
                     logger.error(
-                        "Vault returned status %d for token fetch",
+                        "Vault status %d for service %s",
                         response.status_code,
+                        backend_id,
                     )
                     return None
-                    
+
         except httpx.TimeoutException:
-            logger.error("Vault fetch timeout for credential")
+            logger.error("Vault fetch timeout for service %s", backend_id)
             return None
         except Exception as e:
             # Log error without credential details
@@ -350,53 +386,88 @@ class CredentialInjector:
         self,
         credential_ref: str,
         token_data: dict[str, Any],
+        backend_id: str = "",
+        user_id: str | None = None,
     ) -> dict[str, Any] | None:
         """
-        Refresh an expired OAuth token.
-        
-        MVP: Returns None (refresh not implemented)
-        Production: Calls OAuth refresh endpoint via Control Plane
-        
+        Refresh an expired OAuth token via Control Plane E3 endpoint.
+
+        MVP: Returns None (refresh not implemented) when control_plane_url is None.
+        Production: Calls POST /api/v1/vault/tokens/{service_id}/refresh with
+                    internal API token and X-User-ID header.
+
         Args:
             credential_ref: Vault reference
             token_data: Current token data with refresh_token
-            
+            backend_id: Service identifier (e.g., "notion") for E3 URL path
+            user_id: User email for X-User-ID header
+
         Returns:
             New token data or None if refresh failed
         """
         refresh_token = token_data.get("refresh_token")
-        
+
         if not refresh_token:
             logger.warning("No refresh_token available for token refresh")
             return None
-        
+
         if not self.control_plane_url:
             # MVP: Don't implement refresh
             logger.info("MVP mode: token refresh not implemented")
             return None
-        
+
+        # Production: Call Control Plane E3 endpoint
+        if not self.internal_api_token:
+            logger.error("No internal API token configured for token refresh")
+            return None
+
+        if not user_id:
+            logger.error("No user_id available for token refresh")
+            return None
+
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"{self.control_plane_url}/api/v1/vault/tokens/{credential_ref}/refresh",
+                    f"{self.control_plane_url}/api/v1/vault/tokens/{backend_id}/refresh",
+                    headers={
+                        "Authorization": f"Bearer {self.internal_api_token}",
+                        "X-User-ID": user_id,
+                    },
+                    json={"force": False},
                     timeout=10.0,
                 )
-                
+
                 if response.status_code == 200:
                     new_token = response.json()
                     # Invalidate cache
                     self._token_cache.pop(credential_ref, None)
-                    logger.info("Token refresh successful")
+                    logger.info("Token refresh successful for service %s", backend_id)
                     return new_token
-                else:
-                    logger.error(
-                        "Token refresh failed with status %d",
-                        response.status_code,
+                elif response.status_code == 400:
+                    logger.warning(
+                        "Token refresh 400: no refresh token for %s", backend_id
                     )
                     return None
-                    
+                elif response.status_code == 404:
+                    logger.warning(
+                        "Token refresh 404: service %s not connected", backend_id
+                    )
+                    return None
+                elif response.status_code == 502:
+                    logger.error(
+                        "Token refresh 502: provider error for %s", backend_id
+                    )
+                    return None
+                else:
+                    logger.error(
+                        "Token refresh status %d for %s",
+                        response.status_code,
+                        backend_id,
+                    )
+                    return None
+
         except httpx.TimeoutException:
-            logger.error("Token refresh timeout")
+            logger.error("Token refresh timeout for service %s", backend_id)
             return None
         except Exception as e:
             logger.error("Token refresh error: %s", type(e).__name__)
@@ -500,14 +571,16 @@ def get_credential_injector() -> CredentialInjector:
 def configure_credential_injector(
     control_plane_url: str | None = None,
     cache_ttl_seconds: int = 60,
+    internal_api_token: str | None = None,
 ) -> CredentialInjector:
     """
     Configure and return the credential injector.
-    
+
     Args:
         control_plane_url: URL to Control Plane for vault access
         cache_ttl_seconds: Cache TTL for tokens
-        
+        internal_api_token: Internal API token for Gateway-to-Control calls
+
     Returns:
         Configured CredentialInjector instance
     """
@@ -515,6 +588,7 @@ def configure_credential_injector(
     _injector = CredentialInjector(
         control_plane_url=control_plane_url,
         cache_ttl_seconds=cache_ttl_seconds,
+        internal_api_token=internal_api_token,
     )
     logger.info(
         "Credential injector configured: control_plane_url=%s",
@@ -537,18 +611,24 @@ def reset_credential_injector() -> None:
 async def inject_credentials(
     credential_ref: str | None,
     backend_id: str,
+    agent_jwt_token: str | None = None,
+    user_id: str | None = None,
 ) -> InjectionResult:
     """
     Convenience function to inject credentials.
-    
+
     Uses the configured singleton injector.
-    
+
     Args:
         credential_ref: Vault reference
         backend_id: Backend identifier
-        
+        agent_jwt_token: Raw Agent JWT for E2 vault API auth
+        user_id: User ID (owner) for E3 token refresh
+
     Returns:
         InjectionResult
     """
     injector = get_credential_injector()
-    return await injector.inject_credentials(credential_ref, backend_id)
+    return await injector.inject_credentials(
+        credential_ref, backend_id, agent_jwt_token, user_id
+    )

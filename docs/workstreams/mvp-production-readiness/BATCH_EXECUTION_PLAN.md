@@ -1046,38 +1046,120 @@ curl -s -X POST http://localhost:8000/api/v1/users/me/services/connect \
   }' | jq .
 
 # 5. Complete agent auth flow to get Agent JWT
-# (See P1-B2 Post-Merge Validation for full agent auth flow:
-#  generate keypair → register agent → delegate → challenge → sign → verify)
-# After completing the flow:
-echo "Agent JWT: ${AGENT_JWT:0:20}..."
+# Generate Ed25519 keypair
+python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey.generate()
+public_key = private_key.verify_key
+print(f'PRIVATE_KEY_HEX={private_key.encode().hex()}')
+print(f'PUBLIC_KEY_B64={base64.b64encode(public_key.encode()).decode()}')
+" > /tmp/agent_keys.env
+source /tmp/agent_keys.env
 
-# 6. Make tool call through Gateway (should inject real token)
+# Register agent
+curl -s -X POST http://localhost:8000/api/v1/agents/ \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"p1b3-test-agent\",
+    \"name\": \"P1-B3 Test Agent\",
+    \"public_key\": \"$PUBLIC_KEY_B64\"
+  }" | jq .
+
+# Create delegation
+curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "p1b3-test-agent",
+    "permissions": ["notion:pages:search", "notion:pages:read"]
+  }' | jq .
+
+# Challenge-response
+CHALLENGE=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/challenge \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "p1b3-test-agent"}' | jq -r '.challenge')
+
+SIGNATURE=$(python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey(bytes.fromhex('$PRIVATE_KEY_HEX'))
+signed = private_key.sign('$CHALLENGE'.encode())
+print(base64.urlsafe_b64encode(signed.signature).decode())
+")
+
+AGENT_JWT=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/verify \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"p1b3-test-agent\",
+    \"challenge\": \"$CHALLENGE\",
+    \"signature\": \"$SIGNATURE\"
+  }" | jq -r '.access_token')
+echo "Agent JWT: ${AGENT_JWT:0:30}..."
+
+# ─────────────────────────────────────────────────────────────────
+# 6. Initialize MCP Session (REQUIRED before tools/call)
+# ─────────────────────────────────────────────────────────────────
+echo "Initializing MCP session..."
+INIT_RESULT=$(curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "id": 1,
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "p1b3-test-agent", "version": "1.0.0"}
+    }
+  }')
+echo "Initialize result: $INIT_RESULT"
+# Expected: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{...}}}
+
+# 7. List available tools (optional but verifies session)
+echo "Listing tools..."
+TOOLS_RESULT=$(curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/list",
+    "id": 2,
+    "params": {}
+  }')
+echo "Tools available: $(echo $TOOLS_RESULT | jq -r '.result.tools | length') tools"
+
+# 8. Make tool call through Gateway (should inject real token)
 TOOL_RESULT=$(curl -s -X POST http://localhost:8002/mcp \
   -H "Authorization: Bearer $AGENT_JWT" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "method": "tools/call",
-    "id": 1,
+    "id": 3,
     "params": {"name": "notion.search_pages", "arguments": {"query": "test"}}
   }')
 echo "Tool result: $TOOL_RESULT"
 
-# 7. Verify NOT a mock response
-if [[ "$TOOL_RESULT" != *"MVP Mock"* ]]; then
+# 9. Verify NOT a mock response
+if [[ "$TOOL_RESULT" != *"MVP Mock"* ]] && [[ "$TOOL_RESULT" != *"error"* ]]; then
   echo "✅ Real API response (credential injection working)"
 else
-  echo "❌ Still returning mock response"
+  echo "❌ Still returning mock response or error"
+  echo "$TOOL_RESULT" | jq .
 fi
 
-# 8. Run E2E demo
+# 10. Run E2E demo
 python demos/demo_sarah_journey_e2e.py --verbose
 
-# 9. Run credential injection tests
+# 11. Run credential injection tests
 cd /Users/imaxxs/repositories/mvp-prod-gateway/deeptrail-gateway
 pytest tests/middleware/test_credential_injection.py -v
 
-# 10. Cleanup
+# 12. Cleanup
+rm -f /tmp/agent_keys.env
 cd /Users/imaxxs/repositories/deepsecure-mvp
 docker compose down
 
