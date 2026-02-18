@@ -64,14 +64,34 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 # Function to decode token (will be used in dependencies)
-def decode_token(token: str) -> dict | None:
+def decode_token(token: str, verify_audience: bool = False, audience: str = None) -> dict | None:
     """Decodes the JWT token.
-    Returns the payload if valid, None otherwise.
+
+    Args:
+        token: JWT token string to decode
+        verify_audience: Whether to verify the audience claim (default False)
+        audience: Expected audience if verify_audience is True
+
+    Returns:
+        Payload dict if valid, None otherwise.
     """
     try:
-        payload = jwt.decode(
-            token, SECRET_KEY, algorithms=[ALGORITHM]
-        )
+        options = {}
+        if not verify_audience:
+            # Skip audience verification for agent JWTs that include 'aud'
+            options["verify_aud"] = False
+
+        decode_kwargs = {
+            "token": token,
+            "key": SECRET_KEY,
+            "algorithms": [ALGORITHM],
+            "options": options,
+        }
+
+        if verify_audience and audience:
+            decode_kwargs["audience"] = audience
+
+        payload = jwt.decode(**decode_kwargs)
         return payload
     except JWTError:
         return None

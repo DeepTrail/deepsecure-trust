@@ -42,6 +42,7 @@ docs/
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Total Designs: 2 complete, 1 active, 0 planned                             │
+│
 │  Total Tasks:   84 (54 done, 0 in progress, 10 ready, 20 pending)           │
 │  Overall:       64% complete                                                 │
 │                                                                              │

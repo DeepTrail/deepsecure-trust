@@ -9,17 +9,96 @@ Security properties:
 - Encryption key is loaded from environment (never hardcoded)
 - Token references are opaque (no token data in reference string)
 - No token data appears in logs
+
+Token lifecycle features:
+- Expiration tracking (expires_at timestamp)
+- Usage tracking (last_used_at timestamp)
+- Refresh support (refresh_token, refresh_count)
+- Expiring token identification (get_expiring_tokens)
 """
 
 import json
 import logging
 import os
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TokenMetadata:
+    """Metadata for tracking token lifecycle.
+
+    Attributes:
+        created_at: When the token was stored (UTC).
+        expires_at: When the token expires (UTC), or None if no expiration.
+        last_used_at: When the token was last retrieved (UTC), or None if never used.
+        refresh_count: Number of times the token has been refreshed.
+    """
+
+    created_at: datetime
+    expires_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    refresh_count: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict with ISO format timestamps."""
+        return {
+            "created_at": self.created_at.isoformat(),
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "refresh_count": self.refresh_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TokenMetadata":
+        """Create from dict with ISO format timestamps."""
+        return cls(
+            created_at=datetime.fromisoformat(data["created_at"]),
+            expires_at=datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None,
+            last_used_at=datetime.fromisoformat(data["last_used_at"]) if data.get("last_used_at") else None,
+            refresh_count=data.get("refresh_count", 0),
+        )
+
+
+@dataclass
+class StoredTokenData:
+    """Complete token with metadata.
+
+    Attributes:
+        token_data: The actual OAuth token data (access_token, refresh_token, etc).
+        metadata: Token lifecycle metadata.
+    """
+
+    token_data: Dict[str, Any]
+    metadata: TokenMetadata
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict for storage."""
+        return {
+            "token_data": self.token_data,
+            "metadata": self.metadata.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "StoredTokenData":
+        """Create from storage dict."""
+        # Handle legacy format (no metadata wrapper)
+        if "token_data" not in data:
+            # Legacy: data IS the token_data, create default metadata
+            return cls(
+                token_data=data,
+                metadata=TokenMetadata(created_at=datetime.now(timezone.utc)),
+            )
+        return cls(
+            token_data=data["token_data"],
+            metadata=TokenMetadata.from_dict(data["metadata"]),
+        )
 
 
 class VaultError(Exception):
@@ -132,6 +211,7 @@ class VaultClient:
         user_id: str,
         service_id: str,
         token_data: Dict[str, Any],
+        expires_in: Optional[int] = None,
     ) -> str:
         """Store OAuth token securely.
 
@@ -140,6 +220,9 @@ class VaultClient:
             service_id: Service identifier (e.g., "notion")
             token_data: OAuth token response containing access_token,
                        refresh_token, expires_in, etc.
+            expires_in: Seconds until token expires. If None, token has no
+                       expiration. If provided, expires_at is calculated as
+                       current time + expires_in.
 
         Returns:
             Opaque token reference (e.g., "vault://sarah-notion-a1b2c3d4")
@@ -150,8 +233,27 @@ class VaultClient:
         """
         token_ref = self._generate_ref(user_id, service_id)
 
+        # Calculate timestamps
+        now = datetime.now(timezone.utc)
+        expires_at = None
+        if expires_in is not None:
+            from datetime import timedelta
+
+            expires_at = now + timedelta(seconds=expires_in)
+
+        # Create metadata
+        metadata = TokenMetadata(
+            created_at=now,
+            expires_at=expires_at,
+            last_used_at=None,
+            refresh_count=0,
+        )
+
+        # Wrap token with metadata
+        stored = StoredTokenData(token_data=token_data, metadata=metadata)
+
         # Serialize and encrypt token data
-        plaintext = json.dumps(token_data).encode("utf-8")
+        plaintext = json.dumps(stored.to_dict()).encode("utf-8")
         encrypted = self._fernet.encrypt(plaintext)
 
         # Store encrypted data
@@ -159,22 +261,38 @@ class VaultClient:
 
         # Log without exposing token data
         logger.debug(
-            "Stored token for user=%s service=%s ref=%s",
+            "Stored token for user=%s service=%s ref=%s expires_at=%s",
             user_id,
             service_id,
             token_ref,
+            expires_at.isoformat() if expires_at else "never",
         )
 
         return token_ref
 
-    def retrieve_token(self, token_ref: str) -> Optional[Dict[str, Any]]:
+    def retrieve_token(
+        self, token_ref: str, update_usage: bool = True
+    ) -> Optional[Dict[str, Any]]:
         """Retrieve decrypted OAuth token.
 
         Args:
             token_ref: Token reference from store_token()
+            update_usage: If True, updates last_used_at timestamp.
+                         Set to False for read-only access (e.g., checking expiration).
 
         Returns:
-            Decrypted token data dictionary, or None if not found.
+            Decrypted token data dictionary with metadata, or None if not found.
+            Structure: {
+                "access_token": "...",
+                "refresh_token": "...",
+                ...original token fields...,
+                "metadata": {
+                    "created_at": "2026-02-16T12:00:00+00:00",
+                    "expires_at": "2026-02-16T13:00:00+00:00" or None,
+                    "last_used_at": "2026-02-16T12:30:00+00:00" or None,
+                    "refresh_count": 0
+                }
+            }
 
         Raises:
             DecryptionError: If the token exists but cannot be decrypted
@@ -188,9 +306,24 @@ class VaultClient:
         try:
             # Decrypt token data
             plaintext = self._fernet.decrypt(encrypted)
-            token_data = json.loads(plaintext.decode("utf-8"))
+            raw_data = json.loads(plaintext.decode("utf-8"))
+
+            # Parse stored data (handles legacy format)
+            stored = StoredTokenData.from_dict(raw_data)
+
+            # Optionally update usage timestamp
+            if update_usage:
+                stored.metadata.last_used_at = datetime.now(timezone.utc)
+                # Re-encrypt and store updated data
+                updated_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
+                self._storage[token_ref] = self._fernet.encrypt(updated_plaintext)
+
+            # Return token data with metadata included
+            result = dict(stored.token_data)
+            result["metadata"] = stored.metadata.to_dict()
+
             logger.debug("Retrieved token: ref=%s", token_ref)
-            return token_data
+            return result
         except InvalidToken as e:
             logger.error("Failed to decrypt token: ref=%s error=%s", token_ref, e)
             raise DecryptionError(f"Failed to decrypt token: {token_ref}") from e
@@ -231,7 +364,7 @@ class VaultClient:
         """Update an existing token in storage.
 
         Useful for token refresh operations where the reference stays
-        the same but the token data changes.
+        the same but the token data changes. Preserves existing metadata.
 
         Args:
             token_ref: Existing token reference.
@@ -244,13 +377,173 @@ class VaultClient:
             logger.debug("Token not found for update: ref=%s", token_ref)
             return False
 
-        # Serialize and encrypt new token data
-        plaintext = json.dumps(token_data).encode("utf-8")
-        encrypted = self._fernet.encrypt(plaintext)
-        self._storage[token_ref] = encrypted
+        try:
+            # Get existing data to preserve metadata
+            encrypted = self._storage[token_ref]
+            plaintext = self._fernet.decrypt(encrypted)
+            raw_data = json.loads(plaintext.decode("utf-8"))
+            stored = StoredTokenData.from_dict(raw_data)
 
-        logger.debug("Updated token: ref=%s", token_ref)
-        return True
+            # Update token data, preserve metadata
+            stored.token_data = token_data
+
+            # Serialize and encrypt new token data
+            new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
+            self._storage[token_ref] = self._fernet.encrypt(new_plaintext)
+
+            logger.debug("Updated token: ref=%s", token_ref)
+            return True
+        except InvalidToken as e:
+            logger.error("Failed to decrypt token for update: ref=%s error=%s", token_ref, e)
+            return False
+
+    def refresh_token(
+        self,
+        token_ref: str,
+        new_access_token: str,
+        new_expires_in: Optional[int] = None,
+        new_refresh_token: Optional[str] = None,
+    ) -> bool:
+        """Update token after OAuth refresh flow.
+
+        Updates the access_token (and optionally refresh_token) while preserving
+        other token data and metadata. Recalculates expires_at if new_expires_in
+        is provided. Increments refresh_count.
+
+        Args:
+            token_ref: Existing token reference.
+            new_access_token: The new access token from refresh flow.
+            new_expires_in: Seconds until new token expires. If None, keeps
+                           existing expires_at.
+            new_refresh_token: New refresh token, if rotated. If None, keeps
+                              existing refresh_token.
+
+        Returns:
+            True if token was refreshed, False if not found.
+        """
+        if token_ref not in self._storage:
+            logger.debug("Token not found for refresh: ref=%s", token_ref)
+            return False
+
+        try:
+            # Get existing data
+            encrypted = self._storage[token_ref]
+            plaintext = self._fernet.decrypt(encrypted)
+            raw_data = json.loads(plaintext.decode("utf-8"))
+            stored = StoredTokenData.from_dict(raw_data)
+
+            # Update access_token
+            stored.token_data["access_token"] = new_access_token
+
+            # Update refresh_token if provided
+            if new_refresh_token is not None:
+                stored.token_data["refresh_token"] = new_refresh_token
+
+            # Update expires_at if new_expires_in provided
+            if new_expires_in is not None:
+                from datetime import timedelta
+
+                stored.metadata.expires_at = datetime.now(timezone.utc) + timedelta(
+                    seconds=new_expires_in
+                )
+
+            # Increment refresh count
+            stored.metadata.refresh_count += 1
+
+            # Serialize and encrypt updated data
+            new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
+            self._storage[token_ref] = self._fernet.encrypt(new_plaintext)
+
+            logger.debug(
+                "Refreshed token: ref=%s refresh_count=%d",
+                token_ref,
+                stored.metadata.refresh_count,
+            )
+            return True
+        except InvalidToken as e:
+            logger.error("Failed to decrypt token for refresh: ref=%s error=%s", token_ref, e)
+            return False
+
+    def get_expiring_tokens(self, threshold_minutes: int = 15) -> list[str]:
+        """Find tokens that are expiring within the threshold.
+
+        Useful for proactive token refresh before API calls fail.
+
+        Args:
+            threshold_minutes: Minutes until expiration to consider "expiring".
+                              Default is 15 minutes.
+
+        Returns:
+            List of token references that will expire within threshold_minutes.
+            Tokens with expires_at=None (no expiration) are NOT included.
+        """
+        from datetime import timedelta
+
+        expiring = []
+        threshold = datetime.now(timezone.utc) + timedelta(minutes=threshold_minutes)
+
+        for token_ref, encrypted in self._storage.items():
+            try:
+                plaintext = self._fernet.decrypt(encrypted)
+                raw_data = json.loads(plaintext.decode("utf-8"))
+                stored = StoredTokenData.from_dict(raw_data)
+
+                # Only consider tokens with expiration set
+                if stored.metadata.expires_at is not None:
+                    if stored.metadata.expires_at <= threshold:
+                        expiring.append(token_ref)
+            except (InvalidToken, json.JSONDecodeError, KeyError) as e:
+                logger.warning("Failed to check expiration for ref=%s: %s", token_ref, e)
+                continue
+
+        logger.debug(
+            "Found %d tokens expiring within %d minutes",
+            len(expiring),
+            threshold_minutes,
+        )
+        return expiring
+
+    def is_token_expired(self, token_ref: str) -> bool:
+        """Check if a token has expired.
+
+        Args:
+            token_ref: Token reference to check.
+
+        Returns:
+            True if the token has passed its expires_at time.
+            False if the token is still valid, has no expiration (expires_at=None),
+            or if the token is not found.
+
+        Note:
+            Returns False for non-existent tokens. Use token_exists() to
+            distinguish between "not expired" and "not found".
+        """
+        if token_ref not in self._storage:
+            logger.debug("Token not found for expiration check: ref=%s", token_ref)
+            return False
+
+        try:
+            encrypted = self._storage[token_ref]
+            plaintext = self._fernet.decrypt(encrypted)
+            raw_data = json.loads(plaintext.decode("utf-8"))
+            stored = StoredTokenData.from_dict(raw_data)
+
+            # No expiration = never expired
+            if stored.metadata.expires_at is None:
+                return False
+
+            # Check if past expiration
+            is_expired = stored.metadata.expires_at <= datetime.now(timezone.utc)
+            if is_expired:
+                logger.debug(
+                    "Token expired: ref=%s expires_at=%s",
+                    token_ref,
+                    stored.metadata.expires_at.isoformat(),
+                )
+            return is_expired
+        except InvalidToken as e:
+            logger.error("Failed to decrypt token for expiration check: ref=%s error=%s", token_ref, e)
+            return False
 
     def list_tokens_for_user(self, user_id: str) -> list[str]:
         """List all token references for a user.
