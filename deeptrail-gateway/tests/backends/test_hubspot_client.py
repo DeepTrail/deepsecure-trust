@@ -1,10 +1,14 @@
-"""Tests for HubSpot MCP client (WS-D5)."""
+"""Tests for HubSpot MCP client (WS-D5) and HubSpotDirectClient (WS-G4)."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
 
 from app.backends.hubspot_client import (
     HubSpotMCPClient,
+    HubSpotDirectClient,
+    HubSpotAPIConfig,
     HubSpotClientError,
     HubSpotRateLimitError,
     HubSpotObjectNotFoundError,
@@ -12,6 +16,7 @@ from app.backends.hubspot_client import (
     HubSpotObjectType,
     HubSpotDealStage,
     create_hubspot_client,
+    create_hubspot_direct_client,
 )
 from app.backends.base_mcp_client import ToolResult, ToolCallStatus
 
@@ -966,3 +971,912 @@ class TestExceptionClasses:
         error = HubSpotValidationError("Invalid property")
         assert isinstance(error, HubSpotClientError)
         assert str(error) == "Invalid property"
+
+
+# =============================================================================
+# HubSpotDirectClient Tests (WS-G4)
+# =============================================================================
+
+
+@pytest.fixture
+def hubspot_config():
+    """Create a test configuration."""
+    return HubSpotAPIConfig(
+        base_url="https://api.hubapi.com",
+        timeout_seconds=30.0,
+    )
+
+
+@pytest.fixture
+def hubspot_direct_client(hubspot_config):
+    """Create a HubSpotDirectClient with test configuration."""
+    return HubSpotDirectClient(config=hubspot_config)
+
+
+@pytest.fixture
+def mock_success_response():
+    """Create a mock successful response."""
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 200
+    response.json.return_value = {"id": "123", "properties": {"email": "test@example.com"}}
+    response.text = '{"id": "123"}'
+    return response
+
+
+@pytest.fixture
+def mock_list_response():
+    """Create a mock list response with pagination."""
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 200
+    response.json.return_value = {
+        "results": [{"id": "1"}, {"id": "2"}],
+        "paging": {"next": {"after": "cursor123"}}
+    }
+    response.text = '{"results": [...]}'
+    return response
+
+
+@pytest.fixture
+def mock_error_response():
+    """Create a mock error response."""
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 404
+    response.json.return_value = {"message": "Contact not found", "category": "OBJECT_NOT_FOUND"}
+    response.text = '{"message": "Contact not found"}'
+    return response
+
+
+# =============================================================================
+# Initialization Tests
+# =============================================================================
+
+
+class TestHubSpotDirectClientInit:
+    """Tests for HubSpotDirectClient initialization."""
+
+    def test_init_with_config(self, hubspot_config):
+        """Test initialization with explicit config."""
+        client = HubSpotDirectClient(config=hubspot_config)
+        assert client.base_url == "https://api.hubapi.com"
+        assert client.timeout == 30.0
+
+    def test_init_with_custom_config(self):
+        """Test initialization with custom configuration."""
+        config = HubSpotAPIConfig(
+            base_url="https://custom.hubapi.com",
+            timeout_seconds=60.0,
+        )
+        client = HubSpotDirectClient(config=config)
+        assert client.base_url == "https://custom.hubapi.com"
+        assert client.timeout == 60.0
+
+    def test_factory_function(self, hubspot_config):
+        """Test create_hubspot_direct_client factory."""
+        client = create_hubspot_direct_client(config=hubspot_config)
+        assert isinstance(client, HubSpotDirectClient)
+
+
+# =============================================================================
+# Header Tests
+# =============================================================================
+
+
+class TestDirectClientHeaders:
+    """Tests for header generation."""
+
+    def test_get_headers(self, hubspot_direct_client):
+        """Test headers include Authorization."""
+        headers = hubspot_direct_client._get_headers("pat-na1-xxx")
+        assert headers["Authorization"] == "Bearer pat-na1-xxx"
+        assert headers["Content-Type"] == "application/json"
+
+    def test_get_headers_with_different_token(self, hubspot_direct_client):
+        """Test headers with different token."""
+        headers = hubspot_direct_client._get_headers("pat-eu1-yyy")
+        assert headers["Authorization"] == "Bearer pat-eu1-yyy"
+
+
+# =============================================================================
+# Get Contact Tests
+# =============================================================================
+
+
+class TestGetContact:
+    """Tests for get_contact method."""
+
+    @pytest.mark.asyncio
+    async def test_get_contact_by_id_success(self, hubspot_direct_client, mock_success_response):
+        """Test successful contact lookup by ID."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_success_response
+
+            result = await hubspot_direct_client.get_contact(
+                contact_id="12345", auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            assert result.status == ToolCallStatus.SUCCESS
+            mock_get.assert_called_once()
+            # Verify URL
+            call_args = mock_get.call_args
+            assert "/crm/v3/objects/contacts/12345" in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_get_contact_by_id_with_properties(self, hubspot_direct_client, mock_success_response):
+        """Test contact lookup with specific properties."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_success_response
+
+            await hubspot_direct_client.get_contact(
+                contact_id="12345",
+                properties=["email", "firstname"],
+                auth_token="pat-xxx"
+            )
+
+            call_kwargs = mock_get.call_args.kwargs
+            assert "properties" in str(call_kwargs.get("params", {}))
+
+    @pytest.mark.asyncio
+    async def test_get_contact_by_email(self, hubspot_direct_client):
+        """Test contact lookup by email uses search."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"results": [{"id": "123"}]}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            result = await hubspot_direct_client.get_contact(
+                email="test@example.com", auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            mock_post.assert_called_once()
+            # Verify search endpoint
+            call_args = mock_post.call_args
+            assert "/crm/v3/objects/contacts/search" in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_get_contact_missing_identifier(self, hubspot_direct_client):
+        """Test get_contact without ID or email."""
+        result = await hubspot_direct_client.get_contact(auth_token="pat-xxx")
+
+        assert result.is_error
+        assert "contact_id or email" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_get_contact_no_auth(self, hubspot_direct_client):
+        """Test get_contact without auth token."""
+        result = await hubspot_direct_client.get_contact(contact_id="12345")
+
+        assert result.is_error
+        assert result.status == ToolCallStatus.UNAUTHORIZED
+
+    @pytest.mark.asyncio
+    async def test_get_contact_not_found(self, hubspot_direct_client, mock_error_response):
+        """Test contact not found error."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_error_response
+
+            result = await hubspot_direct_client.get_contact(
+                contact_id="99999", auth_token="pat-xxx"
+            )
+
+            assert result.is_error
+            assert "not found" in result.error_message.lower()
+
+
+# =============================================================================
+# Create Contact Tests
+# =============================================================================
+
+
+class TestCreateContact:
+    """Tests for create_contact method."""
+
+    @pytest.mark.asyncio
+    async def test_create_contact_success(self, hubspot_direct_client, mock_success_response):
+        """Test successful contact creation."""
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_success_response
+
+            result = await hubspot_direct_client.create_contact(
+                email="new@example.com",
+                firstname="John",
+                lastname="Doe",
+                auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            assert result.status == ToolCallStatus.SUCCESS
+            # Verify endpoint
+            call_args = mock_post.call_args
+            assert "/crm/v3/objects/contacts" in call_args.args[0]
+            # Verify payload
+            call_kwargs = mock_post.call_args.kwargs
+            assert call_kwargs["json"]["properties"]["email"] == "new@example.com"
+            assert call_kwargs["json"]["properties"]["firstname"] == "John"
+
+    @pytest.mark.asyncio
+    async def test_create_contact_with_additional_properties(self, hubspot_direct_client, mock_success_response):
+        """Test contact creation with extra properties."""
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_success_response
+
+            await hubspot_direct_client.create_contact(
+                email="new@example.com",
+                properties={"company": "Acme Inc", "phone": "555-1234"},
+                auth_token="pat-xxx"
+            )
+
+            call_kwargs = mock_post.call_args.kwargs
+            props = call_kwargs["json"]["properties"]
+            assert props["company"] == "Acme Inc"
+            assert props["phone"] == "555-1234"
+
+    @pytest.mark.asyncio
+    async def test_create_contact_no_auth(self, hubspot_direct_client):
+        """Test create_contact without auth token."""
+        result = await hubspot_direct_client.create_contact(email="test@example.com")
+
+        assert result.is_error
+        assert result.status == ToolCallStatus.UNAUTHORIZED
+
+    @pytest.mark.asyncio
+    async def test_create_contact_validation_error(self, hubspot_direct_client):
+        """Test validation error handling."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 400
+        mock_response.json.return_value = {"message": "Email already exists", "category": "VALIDATION_ERROR"}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            result = await hubspot_direct_client.create_contact(
+                email="existing@example.com", auth_token="pat-xxx"
+            )
+
+            assert result.is_error
+            assert "validation" in result.error_message.lower()
+
+
+# =============================================================================
+# Update Contact Tests
+# =============================================================================
+
+
+class TestUpdateContact:
+    """Tests for update_contact method."""
+
+    @pytest.mark.asyncio
+    async def test_update_contact_success(self, hubspot_direct_client, mock_success_response):
+        """Test successful contact update."""
+        with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock) as mock_patch:
+            mock_patch.return_value = mock_success_response
+
+            result = await hubspot_direct_client.update_contact(
+                contact_id="12345",
+                properties={"phone": "555-9999"},
+                auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            # Verify endpoint
+            call_args = mock_patch.call_args
+            assert "/crm/v3/objects/contacts/12345" in call_args.args[0]
+            # Verify payload
+            call_kwargs = mock_patch.call_args.kwargs
+            assert call_kwargs["json"]["properties"]["phone"] == "555-9999"
+
+    @pytest.mark.asyncio
+    async def test_update_contact_no_auth(self, hubspot_direct_client):
+        """Test update_contact without auth token."""
+        result = await hubspot_direct_client.update_contact(
+            contact_id="12345",
+            properties={"phone": "555-9999"}
+        )
+
+        assert result.is_error
+        assert result.status == ToolCallStatus.UNAUTHORIZED
+
+
+# =============================================================================
+# List Contacts Tests
+# =============================================================================
+
+
+class TestListContacts:
+    """Tests for list_contacts method."""
+
+    @pytest.mark.asyncio
+    async def test_list_contacts_success(self, hubspot_direct_client, mock_list_response):
+        """Test successful contact listing."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_list_response
+
+            result = await hubspot_direct_client.list_contacts(
+                limit=10, auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            assert result.status == ToolCallStatus.SUCCESS
+            # Verify endpoint
+            call_args = mock_get.call_args
+            assert "/crm/v3/objects/contacts" in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_list_contacts_with_pagination(self, hubspot_direct_client, mock_list_response):
+        """Test list_contacts with pagination cursor."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_list_response
+
+            await hubspot_direct_client.list_contacts(
+                limit=25,
+                after="cursor123",
+                auth_token="pat-xxx"
+            )
+
+            call_kwargs = mock_get.call_args.kwargs
+            assert call_kwargs["params"]["after"] == "cursor123"
+
+    @pytest.mark.asyncio
+    async def test_list_contacts_with_properties(self, hubspot_direct_client, mock_list_response):
+        """Test list_contacts with specific properties."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_list_response
+
+            await hubspot_direct_client.list_contacts(
+                properties=["email", "firstname"],
+                auth_token="pat-xxx"
+            )
+
+            call_kwargs = mock_get.call_args.kwargs
+            assert "email,firstname" in call_kwargs["params"]["properties"]
+
+    @pytest.mark.asyncio
+    async def test_list_contacts_limit_clamped(self, hubspot_direct_client, mock_list_response):
+        """Test limit is clamped to 1-100."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_list_response
+
+            # Test limit > 100
+            await hubspot_direct_client.list_contacts(limit=150, auth_token="pat-xxx")
+            call_kwargs = mock_get.call_args.kwargs
+            assert call_kwargs["params"]["limit"] == 100
+
+            # Test limit < 1
+            await hubspot_direct_client.list_contacts(limit=0, auth_token="pat-xxx")
+            call_kwargs = mock_get.call_args.kwargs
+            assert call_kwargs["params"]["limit"] == 1
+
+
+# =============================================================================
+# Search Contacts Tests
+# =============================================================================
+
+
+class TestSearchContacts:
+    """Tests for search_contacts method."""
+
+    @pytest.mark.asyncio
+    async def test_search_contacts_success(self, hubspot_direct_client):
+        """Test successful contact search."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"results": [{"id": "123"}], "total": 1}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            result = await hubspot_direct_client.search_contacts(
+                filters=[{"propertyName": "email", "operator": "EQ", "value": "test@example.com"}],
+                auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            # Verify endpoint
+            call_args = mock_post.call_args
+            assert "/crm/v3/objects/contacts/search" in call_args.args[0]
+            # Verify filterGroups structure
+            call_kwargs = mock_post.call_args.kwargs
+            assert "filterGroups" in call_kwargs["json"]
+
+    @pytest.mark.asyncio
+    async def test_search_contacts_with_sorts(self, hubspot_direct_client):
+        """Test search with sorting."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"results": []}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            await hubspot_direct_client.search_contacts(
+                filters=[{"propertyName": "email", "operator": "CONTAINS", "value": "example"}],
+                sorts=[{"propertyName": "createdate", "direction": "DESCENDING"}],
+                auth_token="pat-xxx"
+            )
+
+            call_kwargs = mock_post.call_args.kwargs
+            assert "sorts" in call_kwargs["json"]
+
+    @pytest.mark.asyncio
+    async def test_search_contacts_no_auth(self, hubspot_direct_client):
+        """Test search_contacts without auth token."""
+        result = await hubspot_direct_client.search_contacts(
+            filters=[{"propertyName": "email", "operator": "EQ", "value": "test@example.com"}]
+        )
+
+        assert result.is_error
+        assert result.status == ToolCallStatus.UNAUTHORIZED
+
+
+# =============================================================================
+# Get Deal Tests
+# =============================================================================
+
+
+class TestGetDeal:
+    """Tests for get_deal method."""
+
+    @pytest.mark.asyncio
+    async def test_get_deal_success(self, hubspot_direct_client):
+        """Test successful deal lookup."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "deal-123", "properties": {"dealname": "Big Sale"}}
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_response
+
+            result = await hubspot_direct_client.get_deal(
+                deal_id="deal-123", auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            # Verify endpoint
+            call_args = mock_get.call_args
+            assert "/crm/v3/objects/deals/deal-123" in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_get_deal_with_properties(self, hubspot_direct_client):
+        """Test deal lookup with specific properties."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "deal-123"}
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_response
+
+            await hubspot_direct_client.get_deal(
+                deal_id="deal-123",
+                properties=["dealname", "amount"],
+                auth_token="pat-xxx"
+            )
+
+            call_kwargs = mock_get.call_args.kwargs
+            assert "dealname,amount" in str(call_kwargs.get("params", {}))
+
+    @pytest.mark.asyncio
+    async def test_get_deal_no_auth(self, hubspot_direct_client):
+        """Test get_deal without auth token."""
+        result = await hubspot_direct_client.get_deal(deal_id="123")
+
+        assert result.is_error
+        assert result.status == ToolCallStatus.UNAUTHORIZED
+
+
+# =============================================================================
+# Create Deal Tests
+# =============================================================================
+
+
+class TestCreateDeal:
+    """Tests for create_deal method."""
+
+    @pytest.mark.asyncio
+    async def test_create_deal_success(self, hubspot_direct_client):
+        """Test successful deal creation."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "new-deal-123", "properties": {"dealname": "Big Sale"}}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            result = await hubspot_direct_client.create_deal(
+                dealname="Big Sale",
+                amount=10000.50,
+                dealstage="appointmentscheduled",
+                auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            # Verify endpoint
+            call_args = mock_post.call_args
+            assert "/crm/v3/objects/deals" in call_args.args[0]
+            # Verify payload
+            call_kwargs = mock_post.call_args.kwargs
+            props = call_kwargs["json"]["properties"]
+            assert props["dealname"] == "Big Sale"
+            assert props["amount"] == "10000.5"  # Converted to string
+            assert props["dealstage"] == "appointmentscheduled"
+
+    @pytest.mark.asyncio
+    async def test_create_deal_amount_is_string(self, hubspot_direct_client):
+        """Test that deal amount is converted to string."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "deal-123"}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            await hubspot_direct_client.create_deal(
+                dealname="Test Deal",
+                amount=5000,
+                auth_token="pat-xxx"
+            )
+
+            call_kwargs = mock_post.call_args.kwargs
+            # HubSpot requires amount as string
+            assert call_kwargs["json"]["properties"]["amount"] == "5000"
+
+    @pytest.mark.asyncio
+    async def test_create_deal_with_pipeline(self, hubspot_direct_client):
+        """Test deal creation with custom pipeline."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "deal-123"}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            await hubspot_direct_client.create_deal(
+                dealname="Custom Pipeline Deal",
+                pipeline="sales_pipeline",
+                auth_token="pat-xxx"
+            )
+
+            call_kwargs = mock_post.call_args.kwargs
+            assert call_kwargs["json"]["properties"]["pipeline"] == "sales_pipeline"
+
+    @pytest.mark.asyncio
+    async def test_create_deal_no_auth(self, hubspot_direct_client):
+        """Test create_deal without auth token."""
+        result = await hubspot_direct_client.create_deal(dealname="Test Deal")
+
+        assert result.is_error
+        assert result.status == ToolCallStatus.UNAUTHORIZED
+
+
+# =============================================================================
+# Update Deal Tests
+# =============================================================================
+
+
+class TestUpdateDeal:
+    """Tests for update_deal method."""
+
+    @pytest.mark.asyncio
+    async def test_update_deal_success(self, hubspot_direct_client):
+        """Test successful deal update."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "deal-123"}
+
+        with patch.object(httpx.AsyncClient, "patch", new_callable=AsyncMock) as mock_patch:
+            mock_patch.return_value = mock_response
+
+            result = await hubspot_direct_client.update_deal(
+                deal_id="deal-123",
+                properties={"dealstage": "closedwon"},
+                auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            # Verify endpoint
+            call_args = mock_patch.call_args
+            assert "/crm/v3/objects/deals/deal-123" in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_update_deal_no_auth(self, hubspot_direct_client):
+        """Test update_deal without auth token."""
+        result = await hubspot_direct_client.update_deal(
+            deal_id="123",
+            properties={"dealstage": "closedwon"}
+        )
+
+        assert result.is_error
+        assert result.status == ToolCallStatus.UNAUTHORIZED
+
+
+# =============================================================================
+# List Deals Tests
+# =============================================================================
+
+
+class TestListDeals:
+    """Tests for list_deals method."""
+
+    @pytest.mark.asyncio
+    async def test_list_deals_success(self, hubspot_direct_client, mock_list_response):
+        """Test successful deal listing."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_list_response
+
+            result = await hubspot_direct_client.list_deals(
+                limit=10, auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+            # Verify endpoint
+            call_args = mock_get.call_args
+            assert "/crm/v3/objects/deals" in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_list_deals_with_pagination(self, hubspot_direct_client, mock_list_response):
+        """Test list_deals with pagination cursor."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_list_response
+
+            await hubspot_direct_client.list_deals(
+                limit=20,
+                after="deal-cursor",
+                auth_token="pat-xxx"
+            )
+
+            call_kwargs = mock_get.call_args.kwargs
+            assert call_kwargs["params"]["after"] == "deal-cursor"
+
+
+# =============================================================================
+# Error Handling Tests
+# =============================================================================
+
+
+class TestDirectClientErrorHandling:
+    """Tests for HubSpotDirectClient error handling."""
+
+    @pytest.mark.asyncio
+    async def test_401_unauthorized(self, hubspot_direct_client):
+        """Test 401 error handling."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 401
+        mock_response.json.return_value = {"message": "Invalid token", "category": "UNAUTHORIZED"}
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_response
+
+            result = await hubspot_direct_client.list_contacts(auth_token="invalid_token")
+
+            assert result.is_error
+            assert "Unauthorized" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_403_forbidden(self, hubspot_direct_client):
+        """Test 403 error handling."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 403
+        mock_response.json.return_value = {"message": "Insufficient scope", "category": "PERMISSION_DENIED"}
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_response
+
+            result = await hubspot_direct_client.list_contacts(auth_token="pat-xxx")
+
+            assert result.is_error
+            assert "Forbidden" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_404_not_found(self, hubspot_direct_client):
+        """Test 404 error handling."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 404
+        mock_response.json.return_value = {"message": "Contact not found", "category": "OBJECT_NOT_FOUND"}
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_response
+
+            result = await hubspot_direct_client.get_contact(
+                contact_id="99999", auth_token="pat-xxx"
+            )
+
+            assert result.is_error
+            assert "not found" in result.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_429_rate_limit(self, hubspot_direct_client):
+        """Test 429 rate limit handling."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 429
+        mock_response.json.return_value = {"message": "Too many requests", "category": "RATE_LIMIT"}
+
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_response
+
+            result = await hubspot_direct_client.list_contacts(auth_token="pat-xxx")
+
+            assert result.is_error
+            assert "rate limit" in result.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_400_validation_error(self, hubspot_direct_client):
+        """Test 400 validation error handling."""
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 400
+        mock_response.json.return_value = {"message": "Invalid email format", "category": "VALIDATION_ERROR"}
+
+        with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            result = await hubspot_direct_client.create_contact(
+                email="not-an-email", auth_token="pat-xxx"
+            )
+
+            assert result.is_error
+            assert "validation" in result.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_timeout_error(self, hubspot_direct_client):
+        """Test timeout handling."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.side_effect = httpx.TimeoutException("Request timed out")
+
+            result = await hubspot_direct_client.list_contacts(auth_token="pat-xxx")
+
+            assert result.is_error
+            assert result.status == ToolCallStatus.TIMEOUT
+            assert "timed out" in result.error_message.lower()
+
+    @pytest.mark.asyncio
+    async def test_request_error(self, hubspot_direct_client):
+        """Test general request error handling."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.side_effect = httpx.RequestError("Connection failed")
+
+            result = await hubspot_direct_client.list_contacts(auth_token="pat-xxx")
+
+            assert result.is_error
+            assert "request failed" in result.error_message.lower()
+
+
+# =============================================================================
+# Call Tool Dispatcher Tests
+# =============================================================================
+
+
+class TestDirectClientCallToolDispatcher:
+    """Tests for call_tool dispatcher."""
+
+    @pytest.mark.asyncio
+    async def test_call_tool_list_contacts(self, hubspot_direct_client, mock_list_response):
+        """Test call_tool dispatches to list_contacts."""
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_list_response
+
+            result = await hubspot_direct_client.call_tool(
+                "list_contacts",
+                {"limit": 5},
+                auth_token="pat-xxx"
+            )
+
+            assert not result.is_error
+
+    @pytest.mark.asyncio
+    async def test_call_tool_unknown(self, hubspot_direct_client):
+        """Test call_tool with unknown tool."""
+        result = await hubspot_direct_client.call_tool(
+            "unknown_tool",
+            {},
+            auth_token="pat-xxx"
+        )
+
+        assert result.is_error
+        assert "Unknown tool" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_call_tool_get_contact_missing_id(self, hubspot_direct_client):
+        """Test call_tool get_contact without contact_id or email."""
+        result = await hubspot_direct_client.call_tool(
+            "get_contact",
+            {},
+            auth_token="pat-xxx"
+        )
+
+        assert result.is_error
+        assert "contact_id or email" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_call_tool_create_contact_missing_email(self, hubspot_direct_client):
+        """Test call_tool create_contact without email."""
+        result = await hubspot_direct_client.call_tool(
+            "create_contact",
+            {"firstname": "John"},
+            auth_token="pat-xxx"
+        )
+
+        assert result.is_error
+        assert "email is required" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_call_tool_update_contact_missing_id(self, hubspot_direct_client):
+        """Test call_tool update_contact without contact_id."""
+        result = await hubspot_direct_client.call_tool(
+            "update_contact",
+            {"properties": {"phone": "555-1234"}},
+            auth_token="pat-xxx"
+        )
+
+        assert result.is_error
+        assert "contact_id is required" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_call_tool_update_contact_missing_properties(self, hubspot_direct_client):
+        """Test call_tool update_contact without properties."""
+        result = await hubspot_direct_client.call_tool(
+            "update_contact",
+            {"contact_id": "123"},
+            auth_token="pat-xxx"
+        )
+
+        assert result.is_error
+        assert "properties is required" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_call_tool_get_deal_missing_id(self, hubspot_direct_client):
+        """Test call_tool get_deal without deal_id."""
+        result = await hubspot_direct_client.call_tool(
+            "get_deal",
+            {},
+            auth_token="pat-xxx"
+        )
+
+        assert result.is_error
+        assert "deal_id is required" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_call_tool_create_deal_missing_dealname(self, hubspot_direct_client):
+        """Test call_tool create_deal without dealname."""
+        result = await hubspot_direct_client.call_tool(
+            "create_deal",
+            {"amount": 1000},
+            auth_token="pat-xxx"
+        )
+
+        assert result.is_error
+        assert "dealname is required" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_call_tool_search_contacts_missing_filters(self, hubspot_direct_client):
+        """Test call_tool search_contacts without filters."""
+        result = await hubspot_direct_client.call_tool(
+            "search_contacts",
+            {},
+            auth_token="pat-xxx"
+        )
+
+        assert result.is_error
+        assert "filters is required" in result.error_message
+
+
+# =============================================================================
+# Direct Client Factory Function Tests
+# =============================================================================
+
+
+class TestDirectClientFactoryFunction:
+    """Tests for direct client factory function."""
+
+    def test_create_hubspot_direct_client_with_config(self, hubspot_config):
+        """Test create_hubspot_direct_client with config."""
+        client = create_hubspot_direct_client(config=hubspot_config)
+
+        assert isinstance(client, HubSpotDirectClient)
+        assert client.base_url == "https://api.hubapi.com"
+
+    def test_create_hubspot_direct_client_default(self):
+        """Test create_hubspot_direct_client with defaults."""
+        client = create_hubspot_direct_client()
+
+        assert isinstance(client, HubSpotDirectClient)

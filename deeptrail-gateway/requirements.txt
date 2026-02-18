@@ -3,6 +3,7 @@ fastapi>=0.100.0
 uvicorn[standard]>=0.20.0
 httpx>=0.25.0
 pydantic>=2.0.0
+pydantic-settings>=2.0.0  # For environment variable configuration
 python-multipart>=0.0.6
 python-jose[cryptography]>=3.3.0  # For JWT validation with signature verification
 pyjwt>=2.8.0  # Alternative JWT library (currently using python-jose)

@@ -29,7 +29,7 @@ docs/
 |--------|-------|----------|--------|-----------------|
 | [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Phase 4: Complete | 100% (43/43) | ✅ Complete | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
 | [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | ✅ Phase 4: Complete | 100% (9/9) | ✅ Complete | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
-| [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | Phase 3: Execution | 9% (3/32) | ⏳ In Progress | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
+| [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | Phase 3: Execution | 17% (2/12 P1 tasks) | ⏳ In Progress | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
 
 
 ---
@@ -42,7 +42,8 @@ docs/
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Total Designs: 2 complete, 1 active, 0 planned                             │
-│  Total Tasks:   84 (55 done, 0 in progress, 2 ready, 27 pending)            │
+│
+│  Total Tasks:   84 (54 done, 0 in progress, 10 ready, 20 pending)           │
 │  Overall:       64% complete                                                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -59,9 +60,9 @@ _No designs currently in this phase_
 _No designs currently in this phase_
 
 ### Phase 3: Execution
-| Design | Progress | Current Batch | Next Task |
-|--------|----------|---------------|-----------|
-| MVP Production Readiness | 9% (3/32) | P1-B2 | WS-G2 (Backend Integration: Slack) |
+| Design | Tasks | Progress | Breakdown | Next Step |
+|--------|-------|----------|-----------|-----------|
+| MVP Production Readiness | 12 (P1) | 17% (2/12) | [Breakdown](./mvp-production-readiness-breakdown.md) | `/execute-task WS-F1 mvp-production-readiness` |
 
 ### Phase 4: Learning
 _No designs currently in this phase_
