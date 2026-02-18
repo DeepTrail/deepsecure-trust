@@ -1,8 +1,8 @@
 # MVP Production Readiness: Status
 
-> **Last Updated:** February 16, 2026  
-> **Current Phase:** Phase 0 (P0) - ✅ **E2E Flow Verified** (Mocks Still Present)  
-> **Overall Progress:** P0 100% | P1 0% | P2 0%
+> **Last Updated:** February 17, 2026
+> **Current Phase:** Phase 1 (P1) - 🔄 **Real Backend Integration**
+> **Overall Progress:** P0 100% | P1 ~31% (WS-E1, WS-E3, WS-F3, WS-G3, WS-G4 complete) | P2 0%
 
 ---
 
@@ -71,7 +71,7 @@ The E2E demo passes all 10 steps, but this validates that:
 | Phase | Description | Status | Progress | Notes |
 |-------|-------------|--------|----------|-------|
 | **P0** | E2E Flow Verification | ✅ Complete | 100% | Endpoints exist, formats correct, flow works |
-| **P1** | Replace Mocks with Real Code | Ready to Start | 0% | Remove MVP mocks, connect real APIs |
+| **P1** | Replace Mocks with Real Code | 🔄 In Progress | ~31% | WS-E1, WS-E3, WS-F3, WS-G3, WS-G4 complete |
 | **P2** | Production Hardening | Blocked by P1 | 0% | IdP, PII masking, prompt injection |
 
 ---
@@ -98,14 +98,19 @@ The E2E demo passes all 10 steps, but this validates that:
 
 ## P1 Scope: What Needs to Be Done (Mocks → Real)
 
-| Task | Current Mock | Required Change |
-|------|--------------|-----------------|
-| **P1-1** | Login accepts any password | Implement real password validation or IdP redirect |
-| **P1-2** | Credential injection returns mock token | Call Control Plane vault API for real tokens |
-| **P1-3** | Tool calls return mock strings | Implement real REST API calls to Notion/Slack |
-| **P1-4** | Audit logs locally | Wire Gateway audit events to Control Plane DB |
-| **P1-5** | OAuth tokens in-memory | Persist to encrypted vault storage |
-| **P1-6** | Token refresh not implemented | Implement refresh flow via Control Plane |
+| Task | Current Mock | Required Change | Status |
+|------|--------------|-----------------|--------|
+| **WS-E1** | OAuth tokens lack expiration tracking | Enhance VaultClient with expiration/refresh | ✅ Complete |
+| **WS-E3** | Token refresh endpoint | Create POST /api/v1/vault/tokens/{service_id}/refresh | ✅ Complete |
+| **WS-F3** | OAuth endpoints | Create /api/v1/oauth/{service_id}/{authorize,callback,refresh} | ✅ Complete |
+| **WS-G3** | Tool calls return mock strings (Slack) | Implement real Slack REST API calls | ✅ Complete |
+| **WS-G4** | Tool calls return mock strings (HubSpot) | Implement real HubSpot CRM REST API calls | ✅ Complete |
+| **P1-1** | Login accepts any password | Implement real password validation or IdP redirect | ⏳ Ready |
+| **P1-2** | Credential injection returns mock token | Call Control Plane vault API for real tokens | ⏳ Ready |
+| **P1-3** | Tool calls return mock strings | Implement real REST API calls to Notion/Slack | ⏳ Ready |
+| **P1-4** | Audit logs locally | Wire Gateway audit events to Control Plane DB | ⏳ Ready |
+| **P1-5** | OAuth tokens in-memory | Persist to encrypted vault storage | ⏳ Ready |
+| **P1-6** | Token refresh not implemented | Implement refresh flow via Control Plane | ⏳ Ready |
 
 ### Code Locations to Modify
 
@@ -160,6 +165,11 @@ deeptrail-gateway/app/middleware/credential_injection.py:357-375
 
 | Date | Change | By |
 |------|--------|-----|
+| Feb 17, 2026 | **WS-G4 COMPLETED:** HubSpot CRM REST API calls (9 tools: contacts + deals CRUD) | Claude |
+| Feb 17, 2026 | **WS-G3 COMPLETED:** Slack REST API calls (7 tools with direct httpx calls) | Claude |
+| Feb 17, 2026 | **WS-F3 COMPLETED:** OAuth endpoints (authorize, callback, refresh) | Claude |
+| Feb 17, 2026 | **WS-E3 COMPLETED:** Token refresh endpoint implemented | Claude |
+| Feb 17, 2026 | WS-E1 marked complete (VaultClient with expiration tracking) | Claude |
 | Feb 16, 2026 | Created MERGE_POINTS.md with MP1-MP4 definitions | Claude |
 | Feb 16, 2026 | **CORRECTED:** P0 was "E2E flow verification" not "mock removal" | Claude |
 | Feb 16, 2026 | Added mock inventory with file locations | Claude |
