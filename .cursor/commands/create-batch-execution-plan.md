@@ -655,6 +655,203 @@ grep -q "git worktree remove" $FILE && echo "✅ Cleanup commands" || echo "❌ 
 
 ---
 
+## Validation Sections (Per-Batch REQUIRED)
+
+Every batch must include Pre-Merge and Post-Merge validation sections.
+
+### Validation Template
+
+```markdown
+### Validation
+
+#### Pre-Merge Validation (Unit Tests Only)
+
+Run these BEFORE merging to dev branch:
+
+\`\`\`bash
+# Control worktree: Run unit tests
+cd /path/to/control-worktree/[service-dir]
+pytest tests/[relevant-tests]/ -v
+
+# Gateway worktree: Run unit tests
+cd /path/to/gateway-worktree/[service-dir]
+pytest tests/[relevant-tests]/ -v
+\`\`\`
+
+#### Post-Merge Validation (Integration Tests)
+
+Run these AFTER merging and rebuilding containers:
+
+\`\`\`bash
+# ═══════════════════════════════════════════════════════════════
+# [BATCH-ID] VALIDATION - [Description] (POST-MERGE)
+# ═══════════════════════════════════════════════════════════════
+# All commands should return 200 (or expected status codes)
+# ═══════════════════════════════════════════════════════════════
+
+# 0. Rebuild containers with new code
+cd /path/to/main-repo
+docker compose build [services]
+docker compose up -d [dependencies] [services]
+sleep 15
+
+# 1. Verify services are healthy
+curl -sf http://localhost:[port]/health && echo "✅ [Service] healthy"
+
+# 2. Verify new endpoints exist
+curl -s http://localhost:[port]/openapi.json | jq '.paths | keys | map(select(contains("[keyword]")))' 
+
+# ─────────────────────────────────────────────────────────────────
+# SETUP: Get required tokens
+# ─────────────────────────────────────────────────────────────────
+
+# 3. Get user token via login (note: returns "token" field)
+USER_TOKEN=$(curl -s -X POST http://localhost:[port]/api/v1/auth/login \\
+  -H "Content-Type: application/json" \\
+  -d '{"email":"[user]","password":"[password]"}' | jq -r '.token')
+echo "User token: \${USER_TOKEN:0:20}..."
+
+# ─────────────────────────────────────────────────────────────────
+# TEST [N]: [Description]
+# ─────────────────────────────────────────────────────────────────
+
+echo "Test [N]: [Description]..."
+curl -s -w "\\nHTTP Status: %{http_code}\\n" \\
+  -X [METHOD] "http://localhost:[port]/api/v1/[endpoint]" \\
+  -H "Authorization: Bearer $[TOKEN_VAR]" \\
+  -H "Content-Type: application/json" \\
+  -d '[payload]'
+# Expected: [response description]
+
+# ─────────────────────────────────────────────────────────────────
+# CLEANUP
+# ─────────────────────────────────────────────────────────────────
+
+docker compose down
+
+echo "✅ [BATCH-ID] Post-Merge Validation Complete"
+\`\`\`
+```
+
+### Token Types Reference
+
+Different endpoints require different token types. Use this reference:
+
+| Token Type | How to Obtain | Used For |
+|------------|---------------|----------|
+| **User Token** | `POST /api/v1/auth/login` → `.token` | User-facing endpoints |
+| **Agent JWT** | Challenge-response flow (Ed25519) | Agent-to-Control communication |
+| **Internal Token** | From docker-compose.yml env var | Gateway-to-Control internal APIs |
+| **Admin Token** | Admin login or env var | Administrative endpoints |
+
+### Agent JWT Creation Template
+
+For endpoints requiring Agent JWT:
+
+```bash
+# Generate Ed25519 keypair
+python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey.generate()
+public_key = private_key.verify_key
+print(f'PRIVATE_KEY_HEX={private_key.encode().hex()}')
+print(f'PUBLIC_KEY_B64={base64.b64encode(public_key.encode()).decode()}')
+" > /tmp/agent_keys.env
+source /tmp/agent_keys.env
+
+# Register agent
+curl -s -X POST http://localhost:8000/api/v1/agents/ \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"test-agent-001\",
+    \"name\": \"Test Agent\",
+    \"public_key\": \"$PUBLIC_KEY_B64\"
+  }"
+
+# Create delegation
+curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "test-agent-001", "permissions": ["service:scope:action"]}'
+
+# Request and sign challenge
+CHALLENGE=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/challenge \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "test-agent-001"}' | jq -r '.challenge')
+
+SIGNATURE=$(python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey(bytes.fromhex('$PRIVATE_KEY_HEX'))
+signed = private_key.sign('$CHALLENGE'.encode())
+print(base64.urlsafe_b64encode(signed.signature).decode())
+")
+
+# Get Agent JWT
+AGENT_JWT=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/verify \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"test-agent-001\",
+    \"challenge\": \"$CHALLENGE\",
+    \"signature\": \"$SIGNATURE\"
+  }" | jq -r '.access_token')
+```
+
+---
+
+## MERGE_POINTS.md Creation
+
+Alongside BATCH_EXECUTION_PLAN.md, create MERGE_POINTS.md using the template guide.
+
+### When to Create
+
+- **After** BATCH_EXECUTION_PLAN.md is created
+- **Before** starting batch execution
+
+### How to Create
+
+1. **Read the template guide:**
+   ```
+   docs/workstreams/MERGE_POINT_GUIDE.md
+   ```
+
+2. **Create the file:**
+   ```
+   docs/workstreams/[feature-name]/MERGE_POINTS.md
+   ```
+
+3. **Required sections** (see MERGE_POINT_GUIDE.md for full template):
+   - Code Dependencies vs Runtime Dependencies
+   - Development Mode vs Integration Mode
+   - Runtime Dependencies by Merge Point
+   - Per-MP: Merge Actions, Container Deployment, Container Test Scenarios, Cleanup, Success Criteria, Post-Merge Status Update
+   - Testing Strategy by Phase
+   - Troubleshooting
+   - Container Deployment Schedule
+   - Quick Reference Commands
+   - Merge Point Status table with Progress Summary
+   - History
+
+### Post-Creation Verification
+
+```bash
+FEATURE="[feature-name]"
+FILE="docs/workstreams/${FEATURE}/MERGE_POINTS.md"
+
+echo "=== MERGE_POINTS.md Verification ==="
+grep -q "## Code Dependencies vs Runtime Dependencies" $FILE && echo "✅ Dependencies section" || echo "❌ MISSING"
+grep -q "### Merge Actions" $FILE && echo "✅ Merge Actions" || echo "❌ MISSING"
+grep -q "### Container Test Scenarios" $FILE && echo "✅ Container Tests" || echo "❌ MISSING"
+grep -q "### Post-Merge Status Update" $FILE && echo "✅ Status Update" || echo "❌ MISSING"
+grep -q "## Quick Reference Commands" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING"
+grep -q "## Merge Point Status" $FILE && echo "✅ Status Table" || echo "❌ MISSING"
+echo "=== Verification Complete ==="
+```
+
+---
+
 ## Related Commands
 
 | Command | Purpose |
@@ -666,3 +863,12 @@ grep -q "git worktree remove" $FILE && echo "✅ Cleanup commands" || echo "❌ 
 | `/execute-task` | Executes a task |
 | `/complete-task` | Marks task complete (auto after execute) |
 | `/sync-worktree-status` | Syncs status across worktrees |
+| `/verify-batch-completion` | Verifies batch completion status |
+
+## Related Templates
+
+| Template | Purpose |
+|----------|---------|
+| `docs/workstreams/MERGE_POINT_GUIDE.md` | Template for MERGE_POINTS.md creation |
+| `docs/workstreams/TASK_SPEC_TEMPLATE.md` | Template for task specifications |
+| `docs/workstreams/TASK_TICKET_TEMPLATE.md` | Template for task tickets |

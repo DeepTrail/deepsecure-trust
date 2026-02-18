@@ -4,18 +4,21 @@
 >
 > **Applies to:** Any design document broken into workstreams and tasks.
 >
-> **Last Updated:** January 2026
+> **Last Updated:** February 2026
 
 ---
 
 ## Table of Contents
 
 1. [What Are Merge Points?](#what-are-merge-points)
-2. [Identifying Merge Points](#identifying-merge-points)
-3. [Merge Point Workflow](#merge-point-workflow)
-4. [Testing Strategy](#testing-strategy)
-5. [Container Deployment](#container-deployment)
-6. [Templates](#templates)
+2. [Code Dependencies vs Runtime Dependencies](#code-dependencies-vs-runtime-dependencies)
+3. [Development Mode vs Integration Mode](#development-mode-vs-integration-mode)
+4. [Identifying Merge Points](#identifying-merge-points)
+5. [Merge Point Workflow](#merge-point-workflow)
+6. [Testing Strategy](#testing-strategy)
+7. [Container Deployment](#container-deployment)
+8. [Templates](#templates)
+9. [Output Verification Checklist](#output-verification-checklist)
 
 ---
 
@@ -46,6 +49,121 @@ Worktree A:   A1 ─→ A2 ─→ A3 ─→ A4 ─┐
                                      ├──→ MP1 ──→ Next batch
 Worktree B:   B1 ─→ B2 ─→ B3 ─→ B4 ─┘
 ```
+
+---
+
+## Code Dependencies vs Runtime Dependencies
+
+Understanding the difference between dependency types is critical for parallel development:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DEPENDENCY TYPES IN MERGE POINTS                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CODE DEPENDENCY (Worktree-level)                                           │
+│  ─────────────────────────────────                                          │
+│  • Task needs another task's API/interface to BUILD                         │
+│  • Blocks task from STARTING                                                │
+│  • Tracked in task tickets and STATUS.md                                    │
+│  • Resolved when dependent task is "code complete"                          │
+│                                                                              │
+│  Example: H1 (credential injector) needs E2 (vault endpoint) to know        │
+│           endpoint format: GET /api/v1/vault/tokens/{service_id}            │
+│                                                                              │
+│  RUNTIME DEPENDENCY (Deployment-level)                                      │
+│  ────────────────────────────────────                                       │
+│  • Task needs another service RUNNING for integration testing               │
+│  • Does NOT block task from starting                                        │
+│  • Resolved at MERGE POINTS when services are deployed together             │
+│  • Development proceeds with mocks/local fallbacks                          │
+│                                                                              │
+│  Example: H1 needs Control Plane running to fetch real tokens               │
+│           During P0, H1 used mock tokens instead                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Task Lifecycle with Dependencies
+
+```
+                              CODE COMPLETE                    INTEGRATION COMPLETE
+                                   │                                   │
+ ┌──────────┐   ┌──────────┐   ┌──┴───────┐   ┌──────────┐   ┌────────┴─────────┐
+ │ Blocked  │ → │  Ready   │ → │   Dev    │ → │  Code    │ → │   Integration    │
+ │          │   │          │   │          │   │ Complete │   │     Complete     │
+ └──────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────────────┘
+      │              │              │              │                   │
+      │              │              │              │                   │
+  Waiting for    Code deps      Building      Unit tests         Services
+  code deps      satisfied      with mocks    pass, API          deployed,
+  to complete                   /local mode   documented         integration
+                                                                 tests pass
+```
+
+### When Each Dependency Type Matters
+
+| Phase | Code Dependencies | Runtime Dependencies |
+|-------|-------------------|----------------------|
+| **Task Creation** | Listed in ticket metadata | Listed in ticket metadata |
+| **Task Start** | Must be satisfied (✅) | Not required |
+| **Development** | Use completed APIs | Use mocks/local fallbacks |
+| **Unit Testing** | Against real interfaces | With mocked services |
+| **Code Complete** | All satisfied | May be unavailable |
+| **Merge Point** | All satisfied | Services deployed |
+| **Integration Testing** | All satisfied | All services running |
+
+---
+
+## Development Mode vs Integration Mode
+
+### Development Mode (In Worktree)
+
+During task implementation, you can work WITHOUT all services running:
+
+| Service Down | Fallback Behavior | Tasks Affected |
+|--------------|-------------------|----------------|
+| Control Plane | Use mock responses | Backend client tasks |
+| Gateway | Control Plane works standalone | API endpoint tasks |
+| Both down | Unit tests still pass with mocks | All tasks |
+
+**Development Environment:**
+```bash
+# Control worktree
+cd /path/to/control-worktree/[service-dir]
+pytest tests/ -v  # Works without Gateway
+
+# Gateway worktree
+cd /path/to/gateway-worktree/[service-dir]
+pytest tests/ -v  # Works without Control Plane
+```
+
+### Integration Mode (At Merge Point)
+
+At merge points, services must be running for integration testing:
+
+| Mode | When | Services Required | Purpose |
+|------|------|-------------------|---------|
+| Dev | During task work | None required | Unit testing with mocks |
+| MP1 | After first batch | Minimal stack | Verify flow works |
+| MP2 | After API tasks | Core services | Verify API integration |
+| MP3 | After integration | Full stack | Verify end-to-end |
+| MP4 | After hardening | Full stack + auth | Production readiness |
+
+### Runtime Dependencies by Merge Point (Template)
+
+| MP | Service A | Service B | Database | Cache | External APIs |
+|----|-----------|-----------|----------|-------|---------------|
+| MP1 | ✅ Running | ✅ Running | ✅ | ✅ | ❌ Not needed |
+| MP2 | ✅ Running | ❌ Not needed | ✅ | ✅ | ❌ Not needed |
+| MP3 | ✅ Running | ✅ Running | ✅ | ✅ | ⚠️ Optional |
+| MP4 | ✅ Running | ✅ Running | ✅ | ✅ | ✅ Required |
+
+### Runtime Dependencies by Task (Template)
+
+| Task | Service | Needs at Runtime | During Dev Use |
+|------|---------|------------------|----------------|
+| [Task ID] | [Service] | [Dependency] | Mock/fallback |
 
 ---
 
@@ -281,6 +399,34 @@ cd /path/to/main-repo
 | **Container** | At merge point | Real service interaction | ✅ At key merges |
 | **E2E** | Final merge | Complete user journeys | ✅ Final only |
 
+### Testing Strategy by Phase
+
+#### Phase 0: Contract Verification
+
+```bash
+# Endpoints exist and return correct formats
+python demos/demo_[feature]_e2e.py
+# Success = exit code 0 (mocks OK)
+```
+
+#### Phase 1: Mock Replacement Verification
+
+```bash
+# Real APIs called, real data returned
+python demos/demo_[feature]_e2e.py --verbose
+
+# Verify no mock strings in output
+grep -c "Mock" /tmp/demo_output.log
+# Success = 0 matches
+```
+
+#### Phase 2: Security Verification
+
+```bash
+# Security test suite
+pytest tests/security/ -v
+```
+
 ### E2E Test Success Criteria (Final Merge Point)
 
 > **CRITICAL**: E2E tests validate the complete user journey. All must pass.
@@ -374,6 +520,31 @@ def test_cross_service_flow(verify_services):
 | Data pipeline integration | ✅ Yes | Verify data flow |
 | Minor feature addition | ⚠️ Optional | Only if integration-heavy |
 | Final system ready | ✅ Yes | Full E2E validation |
+
+### Container Deployment Schedule (Template)
+
+| Merge Point | When to Deploy | Services | Duration |
+|-------------|----------------|----------|----------|
+| **MP1** | After first batch complete | Core services | ~30 min |
+| **MP2** | After API tasks complete | Service A + DB + Cache | ~20 min |
+| **MP3** | After integration tasks | Full stack | ~45 min |
+| **MP4** | After hardening | Full stack + Auth | ~60 min |
+
+### Container Environment Setup (Template)
+
+```bash
+# Environment variables for all merge point testing
+export SERVICE_A_URL=http://localhost:8000
+export SERVICE_B_URL=http://localhost:8002
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export REDIS_HOST=localhost
+export REDIS_PORT=6379
+
+# For production testing (MP4)
+export AUTH_URL=http://localhost:8080
+export ENVIRONMENT=production
+```
 
 ### Docker Compose Pattern
 
@@ -472,77 +643,478 @@ exit $RESULT
 
 ## Templates
 
-### Merge Point Documentation Template
+### MERGE_POINTS.md File Structure (REQUIRED SECTIONS)
 
-Create `docs/workstreams/[feature]/MERGE_POINTS.md`:
+When creating `docs/workstreams/[feature]/MERGE_POINTS.md`, include ALL these sections:
 
 ```markdown
 # [Feature Name]: Merge Points & Testing Strategy
+
+> **Workstream:** [WORKSTREAM.md](./WORKSTREAM.md)  
+> **Status:** [STATUS.md](./STATUS.md)  
+> **Created:** [Date]
+
+---
 
 ## Overview
 
 [Brief description of the feature and its merge points]
 
----
+### Key Distinction (if applicable)
 
-## Merge Points Summary
-
-| Point | After Batch | Converging | Enables | Integration Type |
-|-------|-------------|------------|---------|------------------|
-| **MP1** | Batch N | A + B | C | [Type] |
-| **MP2** | Batch M | C + D | E | [Type] |
+[Table showing how this workstream differs from typical implementations]
 
 ---
 
-## MP1: [Name]
+## Code Dependencies vs Runtime Dependencies
 
-### What's Converging
+[Include the dependency types ASCII diagram from above]
 
-| Worktree | Task | Description |
-|----------|------|-------------|
-| [worktree-a] | [Task ID] | [Description] |
-| [worktree-b] | [Task ID] | [Description] |
+### Task Lifecycle with Dependencies
+
+[Include the lifecycle ASCII diagram from above]
+
+### When Each Dependency Type Matters
+
+[Include the phases table from above]
+
+---
+
+## Development Mode vs Integration Mode
+
+### Development Mode (In Worktree)
+
+[Table showing fallback behaviors when services are down]
+
+### Integration Mode (At Merge Point)
+
+[Table showing what's required at each merge point]
+
+### Runtime Dependencies by Merge Point
+
+[Table: MP vs Service A vs Service B vs DB vs Cache vs External APIs]
+
+### Runtime Dependencies by Task
+
+[Table: Task vs Service vs Needs at Runtime vs During Dev Use]
+
+---
+
+## Merge Point Summary
+
+[ASCII diagram showing the flow from batches through merge points]
+
+---
+
+## MP[N]: [Name]
+
+### Status: ⏳ NOT REACHED / ✅ REACHED (Date)
 
 ### Why It's a Merge Point
 
-[Explanation of why these tasks must converge]
+[Explanation of why these tasks must converge - numbered list]
 
-### Pre-Merge Checklist
+### Purpose
 
-- [ ] [Task A] complete
-- [ ] [Task B] complete
-- [ ] [Shared requirement]
+[Brief description of what this merge point validates]
 
-### Testing Requirements
+### What Was Validated
 
-| Test Type | Description | Command |
-|-----------|-------------|---------|
-| Unit | [Description] | `pytest ...` |
-| Integration | [Description] | `pytest ...` |
-| Container | [Description] | `docker compose ...` |
+| Aspect | Status | Evidence |
+|--------|--------|----------|
+| [Aspect 1] | ✅ / ❌ | [Evidence] |
+
+### What Was NOT Validated (Deferred to MP[X])
+
+| Aspect | Status | Notes |
+|--------|--------|-------|
+| [Aspect 1] | ❌ | [Notes] |
+
+### Validation Command
+
+\`\`\`bash
+# MP[N] validation
+[command]
+# Expected: [output]
+\`\`\`
+
+### Converging Tasks
+
+| Task | Description | Status |
+|------|-------------|--------|
+| [Task ID] | [Description] | ✅ Complete / ⏳ Pending |
+
+### Enables
+
+- [Next batch/tasks]
+- [Features unlocked]
+
+### Merge Actions
+
+\`\`\`bash
+# 1. Push from worktrees
+cd /path/to/worktree-a
+git add -A && git commit -m "Complete [tasks]"
+git push origin feature/[branch-a]
+
+cd /path/to/worktree-b
+git add -A && git commit -m "Complete [tasks]"
+git push origin feature/[branch-b]
+
+# 2. Create PRs
+gh pr create --base dev --head feature/[branch-a] --title "[Service]: [Batch]" --body "..."
+gh pr create --base dev --head feature/[branch-b] --title "[Service]: [Batch]" --body "..."
+
+# 3. Merge to dev (from main repo)
+cd /path/to/main-repo
+git checkout dev && git pull origin dev
+git merge origin/feature/[branch-a] --no-ff -m "Merge [Service A]: [tasks]"
+git merge origin/feature/[branch-b] --no-ff -m "Merge [Service B]: [tasks]"
+git push origin dev
+
+# 4. Update worktrees
+cd /path/to/worktree-a && git fetch origin dev && git rebase origin/dev
+cd /path/to/worktree-b && git fetch origin dev && git rebase origin/dev
+
+# 5. Tag merge point
+cd /path/to/main-repo
+git tag -a mp[N]-reached -m "MP[N]: [Description] - $(date +%Y-%m-%d)"
+git push origin mp[N]-reached
+\`\`\`
+
+### Container Deployment
+
+\`\`\`bash
+# Deploy services for MP[N] verification
+cd /path/to/main-repo
+
+# Start required services
+docker compose up -d [services]
+sleep 15
+
+# Verify services are healthy
+curl -sf http://localhost:[port]/health && echo "✅ [Service] healthy"
+\`\`\`
+
+### Container Test Scenarios
+
+\`\`\`bash
+# ═══════════════════════════════════════════════════════════════
+# MP[N] CONTAINER TESTS
+# ═══════════════════════════════════════════════════════════════
+
+# Setup: Get required tokens
+[Token acquisition commands]
+
+# Test 1: [Description]
+echo "Test 1: [Description]..."
+curl -s -w "\nHTTP_STATUS:%{http_code}" \
+  -X [METHOD] "http://localhost:[port]/api/v1/[endpoint]" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '[payload]'
+# Expected: [response]
+
+# Test 2: [Description]
+echo "Test 2: [Description]..."
+[curl command]
+# Expected: [response]
+
+# Test 3: [Description]
+echo "Test 3: [Description]..."
+[curl command]
+# Expected: [response]
+
+echo "✅ MP[N] VALIDATION COMPLETE"
+\`\`\`
+
+### Cleanup
+
+\`\`\`bash
+# Stop services after testing
+docker compose down
+
+# Optional: Remove volumes for clean restart
+docker compose down -v
+
+# Remove test data only (preserve services)
+docker compose exec -T db psql -U [user] -d [db] \
+  -c "DELETE FROM [table] WHERE [condition];"
+\`\`\`
 
 ### Success Criteria
 
-- [ ] [Criterion 1]
-- [ ] [Criterion 2]
+- [ ] [Task A] complete
+- [ ] [Task B] complete
+- [ ] Unit tests pass in both worktrees
 - [ ] Integration tests pass
 - [ ] Container deployment works
+- [ ] [Specific criterion for this MP]
+
+### Post-Merge Status Update
+
+After reaching MP[N], run:
+
+\`\`\`bash
+# 1. Verify batch completion
+/verify-batch-completion [batch-id] [feature-name]
+
+# 2. Update STATUS.md
+# Mark MP[N] as "✅ REACHED (date)"
+
+# 3. Update this file (MERGE_POINTS.md)
+# Change status from "⏳ NOT REACHED" to "✅ REACHED (date)"
+
+# 4. Update BATCH_EXECUTION_PLAN.md Quick Reference
+# Mark batch as "✅ Complete"
+
+# 5. Commit status updates
+cd /path/to/main-repo
+git add docs/workstreams/[feature]/
+git commit -m "Mark MP[N] as reached"
+git push origin dev
+\`\`\`
 
 ---
 
-## [Repeat for each merge point]
+[Repeat the MP[N] section for each merge point]
+
+---
+
+## Testing Strategy by Phase
+
+### Phase 0: Contract Verification
+
+\`\`\`bash
+# Endpoints exist and return correct formats
+[E2E demo command]
+# Success = exit code 0 (mocks OK)
+\`\`\`
+
+### Phase 1: Implementation Verification
+
+\`\`\`bash
+# Real APIs called, real data returned
+[E2E demo command with verbose]
+
+# Verify no mock strings in output
+grep -c "Mock" /tmp/demo_output.log
+# Success = 0 matches
+\`\`\`
+
+### Phase 2: Production Verification
+
+\`\`\`bash
+# Security test suite
+pytest tests/security/ -v
+\`\`\`
+
+---
+
+## Troubleshooting
+
+### MP1 Issues
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| [Issue] | [Cause] | [Fix] |
+
+### MP2 Issues
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| [Issue] | [Cause] | [Fix] |
+
+### MP3 Issues
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| [Issue] | [Cause] | [Fix] |
+
+---
+
+## Container Deployment Schedule
+
+| Merge Point | When to Deploy | Services | Duration |
+|-------------|----------------|----------|----------|
+| **MP1** | After [batch] complete | [services] | ~X min |
+| **MP2** | After [batch] complete | [services] | ~X min |
+
+### Container Environment Setup
+
+\`\`\`bash
+# Environment variables for all merge point testing
+export [VAR1]=http://localhost:[port]
+export [VAR2]=http://localhost:[port]
+# ...
+
+# For production testing (final MP)
+export ENVIRONMENT=production
+\`\`\`
+
+---
+
+## Quick Reference Commands
+
+### Merge Point Validation
+
+\`\`\`bash
+# MP1: [Description]
+cd /path/to/main-repo
+[validation command]
+# Expected: [result]
+
+# MP2: [Description]
+docker compose up -d [services]
+sleep 15
+[validation command]
+# Expected: [result]
+\`\`\`
+
+### Status Verification
+
+\`\`\`bash
+# After any merge point reached
+/verify-batch-completion [batch-id] [feature-name]
+
+# Manual verification
+cat docs/workstreams/[feature]/STATUS.md | grep -E "MP[1-4]"
+\`\`\`
+
+### Git Commands
+
+\`\`\`bash
+# 1. Push from worktree
+cd /path/to/[worktree-name]
+git add -A && git commit -m "Complete [task description]"
+git push origin feature/[worktree-branch]
+
+# 2. Create PR
+gh pr create --base dev --head feature/[worktree-branch] \
+  --title "[Service]: [Batch] ([Tasks])" \
+  --body "[Description]"
+
+# 3. Merge to dev (after PR review)
+cd /path/to/main-repo
+git checkout dev && git pull origin dev
+git merge origin/feature/[worktree-branch] --no-ff -m "Merge [Service]: [Batch]"
+git push origin dev
+
+# 4. Update worktree
+cd /path/to/[worktree-name] && git rebase origin/dev
+
+# 5. Tag merge point
+cd /path/to/main-repo
+git tag -a mp[N]-reached -m "MP[N]: [Description] - $(date +%Y-%m-%d)"
+git push origin mp[N]-reached
+\`\`\`
 
 ---
 
 ## Merge Point Status
 
-| Point | Status | Merged At | Notes |
-|-------|--------|-----------|-------|
-| MP1 | ⏸️ Pending | - | - |
-| MP2 | ⏸️ Pending | - | - |
+| Merge Point | Description | Status | Date Reached | Validation |
+|-------------|-------------|--------|--------------|------------|
+| **MP1** | [Description] | ⏳ NOT REACHED | - | [Command] |
+| **MP2** | [Description] | ⏳ NOT REACHED | - | [Command] |
+| **MP3** | [Description] | ⏳ NOT REACHED | - | [Command] |
+| **MP4** | [Description] | ⏳ NOT REACHED | - | [Command] |
+
+### Progress Summary
+
+\`\`\`
+Total Merge Points: [N]
+Reached: 0 (0%)
+Remaining: [N] (100%)
+
+MP1 ░░░░░░░░░░░░░░░░░░░░   0% ⏳
+MP2 ░░░░░░░░░░░░░░░░░░░░   0% ⏳
+MP3 ░░░░░░░░░░░░░░░░░░░░   0% ⏳
+MP4 ░░░░░░░░░░░░░░░░░░░░   0% ⏳
+\`\`\`
+
+---
+
+## History
+
+| Date | Event | Details |
+|------|-------|---------|
+| [Date] | Workstream created | Initial planning |
+| [Date] | MP1 reached | [Details] |
 ```
 
-### Pre-Merge Checklist Template
+---
+
+## Output Verification Checklist (MANDATORY)
+
+**Before declaring MERGE_POINTS.md complete, verify ALL sections exist.**
+
+### Required Sections Checklist
+
+| # | Section | Required? | Purpose |
+|---|---------|-----------|---------|
+| 1 | **Overview** | ✅ YES | Brief description and key distinctions |
+| 2 | **Code Dependencies vs Runtime Dependencies** | ✅ YES | ASCII diagram explaining difference |
+| 3 | **Task Lifecycle with Dependencies** | ✅ YES | ASCII diagram showing states |
+| 4 | **When Each Dependency Type Matters** | ✅ YES | Phase table |
+| 5 | **Development Mode vs Integration Mode** | ✅ YES | Fallback behavior tables |
+| 6 | **Runtime Dependencies by Merge Point** | ✅ YES | Service availability table |
+| 7 | **Runtime Dependencies by Task** | ✅ YES | Task-level dependencies |
+| 8 | **Merge Point Summary** | ✅ YES | ASCII overview diagram |
+| 9 | **Per-MP: Status** | ✅ YES | Current status |
+| 10 | **Per-MP: Why It's a Merge Point** | ✅ YES | Justification |
+| 11 | **Per-MP: Purpose** | ✅ YES | What it validates |
+| 12 | **Per-MP: Validation Command** | ✅ YES | How to verify |
+| 13 | **Per-MP: Converging Tasks** | ✅ YES | Task table |
+| 14 | **Per-MP: Enables** | ✅ YES | What's unlocked |
+| 15 | **Per-MP: Merge Actions** | ✅ YES | Git workflow commands |
+| 16 | **Per-MP: Container Deployment** | ✅ YES | Docker commands |
+| 17 | **Per-MP: Container Test Scenarios** | ✅ YES | curl examples with expected outputs |
+| 18 | **Per-MP: Cleanup** | ✅ YES | Cleanup commands |
+| 19 | **Per-MP: Success Criteria** | ✅ YES | Checklist |
+| 20 | **Per-MP: Post-Merge Status Update** | ✅ YES | Status update commands |
+| 21 | **Testing Strategy by Phase** | ✅ YES | P0, P1, P2 sections |
+| 22 | **Troubleshooting** | ✅ YES | Issue/Cause/Fix tables |
+| 23 | **Container Deployment Schedule** | ✅ YES | When to deploy |
+| 24 | **Container Environment Setup** | ✅ YES | Environment variables |
+| 25 | **Quick Reference Commands** | ✅ YES | Copy-paste ready |
+| 26 | **Merge Point Status** | ✅ YES | Status table |
+| 27 | **Progress Summary** | ✅ YES | ASCII progress bars |
+| 28 | **History** | ✅ YES | Event log |
+
+### Verification Command
+
+```bash
+FEATURE="[feature-name]"
+FILE="docs/workstreams/${FEATURE}/MERGE_POINTS.md"
+
+echo "=== MERGE_POINTS.md Section Verification ==="
+grep -q "## Code Dependencies vs Runtime Dependencies" $FILE && echo "✅ Code vs Runtime Dependencies" || echo "❌ MISSING"
+grep -q "### Task Lifecycle with Dependencies" $FILE && echo "✅ Task Lifecycle" || echo "❌ MISSING"
+grep -q "### When Each Dependency Type Matters" $FILE && echo "✅ Dependency Phases" || echo "❌ MISSING"
+grep -q "## Development Mode vs Integration Mode" $FILE && echo "✅ Dev vs Integration Mode" || echo "❌ MISSING"
+grep -q "### Runtime Dependencies by Merge Point" $FILE && echo "✅ Runtime Deps by MP" || echo "❌ MISSING"
+grep -q "### Runtime Dependencies by Task" $FILE && echo "✅ Runtime Deps by Task" || echo "❌ MISSING"
+grep -q "## Merge Point Summary" $FILE && echo "✅ MP Summary" || echo "❌ MISSING"
+grep -q "### Merge Actions" $FILE && echo "✅ Merge Actions" || echo "❌ MISSING"
+grep -q "### Container Deployment" $FILE && echo "✅ Container Deployment" || echo "❌ MISSING"
+grep -q "### Container Test Scenarios" $FILE && echo "✅ Container Test Scenarios" || echo "❌ MISSING"
+grep -q "### Cleanup" $FILE && echo "✅ Cleanup" || echo "❌ MISSING"
+grep -q "### Success Criteria" $FILE && echo "✅ Success Criteria" || echo "❌ MISSING"
+grep -q "### Post-Merge Status Update" $FILE && echo "✅ Post-Merge Status" || echo "❌ MISSING"
+grep -q "## Testing Strategy by Phase" $FILE && echo "✅ Testing Strategy" || echo "❌ MISSING"
+grep -q "## Troubleshooting" $FILE && echo "✅ Troubleshooting" || echo "❌ MISSING"
+grep -q "## Container Deployment Schedule" $FILE && echo "✅ Deployment Schedule" || echo "❌ MISSING"
+grep -q "## Quick Reference Commands" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING"
+grep -q "## Merge Point Status" $FILE && echo "✅ MP Status Table" || echo "❌ MISSING"
+grep -q "### Progress Summary" $FILE && echo "✅ Progress Summary" || echo "❌ MISSING"
+grep -q "## History" $FILE && echo "✅ History" || echo "❌ MISSING"
+echo "=== Verification Complete ==="
+```
+
+---
+
+## Pre-Merge Checklist Template
 
 ```markdown
 ## MP[N] Pre-Merge Checklist
@@ -637,3 +1209,4 @@ pytest tests/integration/ -m merge_point_N -v
 - [WORKFLOW_GUIDE.md](../WORKFLOW_GUIDE.md) - Overall workflow guide
 - [PARALLEL_EXECUTION_GUIDE.md](../PARALLEL_EXECUTION_GUIDE.md) - Parallel execution patterns
 - [TASK_BREAKDOWN.md](../TASK_BREAKDOWN.md) - Task breakdown methodology
+- [BATCH_EXECUTION_PLAN.md Template](./BATCH_EXECUTION_PLAN.md) - Example from virtual-mcp-server-mvp

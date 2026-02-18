@@ -74,31 +74,46 @@ Create a new workstream folder structure with overview document.
 
 4. **Create MERGE_POINTS.md** (REQUIRED):
    
-   Reference: `docs/workstreams/MERGE_POINT_GUIDE.md`
+   **IMPORTANT:** Use the comprehensive template in `docs/workstreams/MERGE_POINT_GUIDE.md`
    
-   Must include:
-   - One merge point per phase boundary
-   - Pre-merge checklist for each merge point
-   - Integration test scripts (if applicable)
-   - Clear "Reached" vs "Not Reached" status
+   **Required sections** (see MERGE_POINT_GUIDE.md for full details):
    
-   **Template sections:**
-   ```markdown
-   # Merge Points: [Feature Name]
+   | Section | Purpose |
+   |---------|---------|
+   | Code Dependencies vs Runtime Dependencies | ASCII diagram explaining difference |
+   | Task Lifecycle with Dependencies | ASCII diagram showing blocked→ready→dev→complete |
+   | When Each Dependency Type Matters | Phase table |
+   | Development Mode vs Integration Mode | Fallback behaviors when services down |
+   | Runtime Dependencies by Merge Point | Service availability table |
+   | Runtime Dependencies by Task | Task-level dependencies |
+   | Merge Point Summary | ASCII overview diagram |
+   | **Per-MP: Why It's a Merge Point** | Justification |
+   | **Per-MP: Merge Actions** | Git workflow (push, PR, merge, rebase) |
+   | **Per-MP: Container Deployment** | Docker commands |
+   | **Per-MP: Container Test Scenarios** | curl examples with expected outputs |
+   | **Per-MP: Cleanup** | Cleanup commands |
+   | **Per-MP: Success Criteria** | Checklist |
+   | **Per-MP: Post-Merge Status Update** | Status update commands |
+   | Testing Strategy by Phase | P0, P1, P2 validation commands |
+   | Troubleshooting | Issue/Cause/Fix tables |
+   | Container Deployment Schedule | When to deploy |
+   | Quick Reference Commands | Copy-paste ready |
+   | Merge Point Status | Status table with Progress Summary |
+   | History | Event log |
    
-   ## Overview
-   [Description of merge point strategy]
+   **Verification command:**
+   ```bash
+   FEATURE="[feature-name]"
+   FILE="docs/workstreams/${FEATURE}/MERGE_POINTS.md"
    
-   ## Merge Point 1: [Name]
-   - **Status:** ⏳ NOT REACHED | ✅ REACHED
-   - **Purpose:** [What this merge point validates]
-   - **Contributing Tasks:** [Task IDs]
-   - **Pre-Merge Checklist:**
-     - [ ] [Verification item 1]
-     - [ ] [Verification item 2]
-   
-   ## Merge Point 2: [Name]
-   ...
+   echo "=== MERGE_POINTS.md Verification ==="
+   grep -q "## Code Dependencies vs Runtime Dependencies" $FILE && echo "✅ Dependencies" || echo "❌ MISSING"
+   grep -q "### Merge Actions" $FILE && echo "✅ Merge Actions" || echo "❌ MISSING"
+   grep -q "### Container Test Scenarios" $FILE && echo "✅ Container Tests" || echo "❌ MISSING"
+   grep -q "### Post-Merge Status Update" $FILE && echo "✅ Status Update" || echo "❌ MISSING"
+   grep -q "## Quick Reference Commands" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING"
+   grep -q "## Merge Point Status" $FILE && echo "✅ Status Table" || echo "❌ MISSING"
+   echo "=== Complete ==="
    ```
 
 5. **Update the workstreams README:**

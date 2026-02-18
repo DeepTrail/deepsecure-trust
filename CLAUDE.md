@@ -634,6 +634,82 @@ make check-all
 
 ## Common Pitfalls and Learnings
 
+### Token Types for API Validation (CRITICAL)
+
+Different endpoints require different authentication tokens. Using the wrong token type causes 401 errors.
+
+| Token Type | How to Obtain | Used For | Header Format |
+|------------|---------------|----------|---------------|
+| **User Token** | `POST /api/v1/auth/login` → `.token` | User-facing endpoints, service connection | `Authorization: Bearer $USER_TOKEN` |
+| **Agent JWT** | Ed25519 challenge-response flow (see below) | Agent-to-Control APIs, vault token retrieval | `Authorization: Bearer $AGENT_JWT` |
+| **Internal API Token** | From `docker-compose.yml` env var | Gateway-to-Control internal APIs | `Authorization: Bearer gateway-internal-secret-token` |
+
+**Common Mistakes:**
+
+| Mistake | Error | Fix |
+|---------|-------|-----|
+| Using User Token for vault token retrieval | `401 "missing user identity"` | Use Agent JWT (has `owner` claim) |
+| Using User Token for vault token refresh | `401 "Invalid internal token"` | Use Internal API Token + `X-User-ID` header |
+| Using `.access_token` for login response | Returns `null` | Use `.token` - login returns `token` field |
+
+**Login API Response Field:**
+```bash
+# WRONG - returns null
+USER_TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login ... | jq -r '.access_token')
+
+# CORRECT - login returns "token" not "access_token"
+USER_TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login ... | jq -r '.token')
+```
+
+### Agent JWT Creation Flow (For Validation Commands)
+
+When validation commands need an Agent JWT, use this full flow:
+
+```bash
+# 1. Generate Ed25519 keypair
+python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey.generate()
+public_key = private_key.verify_key
+print(f'PRIVATE_KEY_HEX={private_key.encode().hex()}')
+print(f'PUBLIC_KEY_B64={base64.b64encode(public_key.encode()).decode()}')
+" > /tmp/agent_keys.env
+source /tmp/agent_keys.env
+
+# 2. Register agent with public key
+curl -s -X POST http://localhost:8000/api/v1/agents/ \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"agent_id\": \"test-agent\", \"name\": \"Test\", \"public_key\": \"$PUBLIC_KEY_B64\"}"
+
+# 3. Create delegation
+curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "test-agent", "permissions": ["service:scope:action"]}'
+
+# 4. Request challenge
+CHALLENGE=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/challenge \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "test-agent"}' | jq -r '.challenge')
+
+# 5. Sign challenge
+SIGNATURE=$(python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey(bytes.fromhex('$PRIVATE_KEY_HEX'))
+signed = private_key.sign('$CHALLENGE'.encode())
+print(base64.urlsafe_b64encode(signed.signature).decode())
+")
+
+# 6. Get Agent JWT
+AGENT_JWT=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/verify \
+  -H "Content-Type: application/json" \
+  -d "{\"agent_id\": \"test-agent\", \"challenge\": \"$CHALLENGE\", \"signature\": \"$SIGNATURE\"}" \
+  | jq -r '.access_token')
+```
+
 ### API Contract Verification
 
 **CRITICAL**: Always verify that implementation endpoints match design doc specifications exactly.
@@ -717,6 +793,54 @@ async def client():
 - `/explore-codebase [design-doc]` - Run BEFORE `/breakdown-design`
 - Creates `CODEBASE_ANALYSIS.md` documenting actual state
 
+### MERGE_POINTS.md Required Sections (CRITICAL)
+
+**LESSON LEARNED (Feb 2026):** A MERGE_POINTS.md was created with basic structure but was missing critical sections that made it unusable for validation. Always use the full template.
+
+**Required sections for every MERGE_POINTS.md:**
+
+| Section | Purpose |
+|---------|---------|
+| Code Dependencies vs Runtime Dependencies | ASCII diagram explaining difference |
+| Task Lifecycle with Dependencies | ASCII diagram: blocked → ready → dev → complete |
+| Development Mode vs Integration Mode | Fallback behaviors when services down |
+| Runtime Dependencies by Merge Point | Service availability table by MP |
+| **Per-MP: Merge Actions** | Git workflow (push, PR, merge, rebase) |
+| **Per-MP: Container Deployment** | Docker commands |
+| **Per-MP: Container Test Scenarios** | curl examples with expected outputs |
+| **Per-MP: Cleanup** | Cleanup commands |
+| **Per-MP: Success Criteria** | Checklist |
+| **Per-MP: Post-Merge Status Update** | Status update commands |
+| Testing Strategy by Phase | P0, P1, P2 validation commands |
+| Troubleshooting | Issue/Cause/Fix tables |
+| Container Deployment Schedule | When to deploy |
+| Quick Reference Commands | Copy-paste ready |
+| Merge Point Status | Status table with Progress Summary |
+| History | Event log |
+
+**Template:** `docs/workstreams/MERGE_POINT_GUIDE.md`
+
+### Documentation Consistency (MANDATORY)
+
+**LESSON LEARNED (Feb 2026):** Status files drifted out of sync with completion reports, causing confusion about batch completion and blocking next batch unnecessarily.
+
+**Files that MUST stay consistent:**
+
+| File | Updated When | By Whom |
+|------|--------------|---------|
+| `reports/WS-{ID}-completion.md` | Task completed | Agent completing task |
+| `STATUS.md` | After each task | Agent, sync to main repo |
+| `WORKSTREAM.md` | After each task | Agent, sync to main repo |
+| `BATCH_EXECUTION_PLAN.md` | After each batch | Agent, after `/verify-batch-completion` |
+| `MERGE_POINTS.md` | After batch triggers MP | Agent, update MP status |
+
+**Verification command (run after every batch):**
+```bash
+/verify-batch-completion [batch-id] [feature-name]
+```
+
+**DO NOT proceed to next batch if verification fails.**
+
 ### Backend Service File Path Conventions
 
 **IMPORTANT**: When creating files in backend services, follow these actual conventions (not design doc paths):
@@ -752,3 +876,29 @@ async def client():
 **Service directories in this project:**
 - `deeptrail-control/` - Control Plane service
 - `deeptrail-gateway/` - Gateway service
+
+---
+
+## Lessons Learned Changelog
+
+| Date | Lesson | Impact | Section Updated |
+|------|--------|--------|-----------------|
+| Feb 2026 | Design docs describe intent, not current state | Reduced over-scoping by 60% | Codebase Exploration Before Breakdown |
+| Feb 2026 | Async fixtures need `@pytest_asyncio.fixture` | Prevents AttributeError in tests | Async Test Fixtures |
+| Feb 2026 | File paths must be verified before documenting | Prevents untestable validation sections | File Path Verification |
+| Feb 2026 | Status files drift without enforcement | Added mandatory `/verify-batch-completion` | Status Verification Requirements |
+| Feb 2026 | Login API returns `token` not `access_token` | Fixed `null` token issues in validation | Token Types for API Validation |
+| Feb 2026 | Vault endpoints need Agent JWT not User Token | Fixed 401 "missing user identity" errors | Token Types for API Validation |
+| Feb 2026 | Vault refresh needs Internal Token + X-User-ID | Fixed 401 "Invalid internal token" errors | Token Types for API Validation |
+| Feb 2026 | MERGE_POINTS.md missing critical sections | Added 18-section template requirement | MERGE_POINTS.md Required Sections |
+| Feb 2026 | Task tickets must have mandatory sections | Standardized across workstreams | Task Ticket Structure Requirements |
+
+### How to Add New Lessons
+
+When you discover a pattern that caused issues:
+
+1. **Document the symptom** - What error/problem occurred?
+2. **Document the root cause** - What was actually wrong?
+3. **Document the fix** - How to avoid it in the future?
+4. **Add to this table** with date
+5. **Update relevant section** in CLAUDE.md with the learning
