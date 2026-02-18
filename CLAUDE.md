@@ -480,6 +480,42 @@ Evaluate:
 - Caching opportunities
 - Slow or high-complexity code paths
 
+### File Path Verification (MANDATORY)
+
+**Before documenting any file paths in:**
+- Validation sections
+- Test commands
+- BATCH_EXECUTION_PLAN.md
+- MERGE_POINTS.md
+- Any documentation with executable commands
+
+**You MUST verify the paths actually exist:**
+
+```bash
+# Use glob to verify test file paths
+ls [service]/tests/[module]/test_*.py
+
+# Use find for fuzzy matching if unsure of exact name
+find . -name "*vault*" -path "*/tests/*" -name "*.py"
+
+# Check openapi.json for endpoint paths
+curl -s http://localhost:8000/openapi.json | jq '.paths | keys'
+```
+
+**Why this matters:**
+- Documenting non-existent paths causes confusion and wasted debugging time
+- Task completion reports may incorrectly claim tests pass when tests don't exist
+- Validation sections become untestable
+
+**Pattern: Prefer glob patterns over specific file names when possible:**
+```bash
+# Good - works even if file names change
+pytest tests/backends/ -v
+
+# Risky - fails if file is named differently
+pytest tests/backends/test_notion_api.py -v  # What if it's test_notion_client.py?
+```
+
 ### For Each Issue Found
 For every specific issue (bug, smell, design concern, or risk):
 1. **Describe the problem concretely** — with file and line references

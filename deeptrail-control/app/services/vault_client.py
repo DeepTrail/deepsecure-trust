@@ -122,7 +122,7 @@ class DecryptionError(VaultError):
 class VaultClient:
     """Secure storage for OAuth tokens.
 
-    MVP Implementation: In-memory encrypted storage.
+    MVP Implementation: In-memory encrypted storage (singleton pattern).
     Production: Integrate with HashiCorp Vault or AWS Secrets Manager.
 
     Example:
@@ -142,6 +142,16 @@ class VaultClient:
     # Environment variable name for encryption key
     ENV_KEY_NAME = "VAULT_ENCRYPTION_KEY"
 
+    # Singleton instance
+    _instance: Optional["VaultClient"] = None
+    _initialized: bool = False
+
+    def __new__(cls, encryption_key: Optional[str] = None) -> "VaultClient":
+        """Ensure only one instance exists (singleton pattern)."""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, encryption_key: Optional[str] = None):
         """Initialize vault with encryption key.
 
@@ -154,6 +164,11 @@ class VaultClient:
             In production, always provide encryption_key or set the environment
             variable. Ephemeral keys will cause token loss on restart.
         """
+        # Prevent re-initialization (singleton pattern)
+        if self._initialized:
+            return
+        self.__class__._initialized = True
+
         key = encryption_key or os.environ.get(self.ENV_KEY_NAME)
 
         if not key:

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.api import deps
 from app.services.vault_client import VaultClient
+from app.models.connected_service import ConnectedService
 
 logger = logging.getLogger(__name__)
 
@@ -150,17 +151,18 @@ CurrentUserDep = Annotated[str, Depends(get_current_user_id)]
 def connect_service(
     request: ConnectServiceRequest,
     current_user: CurrentUserDep,
+    db: deps.DbDep,
 ) -> ConnectServiceResponseModel:
     """Connect a backend service for the current user."""
     try:
         # Get vault client
         vault = get_vault_client()
-        
+
         # Parse scopes from OAuth response
         scopes = []
         if request.oauth_token.scope:
             scopes = request.oauth_token.scope.split()
-        
+
         # Build oauth response dict
         oauth_response = {
             "access_token": request.oauth_token.access_token,
@@ -170,10 +172,10 @@ def connect_service(
             oauth_response["refresh_token"] = request.oauth_token.refresh_token
         if request.oauth_token.expires_in:
             oauth_response["expires_in"] = request.oauth_token.expires_in
-        
+
         # Store token in vault
         token_ref = vault.store_token(current_user, request.service_id, oauth_response)
-        
+
         # Service name mapping
         service_names = {
             "notion": "Notion",
@@ -182,38 +184,68 @@ def connect_service(
             "github": "GitHub",
             "google": "Google Calendar",
         }
-        
-        # Store connection info in memory
+
+        # Generate connection ID
         connection_id = f"conn-{uuid.uuid4()}"
         connected_at = datetime.now(timezone.utc)
-        
+        service_name = service_names.get(request.service_id, request.service_id)
+
+        # Check if connection already exists and update, or create new
+        existing = db.query(ConnectedService).filter(
+            ConnectedService.user_id == current_user,
+            ConnectedService.service_id == request.service_id,
+        ).first()
+
+        if existing:
+            # Update existing connection (reconnect)
+            existing.oauth_token_ref = token_ref
+            existing.scopes_granted = scopes
+            existing.disconnected_at = None  # Re-enable if was disconnected
+            existing.connected_at = connected_at
+            connection_id = existing.id
+            db.commit()
+            db.refresh(existing)
+            logger.info(f"User {current_user} reconnected service {request.service_id}")
+        else:
+            # Create new connection in database
+            connection = ConnectedService(
+                id=connection_id,
+                user_id=current_user,
+                service_id=request.service_id,
+                service_name=service_name,
+                oauth_token_ref=token_ref,
+                scopes_granted=scopes,
+                connected_at=connected_at,
+            )
+            db.add(connection)
+            db.commit()
+            db.refresh(connection)
+            logger.info(f"User {current_user} connected service {request.service_id}")
+
+        # Also store in memory for backward compatibility
         connection_info = {
             "id": connection_id,
             "service_id": request.service_id,
-            "service_name": service_names.get(request.service_id, request.service_id),
+            "service_name": service_name,
             "scopes_granted": scopes,
             "connected_at": connected_at.isoformat(),
             "token_ref": token_ref,
         }
-        
-        # Store in memory
         if current_user not in _connected_services:
             _connected_services[current_user] = {}
         _connected_services[current_user][request.service_id] = connection_info
-        
-        logger.info(f"User {current_user} connected service {request.service_id}")
-        
+
         return ConnectServiceResponseModel(
             success=True,
             connection=ConnectedServiceResponse(
                 id=connection_id,
                 service_id=request.service_id,
-                service_name=connection_info["service_name"],
+                service_name=service_name,
                 scopes_granted=scopes,
-                connected_at=connection_info["connected_at"],
+                connected_at=connected_at.isoformat(),
             ),
         )
-        
+
     except Exception as e:
         logger.error(f"Failed to connect service: {e}")
         raise HTTPException(

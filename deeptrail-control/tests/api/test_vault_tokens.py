@@ -26,13 +26,16 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, AsyncMock, patch
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 import jwt
 
 # Get the settings and app
 from app.core.config import settings
 from app.main import app
 from app.api.v1.endpoints.vault import get_vault_client, get_oauth_service_dep
+from app.api.deps import get_db
 from app.schemas.oauth import OAuthTokenResponse
+from app.models.connected_service import ConnectedService
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,13 +51,81 @@ def mock_vault_client():
 
 
 @pytest.fixture
-def client(mock_vault_client):
-    """Create a test client with mocked VaultClient."""
-    # Use FastAPI dependency override to inject mock
+def client(db: Session, mock_vault_client):
+    """Create a test client with mocked VaultClient and test database."""
+    # Override database dependency
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    # Use FastAPI dependency override to inject mocks
     app.dependency_overrides[get_vault_client] = lambda: mock_vault_client
+    app.dependency_overrides[get_db] = override_get_db
     yield TestClient(app)
     # Clean up after test
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def connected_service_notion(db: Session):
+    """Create a connected service record for Notion in the test database."""
+    connection = ConnectedService(
+        id="conn-test-notion-001",
+        user_id="sarah@acme.com",
+        service_id="notion",
+        service_name="Notion",
+        oauth_token_ref="vault://sarah-notion-oauth-test123",
+        scopes_granted=["read_content", "write_content"],
+    )
+    db.add(connection)
+    db.commit()
+    db.refresh(connection)
+    yield connection
+    # Cleanup
+    db.delete(connection)
+    db.commit()
+
+
+@pytest.fixture
+def connected_service_slack(db: Session):
+    """Create a connected service record for Slack in the test database."""
+    connection = ConnectedService(
+        id="conn-test-slack-001",
+        user_id="sarah@acme.com",
+        service_id="slack",
+        service_name="Slack",
+        oauth_token_ref="vault://sarah-slack-oauth-test456",
+        scopes_granted=["channels:read", "chat:write"],
+    )
+    db.add(connection)
+    db.commit()
+    db.refresh(connection)
+    yield connection
+    # Cleanup
+    db.delete(connection)
+    db.commit()
+
+
+@pytest.fixture
+def connected_service_hubspot(db: Session):
+    """Create a connected service record for HubSpot in the test database."""
+    connection = ConnectedService(
+        id="conn-test-hubspot-001",
+        user_id="user@example.com",
+        service_id="hubspot",
+        service_name="HubSpot",
+        oauth_token_ref="vault://user-hubspot-oauth-test789",
+        scopes_granted=["contacts", "deals"],
+    )
+    db.add(connection)
+    db.commit()
+    db.refresh(connection)
+    yield connection
+    # Cleanup
+    db.delete(connection)
+    db.commit()
 
 
 @pytest.fixture
@@ -126,11 +197,10 @@ class TestGetTokenHappyPath:
     """Test successful token retrieval."""
 
     def test_returns_token_for_delegated_service(
-        self, client, mock_vault_client, valid_agent_jwt, sample_token_data
+        self, client, mock_vault_client, valid_agent_jwt, sample_token_data, connected_service_notion
     ):
         """Should return token when service is delegated and connected."""
-        # Setup mock
-        mock_vault_client._generate_ref.return_value = "sarah-notion-ref"
+        # Setup mock - returns token data for the stored token_ref
         mock_vault_client.retrieve_token.return_value = sample_token_data
 
         response = client.get(
@@ -144,12 +214,13 @@ class TestGetTokenHappyPath:
         assert data["token_type"] == "bearer"
         assert data["expires_in"] == 3600
         assert data["scope"] == "read write"
+        # Verify vault was called with the correct token_ref from database
+        mock_vault_client.retrieve_token.assert_called_once_with(connected_service_notion.oauth_token_ref)
 
     def test_does_not_return_refresh_token(
-        self, client, mock_vault_client, valid_agent_jwt, sample_token_data
+        self, client, mock_vault_client, valid_agent_jwt, sample_token_data, connected_service_notion
     ):
         """Security: refresh_token should never be in response."""
-        mock_vault_client._generate_ref.return_value = "sarah-notion-ref"
         mock_vault_client.retrieve_token.return_value = sample_token_data
 
         response = client.get(
@@ -161,14 +232,13 @@ class TestGetTokenHappyPath:
         data = response.json()
         assert "refresh_token" not in data
 
-    def test_handles_scope_as_list(self, client, mock_vault_client, valid_agent_jwt):
+    def test_handles_scope_as_list(self, client, mock_vault_client, valid_agent_jwt, connected_service_notion):
         """Should convert scope list to space-separated string."""
         token_data = {
             "access_token": "test-token",
             "token_type": "bearer",
             "scope": ["read_content", "write_content", "search"],
         }
-        mock_vault_client._generate_ref.return_value = "ref"
         mock_vault_client.retrieve_token.return_value = token_data
 
         response = client.get(
@@ -181,14 +251,13 @@ class TestGetTokenHappyPath:
         assert data["scope"] == "read_content write_content search"
 
     def test_handles_missing_optional_fields(
-        self, client, mock_vault_client, valid_agent_jwt
+        self, client, mock_vault_client, valid_agent_jwt, connected_service_notion
     ):
         """Should work when optional fields are missing."""
         token_data = {
             "access_token": "minimal-token",
             # No token_type, expires_in, or scope
         }
-        mock_vault_client._generate_ref.return_value = "ref"
         mock_vault_client.retrieve_token.return_value = token_data
 
         response = client.get(
@@ -369,54 +438,84 @@ class TestGetTokenNotFound:
 class TestPermissionMatching:
     """Test permission matching logic."""
 
-    def test_exact_service_match(self, client, mock_vault_client, sample_token_data):
+    def test_exact_service_match(self, db: Session, client, mock_vault_client, sample_token_data):
         """Should match when permission is exact service name."""
-        now = datetime.now(timezone.utc)
-        payload = {
-            "iss": "deeptrail-control",
-            "sub": "agent-test",
-            "iat": int(now.timestamp()),
-            "exp": int((now + timedelta(hours=1)).timestamp()),
-            "owner": "user@example.com",
-            "delegated_permissions": ["notion"],  # Exact match
-        }
-        token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
-
-        mock_vault_client._generate_ref.return_value = "ref"
-        mock_vault_client.retrieve_token.return_value = sample_token_data
-
-        response = client.get(
-            "/api/v1/vault/tokens/notion",
-            headers={"Authorization": f"Bearer {token}"},
+        # Create a connected service for user@example.com + notion
+        connection = ConnectedService(
+            id="conn-test-exact-match",
+            user_id="user@example.com",
+            service_id="notion",
+            service_name="Notion",
+            oauth_token_ref="vault://user-notion-exact",
+            scopes_granted=["read"],
         )
+        db.add(connection)
+        db.commit()
 
-        assert response.status_code == 200
+        try:
+            now = datetime.now(timezone.utc)
+            payload = {
+                "iss": "deeptrail-control",
+                "sub": "agent-test",
+                "iat": int(now.timestamp()),
+                "exp": int((now + timedelta(hours=1)).timestamp()),
+                "owner": "user@example.com",
+                "delegated_permissions": ["notion"],  # Exact match
+            }
+            token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
-    def test_service_prefix_match(self, client, mock_vault_client, sample_token_data):
+            mock_vault_client.retrieve_token.return_value = sample_token_data
+
+            response = client.get(
+                "/api/v1/vault/tokens/notion",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            assert response.status_code == 200
+        finally:
+            db.delete(connection)
+            db.commit()
+
+    def test_service_prefix_match(self, db: Session, client, mock_vault_client, sample_token_data):
         """Should match when permission starts with service:."""
-        now = datetime.now(timezone.utc)
-        payload = {
-            "iss": "deeptrail-control",
-            "sub": "agent-test",
-            "iat": int(now.timestamp()),
-            "exp": int((now + timedelta(hours=1)).timestamp()),
-            "owner": "user@example.com",
-            "delegated_permissions": ["slack:channels:read"],  # Prefix match
-        }
-        token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
-
-        mock_vault_client._generate_ref.return_value = "ref"
-        mock_vault_client.retrieve_token.return_value = sample_token_data
-
-        response = client.get(
-            "/api/v1/vault/tokens/slack",
-            headers={"Authorization": f"Bearer {token}"},
+        # Create a connected service for user@example.com + slack
+        connection = ConnectedService(
+            id="conn-test-prefix-match",
+            user_id="user@example.com",
+            service_id="slack",
+            service_name="Slack",
+            oauth_token_ref="vault://user-slack-prefix",
+            scopes_granted=["channels:read"],
         )
+        db.add(connection)
+        db.commit()
 
-        assert response.status_code == 200
+        try:
+            now = datetime.now(timezone.utc)
+            payload = {
+                "iss": "deeptrail-control",
+                "sub": "agent-test",
+                "iat": int(now.timestamp()),
+                "exp": int((now + timedelta(hours=1)).timestamp()),
+                "owner": "user@example.com",
+                "delegated_permissions": ["slack:channels:read"],  # Prefix match
+            }
+            token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+            mock_vault_client.retrieve_token.return_value = sample_token_data
+
+            response = client.get(
+                "/api/v1/vault/tokens/slack",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            assert response.status_code == 200
+        finally:
+            db.delete(connection)
+            db.commit()
 
     def test_multiple_permissions_for_same_service(
-        self, client, mock_vault_client, sample_token_data
+        self, client, mock_vault_client, sample_token_data, connected_service_hubspot
     ):
         """Should work when user has multiple permissions for service."""
         now = datetime.now(timezone.utc)
@@ -434,7 +533,6 @@ class TestPermissionMatching:
         }
         token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
-        mock_vault_client._generate_ref.return_value = "ref"
         mock_vault_client.retrieve_token.return_value = sample_token_data
 
         response = client.get(
@@ -459,10 +557,17 @@ def mock_oauth_service():
 
 
 @pytest.fixture
-def client_with_oauth(mock_vault_client, mock_oauth_service):
-    """Create a test client with mocked VaultClient and OAuthService."""
+def client_with_oauth(db: Session, mock_vault_client, mock_oauth_service):
+    """Create a test client with mocked VaultClient, OAuthService, and test database."""
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
     app.dependency_overrides[get_vault_client] = lambda: mock_vault_client
     app.dependency_overrides[get_oauth_service_dep] = lambda: mock_oauth_service
+    app.dependency_overrides[get_db] = override_get_db
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -516,10 +621,10 @@ class TestRefreshTokenHappyPath:
         mock_oauth_service,
         valid_internal_token,
         sample_token_data_with_refresh,
+        connected_service_notion,
     ):
         """Should refresh token when expired."""
         # Setup mocks
-        mock_vault_client._generate_ref.return_value = "sarah-notion-ref"
         mock_vault_client.retrieve_token.return_value = sample_token_data_with_refresh
         mock_vault_client.is_token_expired.return_value = True
         mock_vault_client.refresh_token.return_value = True
@@ -554,10 +659,10 @@ class TestRefreshTokenHappyPath:
         mock_oauth_service,
         valid_internal_token,
         sample_token_data_valid,
+        connected_service_notion,
     ):
         """Should refresh token when force=True even if not expired."""
         # Setup mocks
-        mock_vault_client._generate_ref.return_value = "sarah-notion-ref"
         mock_vault_client.retrieve_token.return_value = sample_token_data_valid
         mock_vault_client.is_token_expired.return_value = False  # Not expired
         mock_vault_client.refresh_token.return_value = True
@@ -589,10 +694,10 @@ class TestRefreshTokenHappyPath:
         mock_oauth_service,
         valid_internal_token,
         sample_token_data_valid,
+        connected_service_notion,
     ):
         """Should return existing token if not expired and force=False."""
         # Setup mocks
-        mock_vault_client._generate_ref.return_value = "sarah-notion-ref"
         mock_vault_client.retrieve_token.return_value = sample_token_data_valid
         mock_vault_client.is_token_expired.return_value = False  # Not expired
 
@@ -689,7 +794,7 @@ class TestRefreshTokenNoRefreshToken:
     """Test 400 responses when no refresh token available."""
 
     def test_no_refresh_token(
-        self, client_with_oauth, mock_vault_client, valid_internal_token
+        self, client_with_oauth, mock_vault_client, valid_internal_token, connected_service_notion
     ):
         """Should return 400 when service has no refresh token."""
         token_data = {
@@ -697,7 +802,6 @@ class TestRefreshTokenNoRefreshToken:
             "token_type": "bearer",
             # No refresh_token
         }
-        mock_vault_client._generate_ref.return_value = "sarah-notion-ref"
         mock_vault_client.retrieve_token.return_value = token_data
 
         response = client_with_oauth.post(
@@ -724,11 +828,11 @@ class TestRefreshTokenProviderError:
         mock_oauth_service,
         valid_internal_token,
         sample_token_data_with_refresh,
+        connected_service_notion,
     ):
         """Should return 502 when OAuth provider fails."""
         from app.services.oauth_service import OAuthRefreshError
 
-        mock_vault_client._generate_ref.return_value = "sarah-notion-ref"
         mock_vault_client.retrieve_token.return_value = sample_token_data_with_refresh
         mock_vault_client.is_token_expired.return_value = True
 
@@ -760,9 +864,9 @@ class TestRefreshTokenDoesNotExposeRefreshToken:
         mock_oauth_service,
         valid_internal_token,
         sample_token_data_with_refresh,
+        connected_service_notion,
     ):
         """Security: refresh_token should never be in response."""
-        mock_vault_client._generate_ref.return_value = "sarah-notion-ref"
         mock_vault_client.retrieve_token.return_value = sample_token_data_with_refresh
         mock_vault_client.is_token_expired.return_value = True
         mock_vault_client.refresh_token.return_value = True

@@ -297,3 +297,45 @@ pytest tests/[module]/test_[file].py -v
 # Expected: [output]
 \`\`\`
 ```
+
+---
+
+## File Path Verification (MANDATORY)
+
+> **⚠️ CRITICAL:** Before documenting ANY file paths in this ticket, you MUST verify they actually exist.
+
+### What to Verify
+
+| Section | What to Check |
+|---------|---------------|
+| **Files to Create/Modify** | Source paths match actual codebase structure |
+| **Validation > Unit Tests** | Test file paths exist (use `ls` or `find`) |
+| **Validation > Manual Verification** | Commands reference real endpoints/files |
+| **References > Related Code** | All referenced files exist |
+
+### Verification Commands
+
+```bash
+# Verify test file paths
+ls [service]/tests/[module]/test_*.py
+
+# Find files matching a pattern
+find . -name "*[keyword]*" -path "*/tests/*" -name "*.py"
+
+# Check available endpoints
+curl -s http://localhost:8000/openapi.json | jq '.paths | keys'
+```
+
+### Best Practices
+
+| Do | Don't |
+|----|-------|
+| Use glob patterns when possible: `pytest tests/backends/ -v` | Assume specific file names without checking |
+| Verify paths exist before writing them | Copy paths from design docs without verification |
+| Use directory-level test commands | Reference files that might be renamed |
+
+### Why This Matters
+
+- Non-existent paths cause validation failures
+- Completion reports may incorrectly claim success
+- Developers waste time debugging documentation errors

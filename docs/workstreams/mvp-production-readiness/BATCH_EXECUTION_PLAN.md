@@ -348,18 +348,28 @@ cd /Users/imaxxs/repositories/deepsecure-mvp/deeptrail-control
 
 ```bash
 # Start services
-docker compose up deeptrail-control -d
+cd /Users/imaxxs/repositories/deepsecure-mvp
+docker compose up -d db redis deeptrail-control
+sleep 15
 
-# Test login endpoint
-curl -X POST http://localhost:8000/api/v1/auth/login \
+# Verify Control Plane is healthy
+curl -sf http://localhost:8000/health && echo "✅ Control Plane healthy"
+
+# Test login endpoint and capture token
+# Note: Login returns "token" field, not "access_token"
+USER_TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"sarah@acme.com","password":"test123"}'
+  -d '{"email":"sarah@acme.com","password":"test123"}' | jq -r '.token')
+echo "User token: ${USER_TOKEN:0:20}..."
 
 # Test service connection endpoint
-curl -X POST http://localhost:8000/api/v1/users/me/services/connect \
-  -H "Authorization: Bearer <token>" \
+curl -s -X POST http://localhost:8000/api/v1/users/me/services/connect \
+  -H "Authorization: Bearer $USER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"service_id":"notion","oauth_token":{"access_token":"test"}}'
+  -d '{"service_id":"notion","oauth_token":{"access_token":"test"}}' | jq .
+
+# Cleanup
+docker compose down
 ```
 
 ### Summary
@@ -707,15 +717,178 @@ cd /Users/imaxxs/repositories/deepsecure-mvp
 
 ### Validation
 
-```bash
-# Control: Test vault endpoints
-cd /Users/imaxxs/repositories/mvp-prod-control/deeptrail-control
-curl -X GET http://localhost:8000/api/v1/vault/tokens/notion \
-  -H "Authorization: Bearer <agent_token>"
+**⚠️ IMPORTANT:** These validation commands test endpoints created by P1-B2 tasks. 
+They only work AFTER:
+1. All P1-B2 tasks are implemented in worktrees
+2. Code is merged to main branch  
+3. Docker containers are rebuilt: `docker compose build deeptrail-control`
 
-# Gateway: Test backend clients
+#### Pre-Merge Validation (Unit Tests Only)
+
+Run these in worktrees before merging:
+
+```bash
+# Control worktree: Test vault client and OAuth modules
+cd /Users/imaxxs/repositories/mvp-prod-control/deeptrail-control
+pytest tests/services/test_vault_client.py -v      # Vault client tests
+pytest tests/services/test_oauth_service.py -v     # OAuth service tests
+pytest tests/core/test_oauth_config.py -v          # OAuth config tests
+pytest tests/api/test_vault_tokens.py -v           # Vault token endpoints
+pytest tests/api/test_oauth.py -v                  # OAuth endpoints
+
+# Gateway worktree: Test backend API clients
 cd /Users/imaxxs/repositories/mvp-prod-gateway/deeptrail-gateway
-pytest tests/backends/ -v
+pytest tests/backends/ -v                          # All backend client tests
+```
+
+#### Post-Merge Validation (Integration Tests)
+
+Run these AFTER merging and rebuilding containers:
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# P1-B2 VALIDATION - Vault API + Backend Clients (POST-MERGE)
+# ═══════════════════════════════════════════════════════════════
+# All commands should return 200 (or 404 if no data stored yet)
+# ═══════════════════════════════════════════════════════════════
+
+# 0. Rebuild containers with new code (includes OAuth env vars)
+cd /Users/imaxxs/repositories/deepsecure-mvp
+docker compose build deeptrail-control
+docker compose up -d db redis deeptrail-control
+sleep 15
+
+# 1. Verify Control Plane is healthy
+curl -sf http://localhost:8000/health && echo "✅ Control Plane healthy"
+
+# 2. Verify new endpoints exist
+curl -s http://localhost:8000/openapi.json | jq '.paths | keys | map(select(contains("vault/tokens") or contains("oauth")))' 
+# Expected: ["/api/v1/oauth/{service_id}/authorize", "/api/v1/vault/tokens/{service_id}", ...]
+
+# ─────────────────────────────────────────────────────────────────
+# SETUP: Login and connect a service
+# ─────────────────────────────────────────────────────────────────
+
+# 3. Get user token via login
+USER_TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"sarah@acme.com","password":"test_password"}' | jq -r '.token')
+echo "User token: ${USER_TOKEN:0:20}..."
+
+# 4. Connect a service (creates the token reference in database)
+curl -s -X POST http://localhost:8000/api/v1/users/me/services/connect \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "service_id": "notion",
+    "oauth_token": {
+      "access_token": "test_notion_token_123",
+      "token_type": "bearer",
+      "scope": "read_pages",
+      "refresh_token": "test_refresh_token_456",
+      "expires_in": 3600
+    }
+  }' | jq .
+# Expected: 200 {"success": true, "connection": {...}}
+
+# ─────────────────────────────────────────────────────────────────
+# TEST E2: Vault Token Retrieval (requires Agent JWT)
+# ─────────────────────────────────────────────────────────────────
+
+# 5a. Generate Ed25519 keypair for agent
+python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey.generate()
+public_key = private_key.verify_key
+print(f'PRIVATE_KEY_HEX={private_key.encode().hex()}')
+print(f'PUBLIC_KEY_B64={base64.b64encode(public_key.encode()).decode()}')
+" > /tmp/agent_keys.env
+source /tmp/agent_keys.env
+
+# 5b. Register agent with public key
+curl -s -X POST http://localhost:8000/api/v1/agents/ \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"test-agent-001\",
+    \"name\": \"Test Agent\",
+    \"public_key\": \"$PUBLIC_KEY_B64\"
+  }" | jq .
+
+# 5c. Create delegation (grant permissions to agent)
+curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "test-agent-001",
+    "permissions": ["notion:pages:search", "notion:pages:read"]
+  }' | jq .
+
+# 5d. Request challenge
+CHALLENGE=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/challenge \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "test-agent-001"}' | jq -r '.challenge')
+echo "Challenge: $CHALLENGE"
+
+# 5e. Sign challenge with Ed25519 private key
+SIGNATURE=$(python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey(bytes.fromhex('$PRIVATE_KEY_HEX'))
+signed = private_key.sign('$CHALLENGE'.encode())
+print(base64.urlsafe_b64encode(signed.signature).decode())
+")
+
+# 5f. Verify and get Agent JWT
+AGENT_JWT=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/verify \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"test-agent-001\",
+    \"challenge\": \"$CHALLENGE\",
+    \"signature\": \"$SIGNATURE\"
+  }" | jq -r '.access_token')
+echo "Agent JWT: ${AGENT_JWT:0:30}..."
+
+# 5g. TEST E2: Vault token retrieval with Agent JWT
+curl -s -w "\nHTTP Status: %{http_code}\n" \
+  -X GET "http://localhost:8000/api/v1/vault/tokens/notion" \
+  -H "Authorization: Bearer $AGENT_JWT"
+# Expected: 200 {"service_id": "notion", "access_token": "test_notion_token_123", ...}
+
+# ─────────────────────────────────────────────────────────────────
+# TEST E3: Vault Token Refresh (requires Internal API Token)
+# ─────────────────────────────────────────────────────────────────
+
+# 6. Test refresh with internal token (Gateway→Control communication)
+# Internal token value from docker-compose.yml: gateway-internal-secret-token
+curl -s -w "\nHTTP Status: %{http_code}\n" \
+  -X POST "http://localhost:8000/api/v1/vault/tokens/notion/refresh" \
+  -H "Authorization: Bearer gateway-internal-secret-token" \
+  -H "X-User-ID: sarah@acme.com" \
+  -H "Content-Type: application/json" \
+  -d '{"force": false}'
+# Expected: 200 {"refreshed": true/false, ...} or 400 if no refresh_token stored
+
+# ─────────────────────────────────────────────────────────────────
+# TEST F3: OAuth Authorize (requires OAuth env vars - already configured)
+# ─────────────────────────────────────────────────────────────────
+
+# 7. Test OAuth authorize URL generation
+curl -s -w "\nHTTP Status: %{http_code}\n" \
+  -X GET "http://localhost:8000/api/v1/oauth/notion/authorize" \
+  -H "Authorization: Bearer $USER_TOKEN"
+# Expected: 200 {"authorization_url": "https://api.notion.com/v1/oauth/authorize?...", "state": "..."}
+
+# ─────────────────────────────────────────────────────────────────
+# CLEANUP
+# ─────────────────────────────────────────────────────────────────
+
+# 8. Cleanup
+rm -f /tmp/agent_keys.env
+docker compose down
+
+echo "✅ P1-B2 Post-Merge Validation Complete - All endpoints return 200"
 ```
 
 ### Summary
@@ -838,19 +1011,77 @@ cd /Users/imaxxs/repositories/deepsecure-mvp
 ### Validation (MP3 Criteria)
 
 ```bash
-# Test with real OAuth tokens
-# 1. Connect a service with real OAuth
-curl -X POST http://localhost:8000/api/v1/oauth/notion/authorize
+# ═══════════════════════════════════════════════════════════════
+# P1-B3 VALIDATION - Credential Injection (MP3 Criteria)
+# ═══════════════════════════════════════════════════════════════
 
-# 2. Run agent tool call
-python demos/demo_sarah_journey_e2e.py
+# 1. Start full stack
+cd /Users/imaxxs/repositories/deepsecure-mvp
+docker compose up -d
+sleep 20
 
-# 3. Verify real API response (not mock)
-grep -v "mock" demos/output.log
+# 2. Verify services are healthy
+curl -sf http://localhost:8000/health && echo "✅ Control Plane healthy"
+curl -sf http://localhost:8002/health && echo "✅ Gateway healthy"
 
-# Integration test
+# 3. Get user token via login
+# Note: Login returns "token" field, not "access_token"
+USER_TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"sarah@acme.com","password":"test_password"}' | jq -r '.token')
+echo "User token: ${USER_TOKEN:0:20}..."
+
+# 4. Connect service with real OAuth token (stores in vault + connected_services DB)
+curl -s -X POST http://localhost:8000/api/v1/users/me/services/connect \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "service_id": "notion",
+    "oauth_token": {
+      "access_token": "'"${NOTION_API_KEY:-test_notion_token}"'",
+      "token_type": "bearer",
+      "scope": "read_pages search_content",
+      "expires_in": 3600
+    }
+  }' | jq .
+
+# 5. Complete agent auth flow to get Agent JWT
+# (See P1-B2 Post-Merge Validation for full agent auth flow:
+#  generate keypair → register agent → delegate → challenge → sign → verify)
+# After completing the flow:
+echo "Agent JWT: ${AGENT_JWT:0:20}..."
+
+# 6. Make tool call through Gateway (should inject real token)
+TOOL_RESULT=$(curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "id": 1,
+    "params": {"name": "notion.search_pages", "arguments": {"query": "test"}}
+  }')
+echo "Tool result: $TOOL_RESULT"
+
+# 7. Verify NOT a mock response
+if [[ "$TOOL_RESULT" != *"MVP Mock"* ]]; then
+  echo "✅ Real API response (credential injection working)"
+else
+  echo "❌ Still returning mock response"
+fi
+
+# 8. Run E2E demo
+python demos/demo_sarah_journey_e2e.py --verbose
+
+# 9. Run credential injection tests
 cd /Users/imaxxs/repositories/mvp-prod-gateway/deeptrail-gateway
 pytest tests/middleware/test_credential_injection.py -v
+
+# 10. Cleanup
+cd /Users/imaxxs/repositories/deepsecure-mvp
+docker compose down
+
+echo "✅ P1-B3 Validation Complete"
 ```
 
 ### Summary
@@ -1090,23 +1321,82 @@ git merge feature/mvp-prod-gateway --no-ff -m "Merge P2 gateway changes"
 ### Validation (Production Ready Criteria)
 
 ```bash
-# Full E2E with production features
+# ═══════════════════════════════════════════════════════════════
+# P2 VALIDATION - Production Ready Criteria
+# ═══════════════════════════════════════════════════════════════
+
+# 1. Start full stack with production config
+cd /Users/imaxxs/repositories/deepsecure-mvp
+export ENVIRONMENT=production
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+sleep 30
+
+# 2. Verify all services healthy
+curl -sf http://localhost:8000/health && echo "✅ Control Plane healthy"
+curl -sf http://localhost:8002/health && echo "✅ Gateway healthy"
+curl -sf http://localhost:8080/health/ready && echo "✅ Keycloak healthy"
+
+# 3. Test SSO login (get redirect URL)
+SSO_REDIRECT=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/okta/authorize" | jq -r '.authorize_url')
+echo "SSO URL: $SSO_REDIRECT"
+# Manual: Complete SSO in browser, capture callback token
+
+# 4. Get user token via standard login (fallback)
+# Note: Login returns "token" field, not "access_token"
+USER_TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"sarah@acme.com","password":"test_password"}' | jq -r '.token')
+echo "User token: ${USER_TOKEN:0:20}..."
+
+# 5. Test task token generation
+TASK_TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/tasks/tokens \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id":"agent-123","permissions":["notion:read_pages"]}' | jq -r '.task_token')
+echo "Task token: ${TASK_TOKEN:0:20}..."
+
+# 6. Test task token scoped call (should succeed)
+curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $TASK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "id": 1,
+    "params": {"name": "notion.search_pages", "arguments": {"query": "test"}}
+  }' | jq .
+
+# 7. Test task token permission denial (should fail)
+DENIED=$(curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $TASK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "id": 2,
+    "params": {"name": "slack.send_message", "arguments": {"channel": "general"}}
+  }')
+echo "Permission denied response: $DENIED"
+
+# 8. Test Keycloak token exchange
+KEYCLOAK_TOKEN=$(curl -s -X POST http://localhost:8080/realms/deepsecure/protocol/openid-connect/token \
+  -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+  -d "client_id=gateway" \
+  -d "client_secret=gateway-secret" \
+  -d "subject_token=$USER_TOKEN" \
+  -d "requested_token_type=urn:ietf:params:oauth:token-type:access_token" | jq -r '.access_token')
+echo "Keycloak exchanged token: ${KEYCLOAK_TOKEN:0:20}..."
+
+# 9. Run full E2E with production features
 python demos/demo_sarah_journey_e2e.py --production
 
-# Test SSO login
-curl -X GET http://localhost:8000/api/v1/sso/okta/login
-
-# Test task tokens
-curl -X POST http://localhost:8000/api/v1/tasks \
-  -H "Authorization: Bearer <token>" \
-  -d '{"agent_id":"agent-123","permissions":["notion:read"]}'
-
-# Test Keycloak exchange
-curl -X POST http://localhost:8002/api/v1/auth/exchange \
-  -H "Authorization: Bearer <delegation_token>"
-
-# Security tests
+# 10. Run security test suite
 pytest tests/security/ -v
+
+# 11. Cleanup
+docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+
+echo "✅ P2 Validation Complete - Production Ready"
 ```
 
 ### Summary

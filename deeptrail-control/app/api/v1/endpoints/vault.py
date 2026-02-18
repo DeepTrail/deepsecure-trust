@@ -26,6 +26,7 @@ from app.schemas.vault_token import (
 from app.services.vault_client import VaultClient
 from app.services.oauth_service import OAuthService, get_oauth_service, OAuthRefreshError
 from app.schemas.oauth import OAuthProvider, TokenRefreshRequest as OAuthTokenRefreshRequest
+from app.models.connected_service import ConnectedService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -80,6 +81,7 @@ def get_vault_client() -> VaultClient:
 async def get_token_for_service(
     service_id: str,
     agent_claims: deps.AgentClaimsDep,
+    db: deps.DbDep,
     vault_client: VaultClient = Depends(get_vault_client),
 ) -> TokenResponse:
     """Retrieve OAuth access token for a connected service.
@@ -129,14 +131,32 @@ async def get_token_for_service(
             detail={"error": "forbidden", "message": "Service not delegated"},
         )
 
-    # 3. Generate token reference and retrieve from vault
-    # Token ref format matches VaultClient._generate_ref()
-    token_ref = vault_client._generate_ref(user_id, service_id)
+    # 3. Query database for stored token reference
+    # BUG FIX: Previously used vault_client._generate_ref() which generates
+    # a unique reference each call. Must query ConnectedService for stored ref.
+    connection = db.query(ConnectedService).filter(
+        ConnectedService.user_id == user_id,
+        ConnectedService.service_id == service_id,
+        ConnectedService.disconnected_at.is_(None),
+    ).first()
+
+    if not connection or not connection.oauth_token_ref:
+        logger.warning(
+            "Service not connected: service=%s user=%s",
+            service_id,
+            user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "Service not connected"},
+        )
+
+    token_ref = connection.oauth_token_ref
     token_data = vault_client.retrieve_token(token_ref)
 
     if not token_data:
         logger.warning(
-            "Service not connected: service=%s user=%s token_ref=%s",
+            "Token not found in vault: service=%s user=%s token_ref=%s",
             service_id,
             user_id,
             token_ref,
@@ -233,6 +253,7 @@ def get_oauth_service_dep() -> OAuthService:
 async def refresh_token(
     service_id: str,
     request: TokenRefreshRequest,
+    db: deps.DbDep,
     x_user_id: str = Header(..., alias="X-User-ID"),
     internal_token: str = Depends(deps.verify_internal_token),
     vault_client: VaultClient = Depends(get_vault_client),
@@ -267,15 +288,35 @@ async def refresh_token(
         request.force,
     )
 
-    # 1. Generate token reference and retrieve from vault
-    token_ref = vault_client._generate_ref(x_user_id, service_id)
-    token_data = vault_client.retrieve_token(token_ref, update_usage=False)
+    # 1. Query database for stored token reference
+    # BUG FIX: Previously used vault_client._generate_ref() which generates
+    # a unique reference each call. Must query ConnectedService for stored ref.
+    connection = db.query(ConnectedService).filter(
+        ConnectedService.user_id == x_user_id,
+        ConnectedService.service_id == service_id,
+        ConnectedService.disconnected_at.is_(None),
+    ).first()
 
-    if not token_data:
+    if not connection or not connection.oauth_token_ref:
         logger.warning(
             "Service not connected for refresh: service=%s user=%s",
             service_id,
             x_user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "Service not connected"},
+        )
+
+    token_ref = connection.oauth_token_ref
+    token_data = vault_client.retrieve_token(token_ref, update_usage=False)
+
+    if not token_data:
+        logger.warning(
+            "Token not found in vault for refresh: service=%s user=%s token_ref=%s",
+            service_id,
+            x_user_id,
+            token_ref,
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

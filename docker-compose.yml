@@ -55,12 +55,21 @@ services:
 
       # This tells the service where to find the policy file we mounted below.
       - POLICY_PATH=/app/policies.yml
-      
+
       # Other app settings
       - ALGORITHM=HS256
       - POSTGRES_DRIVER=psycopg2
       # Pass the current DeepSecure version to the container
       - DEEPSECURE_VERSION=0.1.11
+
+      # OAuth Configuration (test values for integration testing)
+      - OAUTH_REDIRECT_BASE_URL=http://localhost:8000
+      - NOTION_CLIENT_ID=test-notion-client-id
+      - NOTION_CLIENT_SECRET=test-notion-client-secret
+      - SLACK_CLIENT_ID=test-slack-client-id
+      - SLACK_CLIENT_SECRET=test-slack-client-secret
+      - HUBSPOT_CLIENT_ID=test-hubspot-client-id
+      - HUBSPOT_CLIENT_SECRET=test-hubspot-client-secret
       
     volumes:
       # Mount the policies file into the container to make it accessible to the service.

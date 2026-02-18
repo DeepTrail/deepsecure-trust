@@ -195,3 +195,40 @@ Before marking complete, verify these match exactly:
 - [ ] Tests use correct endpoint paths
 - [ ] Framework requirements met (async fixtures, etc.)
 - [ ] File in correct location (root vs service-specific)
+- [ ] **All file paths in this spec verified to exist** (see below)
+
+---
+
+## File Path Verification (MANDATORY)
+
+> **⚠️ CRITICAL:** Before documenting ANY file paths (test files, source files, commands), you MUST verify they actually exist in the codebase.
+
+### Verification Commands
+
+```bash
+# Verify test file paths exist
+ls [service]/tests/[module]/test_*.py
+
+# Verify source file paths exist
+ls [service]/app/[module]/[file].py
+
+# Use find for fuzzy matching if unsure of exact name
+find . -name "*[keyword]*" -path "*/tests/*" -name "*.py"
+
+# Check endpoint paths via openapi
+curl -s http://localhost:8000/openapi.json | jq '.paths | keys | map(select(contains("[keyword]")))'
+```
+
+### Best Practices
+
+| Do | Don't |
+|----|-------|
+| Use glob patterns: `pytest tests/backends/ -v` | Assume file names: `pytest tests/backends/test_notion_api.py` |
+| Verify paths exist before documenting | Copy paths from design docs without checking |
+| Use `find` when unsure of exact names | Guess at directory structure |
+
+### Why This Matters
+
+- Non-existent paths cause validation failures and confusion
+- Completion reports may incorrectly claim tests pass when tests don't exist
+- Developers waste time debugging documentation errors instead of actual code
