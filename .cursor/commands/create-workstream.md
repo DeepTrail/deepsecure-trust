@@ -142,8 +142,20 @@ Create a new workstream folder structure with overview document.
 
 ### Next Steps
 1. Review and refine the task breakdown in WORKSTREAM.md
-2. Create individual task tickets with `/create-task-ticket`
-3. Begin execution of ready tasks
+2. Create batch execution plan with `/create-batch-execution-plan`
+3. Create individual task tickets with `/create-task-ticket`
+4. Begin execution of ready tasks
+
+### Worktree Lifecycle
+
+| Phase | Action | Commands |
+|-------|--------|----------|
+| **Setup** | Create worktrees | `git worktree add ../[name] -b feature/[name] dev` |
+| **Execution** | Work in worktrees | `/execute-task`, `/complete-task` |
+| **Merge** | Merge to dev | `git merge feature/[name] --no-ff` |
+| **Cleanup** | Remove worktrees | `git worktree remove ../[name]` |
+
+> **Note:** Cleanup commands are documented in `BATCH_EXECUTION_PLAN.md` under "Worktree Cleanup" section.
 
 ---
 

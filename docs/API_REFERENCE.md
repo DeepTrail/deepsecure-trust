@@ -1,8 +1,8 @@
 # DeepSecure Virtual MCP Server - API Reference
 
-> **Document Version:** 1.0  
-> **Last Updated:** February 2026  
-> **Status:** MVP Implementation
+> **Document Version:** 1.1  
+> **Last Updated:** February 17, 2026  
+> **Status:** MVP Implementation (P1-B2 Complete)
 
 ---
 
@@ -17,10 +17,11 @@
    - [Delegation APIs](#34-delegation-apis)
    - [User Service APIs](#35-user-service-apis)
    - [Vault (Secret Management) APIs](#36-vault-secret-management-apis)
-   - [Policy APIs](#37-policy-apis)
-   - [Audit APIs](#38-audit-apis)
-   - [Bootstrap APIs](#39-bootstrap-apis)
-   - [Internal APIs](#310-internal-apis)
+   - [OAuth APIs](#37-oauth-apis)
+   - [Policy APIs](#38-policy-apis)
+   - [Audit APIs](#39-audit-apis)
+   - [Bootstrap APIs](#310-bootstrap-apis)
+   - [Internal APIs](#311-internal-apis)
 4. [Gateway APIs](#4-gateway-apis)
    - [Health & Status APIs](#41-health--status-apis)
    - [Unified MCP Endpoint](#42-unified-mcp-endpoint)
@@ -340,10 +341,136 @@ Prefix: `/api/v1/vault`
 | `POST` | `/vault/credentials/{id}/revoke` | Revoke credential | User/Agent JWT | ✅ Implemented |
 | `GET` | `/vault/credentials/{id}/verify` | Verify credential | User/Agent JWT | ✅ Implemented |
 | `POST` | `/vault/agents/{agent_id}/rotate-identity` | Rotate agent keys | User JWT | ✅ Implemented |
+| `GET` | `/vault/tokens/{service_id}` | Get OAuth token for service | User/Agent JWT | ✅ Implemented (P1-B2) |
+| `POST` | `/vault/tokens/{service_id}/refresh` | Refresh OAuth token | User/Agent JWT | ✅ Implemented (P1-B2) |
+
+#### GET /api/v1/vault/tokens/{service_id}
+
+Retrieve stored OAuth token for a specific service.
+
+**Path Parameters:**
+- `service_id`: Service identifier (e.g., `notion`, `slack`, `hubspot`)
+
+**Headers:**
+```
+Authorization: Bearer <user-jwt or agent-jwt>
+```
+
+**Response (200 OK):**
+```json
+{
+  "service_id": "notion",
+  "user_id": "sarah@acme.com",
+  "access_token": "notion-oauth-token-xyz",
+  "token_type": "bearer",
+  "scope": "read_content search",
+  "expires_at": "2026-01-28T10:00:00Z",
+  "is_expired": false
+}
+```
+
+**Error Responses:**
+- `404 Not Found`: Token not found for service
+- `401 Unauthorized`: Invalid or missing JWT
+
+#### POST /api/v1/vault/tokens/{service_id}/refresh
+
+Request token refresh for an OAuth token.
+
+**Path Parameters:**
+- `service_id`: Service identifier
+
+**Request:**
+```json
+{
+  "force": false
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "service_id": "notion",
+  "user_id": "sarah@acme.com",
+  "access_token": "new-notion-token-abc",
+  "token_type": "bearer",
+  "expires_at": "2026-02-04T10:00:00Z",
+  "refreshed": true
+}
+```
+
+**Error Responses:**
+- `404 Not Found`: Token not found for service
+- `400 Bad Request`: Token cannot be refreshed (no refresh token)
 
 ---
 
-### 3.7 Policy APIs
+### 3.7 OAuth APIs
+
+Prefix: `/api/v1/oauth`
+
+| Method | Endpoint | Description | Auth Required | MVP Status |
+|--------|----------|-------------|---------------|------------|
+| `GET` | `/oauth/{service_id}/authorize` | Initiate OAuth authorization flow | User JWT | ✅ Implemented (P1-B2) |
+| `GET` | `/oauth/{service_id}/callback` | OAuth callback handler | No (state verification) | ✅ Implemented (P1-B2) |
+| `POST` | `/oauth/{service_id}/refresh` | Refresh OAuth token | User JWT | ✅ Implemented (P1-B2) |
+
+#### GET /api/v1/oauth/{service_id}/authorize
+
+Initiate OAuth authorization flow for a service. Redirects to provider's authorization page.
+
+**Path Parameters:**
+- `service_id`: Service identifier (e.g., `notion`, `slack`, `hubspot`)
+
+**Query Parameters:**
+- `redirect_uri` (optional): Custom redirect URI after completion
+- `scopes` (optional): Comma-separated list of requested scopes
+
+**Headers:**
+```
+Authorization: Bearer <user-jwt>
+```
+
+**Response:** `302 Redirect` to OAuth provider authorization URL
+
+#### GET /api/v1/oauth/{service_id}/callback
+
+OAuth callback endpoint. Handles authorization code exchange.
+
+**Query Parameters:**
+- `code`: Authorization code from OAuth provider
+- `state`: State parameter for CSRF protection
+
+**Response (Success):** `302 Redirect` to configured redirect URI with success status
+
+**Response (Error):** `302 Redirect` with error parameter
+
+#### POST /api/v1/oauth/{service_id}/refresh
+
+Manually trigger OAuth token refresh.
+
+**Path Parameters:**
+- `service_id`: Service identifier
+
+**Request:**
+```json
+{
+  "force": true
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "service_id": "notion",
+  "refreshed": true,
+  "expires_at": "2026-02-04T10:00:00Z"
+}
+```
+
+---
+
+### 3.8 Policy APIs
 
 Prefix: `/api/v1/policies`
 
@@ -369,7 +496,7 @@ Prefix: `/api/v1/policies/attestation`
 
 ---
 
-### 3.8 Audit APIs
+### 3.9 Audit APIs
 
 Prefix: `/api/v1/audit`
 
@@ -416,7 +543,7 @@ Query audit events with filtering and pagination.
 
 ---
 
-### 3.9 Bootstrap APIs
+### 3.10 Bootstrap APIs
 
 Prefix: `/api/v1/bootstrap` and `/api/v1/auth/bootstrap`
 
@@ -430,7 +557,7 @@ Prefix: `/api/v1/bootstrap` and `/api/v1/auth/bootstrap`
 
 ---
 
-### 3.10 Internal APIs
+### 3.11 Internal APIs
 
 Prefix: `/api/v1/internal` (not included in OpenAPI schema)
 
@@ -903,6 +1030,11 @@ POST   /api/v1/users/me/services/connect        # Connect OAuth service
 GET    /api/v1/audit/events                     # Query audit logs
 POST   /api/v1/vault/store                      # Store secret
 GET    /api/v1/vault/secrets/{name}/value       # Get secret
+GET    /api/v1/vault/tokens/{service_id}        # Get OAuth token (P1-B2)
+POST   /api/v1/vault/tokens/{service_id}/refresh # Refresh OAuth token (P1-B2)
+GET    /api/v1/oauth/{service_id}/authorize     # OAuth authorize (P1-B2)
+GET    /api/v1/oauth/{service_id}/callback      # OAuth callback (P1-B2)
+POST   /api/v1/oauth/{service_id}/refresh       # OAuth refresh (P1-B2)
 GET    /api/v1/policies/                        # List policies
 ```
 

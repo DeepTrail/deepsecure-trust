@@ -129,6 +129,30 @@ python demos/demo_sarah_journey_interactive.py --auto
 
 ---
 
+## Specifications
+
+### Batch P1-B1 (Foundation Services)
+
+| Task ID | Spec | Ticket | Status | Report |
+|---------|------|--------|--------|--------|
+| WS-E1 | [WS-E1-spec.md](./specs/WS-E1-spec.md) | [WS-E1-enhance-vault-client.md](./tasks/WS-E1-enhance-vault-client.md) | ✅ Complete | [Report](./reports/WS-E1-completion.md) |
+| WS-F1 | [WS-F1-spec.md](./specs/WS-F1-spec.md) | [WS-F1-create-oauth-service.md](./tasks/WS-F1-create-oauth-service.md) | ✅ Complete | [Report](./reports/WS-F1-completion.md) |
+| WS-G1 | [WS-G1-spec.md](./specs/WS-G1-spec.md) | [WS-G1-add-backend-configuration.md](./tasks/WS-G1-add-backend-configuration.md) | ✅ Complete | [Report](./reports/WS-G1-completion.md) |
+
+### Batch P1-B2 (API Endpoints & Backend Integrations) ✅ COMPLETE
+
+| Task ID | Spec | Ticket | Status | Report |
+|---------|------|--------|--------|--------|
+| WS-E2 | [WS-E2-spec.md](./specs/WS-E2-spec.md) | [WS-E2-vault-token-retrieval-endpoint.md](./tasks/WS-E2-vault-token-retrieval-endpoint.md) | ✅ Complete | [Report](./reports/WS-E2-completion.md) |
+| WS-E3 | [WS-E3-spec.md](./specs/WS-E3-spec.md) | [WS-E3-vault-token-refresh-endpoint.md](./tasks/WS-E3-vault-token-refresh-endpoint.md) | ✅ Complete | [Report](./reports/WS-E3-completion.md) |
+| WS-F2 | [WS-F2-spec.md](./specs/WS-F2-spec.md) | [WS-F2-create-oauth-config.md](./tasks/WS-F2-create-oauth-config.md) | ✅ Complete | [Report](./reports/WS-F2-completion.md) |
+| WS-F3 | [WS-F3-spec.md](./specs/WS-F3-spec.md) | [WS-F3-create-oauth-endpoints.md](./tasks/WS-F3-create-oauth-endpoints.md) | ✅ Complete | [Report](./reports/WS-F3-completion.md) |
+| WS-G2 | [WS-G2-spec.md](./specs/WS-G2-spec.md) | [WS-G2-notion-rest-api-calls.md](./tasks/WS-G2-notion-rest-api-calls.md) | ✅ Complete | [Report](./reports/WS-G2-completion.md) |
+| WS-G3 | [WS-G3-spec.md](./specs/WS-G3-spec.md) | [WS-G3-slack-rest-api-calls.md](./tasks/WS-G3-slack-rest-api-calls.md) | ✅ Complete | [Report](./reports/WS-G3-completion.md) |
+| WS-G4 | [WS-G4-spec.md](./specs/WS-G4-spec.md) | [WS-G4-hubspot-rest-api-calls.md](./tasks/WS-G4-hubspot-rest-api-calls.md) | ✅ Complete | [Report](./reports/WS-G4-completion.md) |
+
+---
+
 ## Related Documents
 
 - [Breakdown](../../mvp-production-readiness-breakdown.md) - Detailed task breakdown

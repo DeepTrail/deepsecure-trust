@@ -268,6 +268,29 @@ cd [main-repo-path]
 /sync-worktree-status [feature-name]
 ```
 
+### ⚠️ Post-Batch Verification (MANDATORY)
+
+**Before proceeding to the next batch, verify status consistency:**
+
+```bash
+# Run from main repo
+cd [main-repo-path]
+
+# Verify batch completion
+/verify-batch-completion [batch-id] [feature-name]
+```
+
+**Verification Checklist:**
+- [ ] All batch tasks have completion reports in `reports/`
+- [ ] STATUS.md shows all tasks as "✅ Complete"
+- [ ] WORKSTREAM.md shows all tasks with correct status and report links
+- [ ] BATCH_EXECUTION_PLAN.md Quick Reference shows batch as "✅ Complete"
+- [ ] If batch triggers merge point, MERGE_POINTS.md shows it as "✅ Reached"
+
+**DO NOT proceed to next batch until verification passes.**
+
+---
+
 ### Summary
 
 | Metric | Value |
@@ -532,6 +555,103 @@ echo "=== Verification Complete ==="
 - Per-batch Summary tables
 
 This made it inconsistent with `virtual-mcp-server-mvp` and harder to execute.
+
+---
+
+## Worktree Cleanup Section (MUST Include)
+
+Every BATCH_EXECUTION_PLAN.md must include a cleanup section at the end.
+
+### Required Cleanup Template
+
+```markdown
+## Worktree Cleanup (End of Workstream)
+
+> **When to run:** After ALL phases are complete and merged to `dev` branch.
+> **Prerequisites:** All merge points must be ✅ REACHED.
+
+### Pre-Cleanup Verification
+
+Before removing worktrees, verify all work is merged:
+
+\`\`\`bash
+# 1. Navigate to main repo
+cd /Users/imaxxs/repositories/deepsecure-mvp
+
+# 2. Update dev branch
+git checkout dev
+git pull origin dev
+
+# 3. Check if worktree branches are fully merged
+git branch --merged dev | grep "[worktree-branch-prefix]"
+
+# 4. If branches NOT shown above, merge them first:
+git merge feature/[worktree-1] --no-ff -m "Merge [feature]: [service 1]"
+git merge feature/[worktree-2] --no-ff -m "Merge [feature]: [service 2]"
+
+# 5. Verify E2E demo passes on merged code
+python demos/demo_sarah_journey_e2e.py
+\`\`\`
+
+### Remove Worktrees
+
+\`\`\`bash
+# Navigate to main repo
+cd /Users/imaxxs/repositories/deepsecure-mvp
+
+# List current worktrees
+git worktree list
+
+# Remove worktrees (safe removal - fails if uncommitted changes)
+git worktree remove ../[worktree-1]
+git worktree remove ../[worktree-2]
+
+# Verify removal
+git worktree list
+\`\`\`
+
+### Delete Feature Branches (Optional)
+
+\`\`\`bash
+# Delete local feature branches
+git branch -d feature/[worktree-1]
+git branch -d feature/[worktree-2]
+
+# If pushed to remote, delete there too
+git push origin --delete feature/[worktree-1]
+git push origin --delete feature/[worktree-2]
+\`\`\`
+
+### Force Removal (Use with Caution)
+
+\`\`\`bash
+# ⚠️ WARNING: Discards ALL uncommitted changes!
+git worktree remove --force ../[worktree-1]
+git worktree remove --force ../[worktree-2]
+\`\`\`
+
+### Cleanup Summary Checklist
+
+| Step | Command | Verified |
+|------|---------|----------|
+| 1. All phases complete | Check `STATUS.md` | ☐ |
+| 2. All merge points reached | Check `MERGE_POINTS.md` | ☐ |
+| 3. Branches merged to dev | `git branch --merged dev` | ☐ |
+| 4. E2E demo passes | `python demos/...` | ☐ |
+| 5. Worktrees removed | `git worktree remove ...` | ☐ |
+| 6. Feature branches deleted | `git branch -d ...` | ☐ |
+| 7. Worktree list clean | `git worktree list` | ☐ |
+```
+
+### Verification: Cleanup Section Exists
+
+Add to the verification command:
+
+```bash
+grep -q "## Worktree Cleanup" $FILE && echo "✅ Worktree Cleanup" || echo "❌ MISSING: Worktree Cleanup"
+grep -q "### Remove Worktrees" $FILE && echo "✅ Remove Worktrees" || echo "❌ MISSING: Remove Worktrees"
+grep -q "git worktree remove" $FILE && echo "✅ Cleanup commands" || echo "❌ MISSING: Cleanup commands"
+```
 
 ---
 

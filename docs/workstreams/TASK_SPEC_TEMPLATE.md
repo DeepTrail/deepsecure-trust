@@ -6,7 +6,12 @@
 
 ---
 
-## API Contract (if applicable)
+## API Contracts
+
+> **MANDATORY SECTION** - Include for ALL task specifications.
+> For tasks without API endpoints, include a note explaining what the task implements.
+
+### [For tasks WITH API endpoints]
 
 ### Endpoint Definition
 
@@ -42,6 +47,12 @@
 | 400 | Invalid input | `{"error": "validation_error", "details": [...]}` |
 | 401 | Unauthorized | `{"error": "unauthorized"}` |
 | 404 | Not found | `{"error": "not_found"}` |
+
+### [For tasks WITHOUT API endpoints]
+
+> **Note:** This task implements an internal module/service, not API endpoints.
+> [Brief explanation of what the task creates and why it has no API.]
+> See [WS-XX] for related API endpoints that use this module.
 
 ---
 

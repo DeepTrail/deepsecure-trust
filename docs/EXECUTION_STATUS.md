@@ -29,7 +29,7 @@ docs/
 |--------|-------|----------|--------|-----------------|
 | [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Phase 4: Complete | 100% (43/43) | ✅ Complete | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
 | [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | ✅ Phase 4: Complete | 100% (9/9) | ✅ Complete | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
-| [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | Phase 2: Planning | 0% (0/32) | ⏸️ Planned | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
+| [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | Phase 3: Execution | 16% (5/32) | ⏳ In Progress | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
 
 
 ---
@@ -41,9 +41,9 @@ docs/
 │                           PORTFOLIO DASHBOARD                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Total Designs: 2 complete, 0 active, 1 planned                             │
-│  Total Tasks:   84 (52 done, 0 in progress, 0 ready, 32 pending)            │
-│  Overall:       62% complete                                                 │
+│  Total Designs: 2 complete, 1 active, 0 planned                             │
+│  Total Tasks:   84 (57 done, 0 in progress, 1 ready, 26 pending)            │
+│  Overall:       68% complete                                                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -56,12 +56,12 @@ docs/
 _No designs currently in this phase_
 
 ### Phase 2: Planning
-| Design | Tasks | Breakdown | Next Step |
-|--------|-------|-----------|-----------|
-| MVP Production Readiness | 32 | [Breakdown](./mvp-production-readiness-breakdown.md) | `/create-task-spec P0-B1 mvp-production-readiness` |
+_No designs currently in this phase_
 
 ### Phase 3: Execution
-_No designs currently in this phase_
+| Design | Progress | Current Batch | Next Task |
+|--------|----------|---------------|-----------|
+| MVP Production Readiness | 16% (5/32) | P1-B2 | WS-G5 (Slack REST API) |
 
 ### Phase 4: Learning
 _No designs currently in this phase_

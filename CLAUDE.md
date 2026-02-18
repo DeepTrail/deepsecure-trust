@@ -261,6 +261,143 @@ WS-E: E2E Testing [after D]
 - Parallel execution: `docs/PARALLEL_EXECUTION_GUIDE.md`
 - Project rules: `.cursorrules`
 
+## Task Ticket Structure Requirements
+
+**CRITICAL:** All task tickets MUST include these mandatory sections in this order:
+
+| # | Section | Purpose | Required Content |
+|---|---------|---------|------------------|
+| 1 | **Metadata** | Task identification | Task ID, Workstream, Phase, Dependencies, Complexity, Service, Validates |
+| 2 | **Specification** | Contract reference | Link to spec file, Key Contracts summary |
+| 3 | **API Contracts** | API details or "no API" note | **MANDATORY** - never omit this section |
+| 4 | **Pre-Conditions** | Dependencies checklist | What must be complete before starting |
+| 5 | **Task Description** | Full context | Objective + Background + What to Implement |
+| 6 | **Files to Create/Modify** | File table | File path, Action, Description |
+| 7 | **Acceptance Criteria** | Completion checklist | Functional + Security + Integration criteria |
+| 8 | **Test Cases** | Test table | Test Case, Method, Endpoint/Module, Expected Status, Notes |
+| 9 | **Post-Conditions** | Enables/unblocks | What this task unlocks |
+| 10 | **Validation** | How to verify | Unit Tests + Manual Verification subsections |
+| 11 | **References** | Links | Spec, Design doc, Upstream/Downstream, Related code |
+| 12 | **Execution** | Commands | Copy-paste ready commands |
+
+### API Contracts Section Format
+
+**For tasks WITH API endpoints:**
+```markdown
+## API Contracts
+
+### Endpoint: [Name]
+| Field | Value |
+|-------|-------|
+| **Method** | `GET` / `POST` |
+| **Path** | `/api/v1/path` |
+| **Auth** | [Auth type] |
+| **Purpose** | [Brief description] |
+
+[Include path params, request body, success response, error responses]
+```
+
+**For tasks WITHOUT API endpoints:**
+```markdown
+## API Contracts
+
+> **Note:** This task implements an internal module/service, not API endpoints.
+> [Brief explanation of what the task creates.]
+> See [WS-XX] for related API endpoints.
+```
+
+### Validation Section Format
+
+```markdown
+## Validation
+
+### Unit Tests
+\`\`\`bash
+cd [service-directory]
+pytest tests/[module]/test_[file].py -v
+\`\`\`
+
+### Manual Verification
+\`\`\`bash
+# 1. [Step description]
+[command]
+# Expected: [output]
+\`\`\`
+```
+
+### Template and Command References
+- Task Ticket Template: `docs/workstreams/TASK_TICKET_TEMPLATE.md`
+- Task Spec Template: `docs/workstreams/TASK_SPEC_TEMPLATE.md`
+- Create Task Ticket Command: `.cursor/commands/create-task-ticket.md`
+- Create Task Spec Command: `.cursor/commands/create-task-spec.md`
+
+## Status Verification Requirements (MANDATORY)
+
+**CRITICAL:** Status files MUST be kept consistent with completion reports. This is NOT optional.
+
+### After Task Completion
+
+When completing a task (especially in a worktree), you MUST:
+
+1. **Create completion report** in `reports/WS-{ID}-completion.md`
+2. **Update main repo STATUS.md** using absolute path:
+   ```bash
+   MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+   # Update: $MAIN_REPO/docs/workstreams/[feature]/STATUS.md
+   ```
+3. **Update main repo WORKSTREAM.md** - mark task complete, add report link
+4. **Update main repo BATCH_EXECUTION_PLAN.md** - update task status
+5. **Remind user to verify** if in worktree
+
+### After Batch Completion (BLOCKING)
+
+Before proceeding to the next batch, ALWAYS run:
+
+```bash
+/verify-batch-completion [batch-id] [feature-name]
+```
+
+**DO NOT proceed to the next batch if verification fails.**
+
+### Files That Must Stay Consistent
+
+| File | Source of Truth | Updated When |
+|------|-----------------|--------------|
+| `reports/WS-{ID}-completion.md` | **YES** - definitive proof | Task completed |
+| `STATUS.md` | Derived from reports | After each task completion |
+| `WORKSTREAM.md` | Derived from reports | After each task completion |
+| `BATCH_EXECUTION_PLAN.md` | Derived from reports | After each task/batch completion |
+| `MERGE_POINTS.md` | Derived from batch status | After batch that triggers MP |
+
+### Verification Commands
+
+| Command | Purpose | When to Run |
+|---------|---------|-------------|
+| `/verify-batch-completion` | Verify batch status consistency | After last task in batch, before starting next |
+| `/sync-worktree-status` | Sync status from worktrees to main repo | After worktree tasks, before verification |
+
+### Why This Matters
+
+Without consistent status:
+- Progress tracking becomes inaccurate
+- Merge points can't be verified
+- Dependencies may appear unmet when they're actually satisfied
+- Next batch planning uses wrong information
+
+### Quick Verification Check
+
+Before proceeding to a new batch, run:
+
+```bash
+# Count completion reports
+ls docs/workstreams/[feature]/reports/WS-*.md | wc -l
+
+# Count "✅ Complete" in STATUS.md
+grep -c "✅ Complete" docs/workstreams/[feature]/STATUS.md
+
+# These numbers should match!
+```
+
 ## Key File Locations
 
 ### Configuration Files
