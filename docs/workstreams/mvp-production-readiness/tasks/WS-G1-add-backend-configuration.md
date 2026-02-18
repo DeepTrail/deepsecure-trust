@@ -1,8 +1,9 @@
 # Task: WS-G1 Add Backend Configuration
 
-> **Status:** `ready`
+> **Status:** `completed`
 > **Batch:** P1-B1
 > **Worktree:** mvp-prod-gateway
+> **Completed:** 2026-02-16
 
 ---
 

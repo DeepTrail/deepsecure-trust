@@ -1,12 +1,14 @@
-# Task: WS-F2 Create OAuth Configuration
+## Metadata
+# Task Ticket: WS-F2 Create OAuth Configuration
 
-> **Status:** `ready`
-> **Batch:** P1-B2
-> **Worktree:** mvp-prod-control
+> **Status:** 🎫 Ready for Execution
+>
+> **Created:** February 17, 2026
+> **Assigned Worktree:** mvp-prod-control
 
 ---
 
-## Metadata
+## Task Overview
 
 | Field | Value |
 |-------|-------|
@@ -293,6 +295,24 @@ class TestGetOAuthSettings:
 ```bash
 mkdir -p deeptrail-control/tests/core
 touch deeptrail-control/tests/core/__init__.py
+```
+
+---
+
+## Validation Commands
+
+```bash
+# Navigate to worktree
+cd /Users/imaxxs/repositories/mvp-prod-control/deeptrail-control
+
+# Run tests
+pytest tests/core/test_oauth_config.py -v
+
+# Verify imports work
+python -c "from app.core.oauth_config import get_oauth_settings; print(get_oauth_settings())"
+
+# Verify env var override
+NOTION_OAUTH_CLIENT_ID=test123 python -c "from app.core.oauth_config import NotionOAuthConfig; print(NotionOAuthConfig().client_id)"
 ```
 
 ---

@@ -1,11 +1,14 @@
-"""API endpoints for Vault operations (credential issuance, revocation, verification, agent rotation)."""
+"""API endpoints for Vault operations (credential issuance, revocation, verification, agent rotation).
+
+Also includes token retrieval endpoints for OAuth tokens used in credential injection.
+"""
 
 import logging
 import base64
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519 as ed25519_crypto
 from cryptography.exceptions import InvalidSignature
@@ -13,10 +16,401 @@ from cryptography.exceptions import InvalidSignature
 from app import schemas, crud
 from app.api import deps
 from app.schemas.credential import SecretStoreRequest, SecretStoreResponse
-from app.schemas.agent import AgentRotateRequest # Import schema for rotation
+from app.schemas.agent import AgentRotateRequest  # Import schema for rotation
+from app.schemas.vault_token import (
+    TokenResponse,
+    TokenErrorResponse,
+    TokenRefreshRequest,
+    TokenRefreshResponse,
+)
+from app.services.vault_client import VaultClient
+from app.services.oauth_service import OAuthService, get_oauth_service, OAuthRefreshError
+from app.schemas.oauth import OAuthProvider, TokenRefreshRequest as OAuthTokenRefreshRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependencies for Token Retrieval
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def get_vault_client() -> VaultClient:
+    """Get singleton VaultClient instance.
+
+    MVP: Uses the singleton VaultClient for in-memory token storage.
+    Production: Would use a properly configured vault backend.
+    """
+    return VaultClient()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OAuth Token Retrieval Endpoint (WS-E2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/tokens/{service_id}",
+    response_model=TokenResponse,
+    responses={
+        401: {"model": TokenErrorResponse, "description": "Invalid/missing JWT"},
+        403: {"model": TokenErrorResponse, "description": "Service not delegated"},
+        404: {"model": TokenErrorResponse, "description": "Service not connected"},
+    },
+    summary="Get OAuth token for a connected service",
+    description="""
+    Retrieve an OAuth access token for a user's connected service.
+
+    This endpoint is called by the Gateway during credential injection
+    to fetch tokens for backend API calls.
+
+    **Security:**
+    - Requires Agent Session JWT with delegated_permissions
+    - Service must be in the agent's delegated_permissions array
+    - Does NOT return refresh_token (security requirement)
+
+    **Flow:**
+    1. Validate agent JWT
+    2. Check service_id is in delegated_permissions
+    3. Retrieve token from vault
+    4. Return access token (exclude refresh_token)
+    """,
+)
+async def get_token_for_service(
+    service_id: str,
+    agent_claims: deps.AgentClaimsDep,
+    vault_client: VaultClient = Depends(get_vault_client),
+) -> TokenResponse:
+    """Retrieve OAuth access token for a connected service.
+
+    This endpoint enables credential injection by the Gateway.
+
+    Args:
+        service_id: Service identifier (e.g., "notion", "slack", "hubspot")
+        agent_claims: Validated agent JWT claims from dependency
+        vault_client: VaultClient instance for token storage
+
+    Returns:
+        TokenResponse with access_token (refresh_token excluded)
+
+    Raises:
+        HTTPException 403: If service not in delegated_permissions
+        HTTPException 404: If service not connected for user
+    """
+    # 1. Extract user_id and permissions from agent claims
+    user_id = agent_claims.get("user_id")
+    delegated_permissions = agent_claims.get("delegated_permissions", [])
+
+    logger.debug(
+        "Token retrieval request: service=%s user=%s permissions=%s",
+        service_id,
+        user_id,
+        delegated_permissions,
+    )
+
+    # 2. Check if service_id is in delegated_permissions
+    # Permissions can be formatted as "service:action" or just "service"
+    # e.g., ["notion:read", "notion:write", "slack:read"]
+    service_delegated = any(
+        perm == service_id or perm.startswith(f"{service_id}:")
+        for perm in delegated_permissions
+    )
+
+    if not service_delegated:
+        logger.warning(
+            "Service not delegated: service=%s user=%s delegated=%s",
+            service_id,
+            user_id,
+            delegated_permissions,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "forbidden", "message": "Service not delegated"},
+        )
+
+    # 3. Generate token reference and retrieve from vault
+    # Token ref format matches VaultClient._generate_ref()
+    token_ref = vault_client._generate_ref(user_id, service_id)
+    token_data = vault_client.retrieve_token(token_ref)
+
+    if not token_data:
+        logger.warning(
+            "Service not connected: service=%s user=%s token_ref=%s",
+            service_id,
+            user_id,
+            token_ref,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "Service not connected"},
+        )
+
+    # 4. Extract token fields (exclude refresh_token for security)
+    access_token = token_data.get("access_token")
+    if not access_token:
+        logger.error(
+            "Token data missing access_token: service=%s user=%s",
+            service_id,
+            user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "Service not connected"},
+        )
+
+    # 5. Build response (never include refresh_token)
+    expires_in = token_data.get("expires_in")
+    scope = token_data.get("scope")
+
+    # Convert scope list to space-separated string if needed
+    if isinstance(scope, list):
+        scope = " ".join(scope)
+
+    logger.info(
+        "Token retrieved successfully: service=%s user=%s",
+        service_id,
+        user_id,
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        token_type=token_data.get("token_type", "bearer"),
+        expires_in=expires_in,
+        scope=scope,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OAuth Token Refresh Endpoint (WS-E3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# Map service_id to OAuth provider
+SERVICE_TO_PROVIDER = {
+    "notion": OAuthProvider.NOTION,
+    "slack": OAuthProvider.SLACK,
+    "hubspot": OAuthProvider.HUBSPOT,
+}
+
+
+def get_oauth_service_dep() -> OAuthService:
+    """Get OAuthService instance for dependency injection."""
+    return get_oauth_service()
+
+
+@router.post(
+    "/tokens/{service_id}/refresh",
+    response_model=TokenRefreshResponse,
+    responses={
+        401: {"model": TokenErrorResponse, "description": "Invalid internal token"},
+        400: {"model": TokenErrorResponse, "description": "No refresh token available"},
+        404: {"model": TokenErrorResponse, "description": "Service not connected"},
+        502: {"model": TokenErrorResponse, "description": "OAuth provider error"},
+    },
+    summary="Refresh OAuth token for a connected service",
+    description="""
+    Refresh an OAuth access token for a user's connected service.
+
+    This endpoint is called by the Gateway when it detects an expired or
+    expiring token during credential injection.
+
+    **Authentication:**
+    - Uses internal API token (NOT agent JWT)
+    - Requires X-User-ID header to identify the user
+
+    **Behavior:**
+    - If `force=false` and token is not expired, returns existing token
+    - If `force=true`, always attempts to refresh
+    - Calls OAuth provider to get new access token
+    - Updates vault with new token data
+
+    **Security:**
+    - Does NOT return refresh_token (security requirement)
+    - Internal endpoint (gateway-to-control only)
+    """,
+)
+async def refresh_token(
+    service_id: str,
+    request: TokenRefreshRequest,
+    x_user_id: str = Header(..., alias="X-User-ID"),
+    internal_token: str = Depends(deps.verify_internal_token),
+    vault_client: VaultClient = Depends(get_vault_client),
+    oauth_service: OAuthService = Depends(get_oauth_service_dep),
+) -> TokenRefreshResponse:
+    """Refresh OAuth access token for a connected service.
+
+    This endpoint enables the Gateway to refresh expired tokens without
+    requiring agent re-authentication.
+
+    Args:
+        service_id: Service identifier (e.g., "notion", "slack", "hubspot")
+        request: Refresh request with optional force flag
+        x_user_id: User ID from X-User-ID header
+        internal_token: Validated internal API token
+        vault_client: VaultClient instance for token storage
+        oauth_service: OAuthService instance for OAuth operations
+
+    Returns:
+        TokenRefreshResponse with access_token and refreshed flag
+
+    Raises:
+        HTTPException 401: If internal token is invalid
+        HTTPException 400: If service has no refresh token
+        HTTPException 404: If service not connected for user
+        HTTPException 502: If OAuth provider refresh fails
+    """
+    logger.debug(
+        "Token refresh request: service=%s user=%s force=%s",
+        service_id,
+        x_user_id,
+        request.force,
+    )
+
+    # 1. Generate token reference and retrieve from vault
+    token_ref = vault_client._generate_ref(x_user_id, service_id)
+    token_data = vault_client.retrieve_token(token_ref, update_usage=False)
+
+    if not token_data:
+        logger.warning(
+            "Service not connected for refresh: service=%s user=%s",
+            service_id,
+            x_user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "Service not connected"},
+        )
+
+    access_token = token_data.get("access_token")
+    if not access_token:
+        logger.error(
+            "Token data missing access_token: service=%s user=%s",
+            service_id,
+            x_user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "Service not connected"},
+        )
+
+    # 2. Check if refresh token exists
+    refresh_token_value = token_data.get("refresh_token")
+    if not refresh_token_value:
+        logger.warning(
+            "No refresh token for service: service=%s user=%s",
+            service_id,
+            x_user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "no_refresh_token", "message": "Service does not support refresh"},
+        )
+
+    # 3. Check if refresh needed (unless force=True)
+    if not request.force:
+        is_expired = vault_client.is_token_expired(token_ref)
+        if not is_expired:
+            # Get remaining time from metadata
+            metadata = token_data.get("metadata", {})
+            expires_at_str = metadata.get("expires_at")
+            expires_in = None
+            if expires_at_str:
+                from datetime import datetime, timezone
+                expires_at = datetime.fromisoformat(expires_at_str)
+                now = datetime.now(timezone.utc)
+                expires_in = max(0, int((expires_at - now).total_seconds()))
+
+            logger.info(
+                "Token still valid, skipping refresh: service=%s user=%s",
+                service_id,
+                x_user_id,
+            )
+            return TokenRefreshResponse(
+                access_token=access_token,
+                token_type=token_data.get("token_type", "bearer"),
+                expires_in=expires_in,
+                refreshed=False,
+                message="Token still valid",
+            )
+
+    # 4. Map service_id to OAuth provider
+    provider = SERVICE_TO_PROVIDER.get(service_id.lower())
+    if not provider:
+        logger.warning(
+            "Unknown service for refresh: service=%s user=%s",
+            service_id,
+            x_user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "unsupported_service", "message": f"Service '{service_id}' not supported for OAuth refresh"},
+        )
+
+    # 5. Call OAuth provider to refresh
+    try:
+        oauth_request = OAuthTokenRefreshRequest(
+            provider=provider,
+            refresh_token=refresh_token_value,
+            user_id=x_user_id,
+        )
+        new_tokens = await oauth_service.refresh_tokens(oauth_request)
+    except OAuthRefreshError as e:
+        logger.error(
+            "OAuth refresh failed: service=%s user=%s error=%s",
+            service_id,
+            x_user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"error": "provider_error", "message": f"Failed to refresh: {str(e)}"},
+        )
+    except Exception as e:
+        logger.error(
+            "Unexpected error during OAuth refresh: service=%s user=%s error=%s",
+            service_id,
+            x_user_id,
+            str(e),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"error": "provider_error", "message": f"Failed to refresh: {str(e)}"},
+        )
+
+    # 6. Update vault with new tokens
+    success = vault_client.refresh_token(
+        token_ref=token_ref,
+        new_access_token=new_tokens.access_token,
+        new_expires_in=new_tokens.expires_in,
+        new_refresh_token=new_tokens.refresh_token,
+    )
+
+    if not success:
+        logger.error(
+            "Failed to update vault with refreshed token: service=%s user=%s",
+            service_id,
+            x_user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"error": "vault_error", "message": "Failed to store refreshed token"},
+        )
+
+    logger.info(
+        "Token refreshed successfully: service=%s user=%s",
+        service_id,
+        x_user_id,
+    )
+
+    return TokenRefreshResponse(
+        access_token=new_tokens.access_token,
+        token_type=new_tokens.token_type or "bearer",
+        expires_in=new_tokens.expires_in,
+        refreshed=True,
+        message="Token refreshed",
+    )
 
 
 @router.get("/secrets", status_code=status.HTTP_200_OK)

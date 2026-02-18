@@ -818,15 +818,19 @@ def reset_connection_manager() -> None:
 def create_default_manager() -> BackendConnectionManager:
     """
     Create a connection manager with default MVP backends.
-    
+
     For MVP, we configure mock/test backends. In production,
     these would be loaded from configuration or database.
-    
+
     Returns:
         Configured BackendConnectionManager
+
+    Note:
+        This function is deprecated. Use create_connection_manager() instead
+        for production use, which reads configuration from environment variables.
     """
     manager = BackendConnectionManager()
-    
+
     # MVP: Register placeholder backends
     # Production: Load from config/database
     default_backends = [
@@ -846,8 +850,60 @@ def create_default_manager() -> BackendConnectionManager:
             health_endpoint="/health",
         ),
     ]
-    
+
     for config in default_backends:
         manager.register_backend(config)
-    
+
+    return manager
+
+
+def create_connection_manager() -> BackendConnectionManager:
+    """
+    Create a connection manager using configuration from environment variables.
+
+    Reads backend URLs and settings from GatewaySettings, which loads values
+    from environment variables with appropriate defaults.
+
+    Environment Variables:
+        NOTION_BASE_URL: Notion API base URL (default: https://api.notion.com/v1)
+        SLACK_BASE_URL: Slack API base URL (default: https://slack.com/api)
+        HUBSPOT_BASE_URL: HubSpot API base URL (default: https://api.hubapi.com)
+
+    Returns:
+        Configured BackendConnectionManager
+
+    Example:
+        # Without any env vars - uses defaults
+        manager = create_connection_manager()
+
+        # With custom Notion URL
+        # export NOTION_BASE_URL=https://custom.notion.api/v1
+        manager = create_connection_manager()
+    """
+    from app.core.config import (
+        create_backend_config_from_settings,
+        get_settings,
+    )
+
+    settings = get_settings()
+    manager = BackendConnectionManager()
+
+    # Register backends from configuration
+    manager.register_backend(
+        create_backend_config_from_settings("notion", settings.notion)
+    )
+    manager.register_backend(
+        create_backend_config_from_settings("slack", settings.slack)
+    )
+    manager.register_backend(
+        create_backend_config_from_settings("hubspot", settings.hubspot)
+    )
+
+    logger.info(
+        "Created connection manager with configured backends: notion=%s, slack=%s, hubspot=%s",
+        settings.notion.base_url,
+        settings.slack.base_url,
+        settings.hubspot.base_url,
+    )
+
     return manager

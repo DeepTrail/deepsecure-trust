@@ -1,8 +1,9 @@
 # Task: WS-G3 Slack REST API Calls
 
-> **Status:** `ready`
+> **Status:** `completed`
 > **Batch:** P1-B2
 > **Worktree:** mvp-prod-gateway
+> **Completed:** 2026-02-17
 
 ---
 

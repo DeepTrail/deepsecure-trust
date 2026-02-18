@@ -3,7 +3,6 @@
 > **Last Updated:** February 17, 2026
 > **Current Phase:** Phase 1 (P1) - 🔄 **Real Backend Integration**
 > **Overall Progress:** P0 100% | P1 ~83% (P1-B1 + P1-B2 complete: 10/12 tasks) | P2 0%
-
 ---
 
 ## ⚠️ Important Clarification
@@ -132,6 +131,20 @@ The E2E demo passes all 10 steps, but this validates that:
 | Login accepts any password | `auth.py` | 68 | Implement real validation or IdP | ⏳ P2 |
 | Credential injection mock | `credential_injection.py` | 293 | Call vault API (WS-H1) | ⏳ P1-B3 |
 | Audit logs locally | `audit.py` | 348 | Wire to Control Plane DB | ⏳ P2 |
+|
+| Task | Current Mock | Required Change | Status |
+|------|--------------|-----------------|--------|
+| **WS-E1** | OAuth tokens lack expiration tracking | Enhance VaultClient with expiration/refresh | ✅ Complete |
+| **WS-E3** | Token refresh endpoint | Create POST /api/v1/vault/tokens/{service_id}/refresh | ✅ Complete |
+| **WS-F3** | OAuth endpoints | Create /api/v1/oauth/{service_id}/{authorize,callback,refresh} | ✅ Complete |
+| **WS-G3** | Tool calls return mock strings (Slack) | Implement real Slack REST API calls | ✅ Complete |
+| **WS-G4** | Tool calls return mock strings (HubSpot) | Implement real HubSpot CRM REST API calls | ✅ Complete |
+| **P1-1** | Login accepts any password | Implement real password validation or IdP redirect | ⏳ Ready |
+| **P1-2** | Credential injection returns mock token | Call Control Plane vault API for real tokens | ⏳ Ready |
+| **P1-3** | Tool calls return mock strings | Implement real REST API calls to Notion/Slack | ⏳ Ready |
+| **P1-4** | Audit logs locally | Wire Gateway audit events to Control Plane DB | ⏳ Ready |
+| **P1-5** | OAuth tokens in-memory | Persist to encrypted vault storage | ⏳ Ready |
+| **P1-6** | Token refresh not implemented | Implement refresh flow via Control Plane | ⏳ Ready |
 
 ### Code Locations to Modify
 

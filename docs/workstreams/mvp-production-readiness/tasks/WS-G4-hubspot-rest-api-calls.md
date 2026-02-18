@@ -1,6 +1,7 @@
 # Task: WS-G4 HubSpot REST API Calls
 
-> **Status:** `ready`
+> **Status:** `completed`
+> **Completion Date:** February 17, 2026
 > **Batch:** P1-B2
 > **Worktree:** mvp-prod-gateway
 

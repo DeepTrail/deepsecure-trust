@@ -1,6 +1,6 @@
 # Task: WS-G2 Notion REST API Calls
 
-> **Status:** `ready`
+> **Status:** `completed`
 > **Batch:** P1-B2
 > **Worktree:** mvp-prod-gateway
 
