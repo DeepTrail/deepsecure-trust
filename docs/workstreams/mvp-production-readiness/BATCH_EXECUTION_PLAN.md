@@ -4,7 +4,9 @@
 >
 > **Source Plan:** [mvp_production_readiness.plan.md](../../../.cursor/plans/mvp_production_readiness.plan.md)
 >
-> **Last Updated:** February 15, 2026
+> **Last Updated:** February 22, 2026
+>
+> **Latest Change:** Added Phase 1.5 (Integration Bug Fixes) - 6 tasks to fix issues found during Integration Validation Guide testing
 
 ---
 
@@ -18,11 +20,12 @@
 | P0-B4 | 2 | 2 ✅ | 1 | ✅ Complete (MP1!) | main |
 | P1-B1 | 3 | 3 ✅ | 1 | ✅ Complete | mvp-prod-control, mvp-prod-gateway |
 | P1-B2 | 7 | 7 ✅ | 1 | ✅ Complete (MP2!) | mvp-prod-control, mvp-prod-gateway |
-| P1-B3 | 2 | 0 | 2 | ⏳ Pending (MP3) | mvp-prod-gateway |
+| P1-B3 | 2 | 2 ✅ | 2 | ✅ Complete (MP3!) | mvp-prod-gateway |
+| **P1.5-B1** | 6 | 0 | 2 | ⏳ **NEW** Bug Fixes | mvp-prod-control, mvp-prod-gateway |
 | P2-B1 | 4 | 0 | 1 | ⏳ Pending | mvp-prod-control, mvp-prod-gateway |
 | P2-B2 | 4 | 0 | 2 | ⏳ Pending | mvp-prod-control, mvp-prod-gateway |
 
-**Total Tasks:** 31 | **Completed:** 21 (P0 + P1-B1 + P1-B2) | **Remaining:** 10 (P1-B3 + P2)
+**Total Tasks:** 37 | **Completed:** 23 (P0 + P1) | **Remaining:** 14 (P1.5 + P2)
 
 ---
 
@@ -31,8 +34,8 @@
 | Worktree | Path | Branch | Workstreams | Phase |
 |----------|------|--------|-------------|-------|
 | **main** | `/Users/imaxxs/repositories/deepsecure-mvp` | `dev` | A, B, C, D | P0 |
-| **mvp-prod-control** | `../mvp-prod-control` | `feature/mvp-prod-control` | E, F, I, K | P1, P2 |
-| **mvp-prod-gateway** | `../mvp-prod-gateway` | `feature/mvp-prod-gateway` | G, H, J | P1, P2 |
+| **mvp-prod-control** | `../mvp-prod-control` | `feature/mvp-prod-control` | E, F, I, K (K1-K5) | P1, P1.5, P2 |
+| **mvp-prod-gateway** | `../mvp-prod-gateway` | `feature/mvp-prod-gateway` | G, H, J (J2) | P1, P1.5, P2 |
 
 **Worktree Setup (run before P1):**
 
@@ -52,19 +55,20 @@ cp -r .cursor ../mvp-prod-gateway/
 ## Phase Distribution
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            TIMELINE OVERVIEW                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  PHASE 0 (E2E Tests)          PHASE 1 (Integration)      PHASE 2 (Harden)  │
-│  ──────────────────────       ─────────────────────      ─────────────────  │
-│  P0-B1 │ P0-B2 │ P0-B3 │ P0-B4 │ P1-B1 │ P1-B2 │ P1-B3 │ P2-B1 │ P2-B2 │  │
-│   1-2h │  2-3h │  2-3h │  1-2h │  3-4h │  4-6h │  2-3h │  4-6h │  4-6h │  │
-│   ✅   │  ✅   │  ✅   │  ✅   │  ✅   │  ✅   │  ⏳   │  ⏳   │  ⏳   │  │
-│                       [MP1]               [MP2]   [MP3]                     │
-│                                                                             │
-│  Total: ~23-35 hours estimated                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                      TIMELINE OVERVIEW                                         │
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                               │
+│  PHASE 0 (E2E)      PHASE 1 (Integration)     P1.5 (Bug Fixes)    PHASE 2 (Harden)           │
+│  ──────────────     ─────────────────────     ────────────────    ────────────────           │
+│  P0-B1 │...│ P0-B4 │ P1-B1 │ P1-B2 │ P1-B3 │    P1.5-B1       │ P2-B1 │ P2-B2 │            │
+│   ✅   │ ✅ │  ✅   │  ✅   │  ✅   │  ✅   │      ⏳          │  ⏳   │  ⏳   │            │
+│                    [MP1]         [MP2]  [MP3]                 [MP3.5]                        │
+│                                                                                               │
+│  Phase 1.5 addresses bugs found during Integration Validation Guide testing (Steps 1-18)     │
+│                                                                                               │
+│  Total: ~27-40 hours estimated                                                                │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -786,7 +790,7 @@ curl -s -X POST http://localhost:8000/api/v1/users/me/services/connect \
       "token_type": "bearer",
       "scope": "read_pages",
       "refresh_token": "test_refresh_token_456",
-      "expires_in": 3600
+      "expires_at": "2026-02-19T22:06:59.361415+00:00"
     }
   }' | jq .
 # Expected: 200 {"success": true, "connection": {...}}
@@ -931,14 +935,14 @@ If verification fails, run:
 
 ---
 
-### Batch P1-B3: Credential Injection (2 tasks) - MP2, MP3
+### Batch P1-B3: Credential Injection (2 tasks) - MP2, MP3 ✅
 
 ### Dependencies
 
 | Task | Description | Dependencies | Worktree | Status |
 |------|-------------|--------------|----------|--------|
-| H1 | Connect CredentialInjector to vault API | MP2 (E2, E3) | mvp-prod-gateway | ⏳ |
-| H2 | Implement token refresh in injector | H1 | mvp-prod-gateway | ⏳ |
+| H1 | Connect CredentialInjector to vault API | MP2 (E2, E3) | mvp-prod-gateway | ✅ |
+| H2 | Implement token refresh in injector | H1 | mvp-prod-gateway | ✅ |
 
 ### Wave Analysis
 
@@ -953,15 +957,16 @@ If verification fails, run:
 CONTROL (mvp-prod-control)             GATEWAY (mvp-prod-gateway)
 ──────────────────────────             ─────────────────────────
 
-[MP2: Vault API Ready] ────────────────▶ H1
+[MP2: Vault API Ready] ────────────────▶ H1 ✅
                                           │
                                           ▼
-                                         H2
+                                         H2 ✅
                                           │
-                                   [MP3: P1 Complete]
+                                   [MP3: P1 Complete] ✅
                                           │
                                           ▼
-                                    Phase 2 Unlocked
+                                    Phase 1.5 Unlocked
+                                   (Integration Bug Fixes)
 ```
 
 ### Execution Strategy
@@ -1041,7 +1046,7 @@ curl -s -X POST http://localhost:8000/api/v1/users/me/services/connect \
       "access_token": "'"${NOTION_API_KEY:-test_notion_token}"'",
       "token_type": "bearer",
       "scope": "read_pages search_content",
-      "expires_in": 3600
+      "expires_at": "2027-02-22T00:00:00.000000+00:00"
     }
   }' | jq .
 
@@ -1166,23 +1171,696 @@ docker compose down
 echo "✅ P1-B3 Validation Complete"
 ```
 
+---
+
+### Real API Integration Testing
+
+With P1-B3 (WS-H1, WS-H2) complete, you can now test with **real Notion/Slack API keys** instead of mock tokens. This section explains how to set up and validate real API integration.
+
+#### Prerequisites
+
+| Service | What You Need | How to Get It |
+|---------|---------------|---------------|
+| **Notion** | Internal Integration API Key | [notion.so/my-integrations](https://www.notion.so/my-integrations) |
+| **Slack** | Bot User OAuth Token | [api.slack.com/apps](https://api.slack.com/apps) → OAuth & Permissions |
+| **HubSpot** | Private App Access Token | [developers.hubspot.com](https://developers.hubspot.com) → Private Apps |
+
+---
+
+#### Option A: Notion API Integration Testing
+
+##### Step 1: Create Notion Internal Integration
+
+1. Go to [https://www.notion.so/my-integrations](https://www.notion.so/my-integrations)
+2. Click **"+ New integration"**
+3. Fill in:
+   - **Name**: `DeepSecure Test Integration`
+   - **Associated workspace**: Select your workspace
+   - **Capabilities**: Check "Read content", "Update content", "Insert content"
+4. Click **"Submit"** → Copy the **Internal Integration Token** (starts with `secret_`)
+
+##### Step 2: Share a Page with the Integration
+
+1. Open any Notion page you want to access
+2. Click **"Share"** (top right)
+3. Click **"Invite"** → Search for `DeepSecure Test Integration`
+4. Click **"Invite"**
+
+> **Note:** The integration can ONLY access pages explicitly shared with it.
+
+##### Step 3: Set Environment Variable and Test
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# REAL NOTION API TESTING
+# ═══════════════════════════════════════════════════════════════
+
+# Set your REAL Notion API key
+export NOTION_API_KEY="secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Verify the key format
+if [[ "$NOTION_API_KEY" != secret_* ]]; then
+  echo "❌ Invalid Notion API key format (should start with 'secret_')"
+  exit 1
+fi
+echo "✅ Notion API key set: ${NOTION_API_KEY:0:12}..."
+
+# Start services
+cd /Users/imaxxs/repositories/deepsecure-mvp
+docker compose up -d
+sleep 20
+
+# Verify services
+curl -sf http://localhost:8000/health && echo "✅ Control Plane healthy"
+curl -sf http://localhost:8002/health && echo "✅ Gateway healthy"
+
+# Login
+USER_TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"sarah@acme.com","password":"test_password"}' | jq -r '.token')
+echo "User token: ${USER_TOKEN:0:20}..."
+
+# Connect Notion with REAL API key (stored encrypted in vault)
+CONNECT_RESULT=$(curl -s -X POST http://localhost:8000/api/v1/users/me/services/connect \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"service_id\": \"notion\",
+    \"oauth_token\": {
+      \"access_token\": \"$NOTION_API_KEY\",
+      \"token_type\": \"bearer\",
+      \"scope\": \"read_pages search_content\",
+      \"expires_at\": \"2027-02-22T00:00:00.000000+00:00\"
+    }
+  }")
+echo "Connection result: $CONNECT_RESULT" | jq .
+
+# Generate agent keys
+python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey.generate()
+public_key = private_key.verify_key
+print(f'PRIVATE_KEY_HEX={private_key.encode().hex()}')
+print(f'PUBLIC_KEY_B64={base64.b64encode(public_key.encode()).decode()}')
+" > /tmp/agent_keys.env
+source /tmp/agent_keys.env
+
+# Register agent with unique ID
+AGENT_ID="notion-real-api-test-$(date +%s)"
+curl -s -X POST http://localhost:8000/api/v1/agents/ \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"$AGENT_ID\",
+    \"name\": \"Notion Real API Test Agent\",
+    \"public_key\": \"$PUBLIC_KEY_B64\"
+  }" | jq .
+
+# Create delegation for Notion tools
+curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"$AGENT_ID\",
+    \"permissions\": [\"notion:pages:search\", \"notion:pages:read\", \"notion:databases:query\"]
+  }" | jq .
+
+# Challenge-response authentication
+CHALLENGE=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/challenge \
+  -H "Content-Type: application/json" \
+  -d "{\"agent_id\": \"$AGENT_ID\"}" | jq -r '.challenge')
+
+SIGNATURE=$(python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey(bytes.fromhex('$PRIVATE_KEY_HEX'))
+signed = private_key.sign('$CHALLENGE'.encode())
+print(base64.urlsafe_b64encode(signed.signature).decode())
+")
+
+AGENT_JWT=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/verify \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"$AGENT_ID\",
+    \"challenge\": \"$CHALLENGE\",
+    \"signature\": \"$SIGNATURE\"
+  }" | jq -r '.access_token')
+echo "Agent JWT: ${AGENT_JWT:0:30}..."
+
+# Initialize MCP session
+curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "id": 1,
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "notion-test", "version": "1.0.0"}
+    }
+  }' | jq .
+
+# ─────────────────────────────────────────────────────────────────
+# REAL API CALL: Search Notion Pages
+# ─────────────────────────────────────────────────────────────────
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+echo "Making REAL Notion API call through Gateway..."
+echo "═══════════════════════════════════════════════════════════════"
+
+NOTION_RESULT=$(curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "id": 2,
+    "params": {
+      "name": "notion.search_pages",
+      "arguments": {"query": ""}
+    }
+  }')
+
+echo "Notion API Response:"
+echo "$NOTION_RESULT" | jq .
+
+# Verify it's a REAL response (not mock)
+if echo "$NOTION_RESULT" | grep -q '"object":"list"'; then
+  echo ""
+  echo "✅ SUCCESS: Real Notion API response received!"
+  echo "   - Contains Notion 'object' field"
+  echo "   - Results from your actual workspace"
+elif echo "$NOTION_RESULT" | grep -q 'MVP Mock'; then
+  echo ""
+  echo "❌ FAILED: Still returning mock response"
+  echo "   Check WS-H1 implementation (credential injection)"
+elif echo "$NOTION_RESULT" | grep -q 'unauthorized'; then
+  echo ""
+  echo "❌ FAILED: Notion API returned unauthorized"
+  echo "   - Verify your NOTION_API_KEY is valid"
+  echo "   - Ensure you've shared pages with the integration"
+else
+  echo ""
+  echo "⚠️  UNKNOWN: Unexpected response format"
+  echo "   Review the response above"
+fi
+
+# Cleanup
+rm -f /tmp/agent_keys.env
+echo ""
+echo "✅ Real Notion API test complete"
+```
+
+##### Expected Real API Response
+
+When connected with a **real Notion API key**, you should see actual workspace data:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"object\":\"list\",\"results\":[{\"object\":\"page\",\"id\":\"abc123...\",\"created_time\":\"2025-01-15T10:00:00.000Z\",\"last_edited_time\":\"2026-02-10T14:30:00.000Z\",\"properties\":{...}}],\"next_cursor\":null,\"has_more\":false}"
+      }
+    ],
+    "isError": false
+  }
+}
+```
+
+---
+
+#### Option B: Slack API Integration Testing
+
+##### Step 1: Create Slack App
+
+1. Go to [https://api.slack.com/apps](https://api.slack.com/apps)
+2. Click **"Create New App"** → **"From scratch"**
+3. Name: `DeepSecure Test Bot`, Workspace: Select yours
+4. Click **"Create App"**
+
+##### Step 2: Configure OAuth Scopes
+
+1. Go to **"OAuth & Permissions"** in the left sidebar
+2. Under **"Bot Token Scopes"**, add:
+   - `channels:read` - List channels
+   - `chat:write` - Send messages
+   - `search:read` - Search messages
+   - `users:read` - List users
+3. Click **"Install to Workspace"** → **"Allow"**
+4. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+
+##### Step 3: Test with Real Slack API
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# REAL SLACK API TESTING
+# ═══════════════════════════════════════════════════════════════
+
+# Set your REAL Slack Bot Token
+export SLACK_BOT_TOKEN="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Verify format
+if [[ "$SLACK_BOT_TOKEN" != xoxb-* ]]; then
+  echo "❌ Invalid Slack token format (should start with 'xoxb-')"
+  exit 1
+fi
+echo "✅ Slack Bot Token set: ${SLACK_BOT_TOKEN:0:15}..."
+
+# (Assume services already running from Notion test, or start them)
+
+# Connect Slack with REAL token
+curl -s -X POST http://localhost:8000/api/v1/users/me/services/connect \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"service_id\": \"slack\",
+    \"oauth_token\": {
+      \"access_token\": \"$SLACK_BOT_TOKEN\",
+      \"token_type\": \"bearer\",
+      \"scope\": \"channels:read chat:write search:read users:read\"
+    }
+  }" | jq .
+
+# Create delegation for Slack tools
+curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"$AGENT_ID\",
+    \"permissions\": [\"slack:channels:list\", \"slack:messages:search\", \"slack:users:list\"]
+  }" | jq .
+
+# Re-authenticate agent to get updated permissions
+CHALLENGE=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/challenge \
+  -H "Content-Type: application/json" \
+  -d "{\"agent_id\": \"$AGENT_ID\"}" | jq -r '.challenge')
+
+SIGNATURE=$(python3 -c "
+from nacl.signing import SigningKey
+import base64
+private_key = SigningKey(bytes.fromhex('$PRIVATE_KEY_HEX'))
+signed = private_key.sign('$CHALLENGE'.encode())
+print(base64.urlsafe_b64encode(signed.signature).decode())
+")
+
+AGENT_JWT=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/verify \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"$AGENT_ID\",
+    \"challenge\": \"$CHALLENGE\",
+    \"signature\": \"$SIGNATURE\"
+  }" | jq -r '.access_token')
+
+# Re-initialize MCP session with new JWT
+curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "id": 1,
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "slack-test", "version": "1.0.0"}
+    }
+  }' | jq .
+
+# ─────────────────────────────────────────────────────────────────
+# REAL API CALL: List Slack Channels
+# ─────────────────────────────────────────────────────────────────
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+echo "Making REAL Slack API call through Gateway..."
+echo "═══════════════════════════════════════════════════════════════"
+
+SLACK_RESULT=$(curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "id": 3,
+    "params": {
+      "name": "slack.list_channels",
+      "arguments": {"limit": 10}
+    }
+  }')
+
+echo "Slack API Response:"
+echo "$SLACK_RESULT" | jq .
+
+# Verify real response
+if echo "$SLACK_RESULT" | grep -q '"ok":true'; then
+  echo ""
+  echo "✅ SUCCESS: Real Slack API response received!"
+elif echo "$SLACK_RESULT" | grep -q 'MVP Mock'; then
+  echo ""
+  echo "❌ FAILED: Still returning mock response"
+else
+  echo ""
+  echo "⚠️  Check response format"
+fi
+```
+
+---
+
+#### Option C: HubSpot API Integration Testing
+
+##### Step 1: Create HubSpot Private App
+
+1. Go to [https://app.hubspot.com](https://app.hubspot.com)
+2. Settings → Integrations → Private Apps
+3. Click **"Create a private app"**
+4. Name: `DeepSecure Test`
+5. Under **Scopes**, enable:
+   - `crm.objects.contacts.read`
+   - `crm.objects.contacts.write`
+   - `crm.objects.deals.read`
+   - `crm.objects.deals.write`
+6. Click **"Create app"** → Copy the **Access token**
+
+##### Step 2: Test with Real HubSpot API
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# REAL HUBSPOT API TESTING
+# ═══════════════════════════════════════════════════════════════
+
+export HUBSPOT_ACCESS_TOKEN="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Connect HubSpot
+curl -s -X POST http://localhost:8000/api/v1/users/me/services/connect \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"service_id\": \"hubspot\",
+    \"oauth_token\": {
+      \"access_token\": \"$HUBSPOT_ACCESS_TOKEN\",
+      \"token_type\": \"bearer\",
+      \"scope\": \"crm.objects.contacts.read crm.objects.deals.read\"
+    }
+  }" | jq .
+
+# Create delegation for HubSpot
+curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"agent_id\": \"$AGENT_ID\",
+    \"permissions\": [\"hubspot:contacts:list\", \"hubspot:contacts:search\", \"hubspot:deals:list\"]
+  }" | jq .
+
+# (Re-authenticate agent, initialize MCP session as shown above)
+
+# Make real HubSpot call
+HUBSPOT_RESULT=$(curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "id": 4,
+    "params": {
+      "name": "hubspot.list_contacts",
+      "arguments": {"limit": 10}
+    }
+  }')
+
+echo "HubSpot API Response:"
+echo "$HUBSPOT_RESULT" | jq .
+```
+
+---
+
+#### Environment Variables Summary
+
+For real API testing, set these environment variables before running validation:
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# REAL API KEYS (for production validation)
+# ═══════════════════════════════════════════════════════════════
+
+# Notion Internal Integration Token
+export NOTION_API_KEY="secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Slack Bot User OAuth Token  
+export SLACK_BOT_TOKEN="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx"
+
+# HubSpot Private App Access Token
+export HUBSPOT_ACCESS_TOKEN="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Verify all are set
+echo "Notion: ${NOTION_API_KEY:+✅ Set}${NOTION_API_KEY:-❌ Not set}"
+echo "Slack:  ${SLACK_BOT_TOKEN:+✅ Set}${SLACK_BOT_TOKEN:-❌ Not set}"
+echo "HubSpot: ${HUBSPOT_ACCESS_TOKEN:+✅ Set}${HUBSPOT_ACCESS_TOKEN:-❌ Not set}"
+```
+
+---
+
+#### Mock vs Real Testing Matrix
+
+| Test Mode | API Key | What Happens | Use Case |
+|-----------|---------|--------------|----------|
+| **Mock** | `test_notion_token` (default) | Returns simulated responses | CI/CD, unit tests |
+| **Real** | `secret_xxx...` | Calls actual Notion API | Integration validation |
+
+| Component | Mock Mode | Real Mode |
+|-----------|-----------|-----------|
+| Token storage | ✅ Encrypted in vault | ✅ Encrypted in vault |
+| Credential injection | ✅ Token retrieved | ✅ Token retrieved |
+| API call | ❌ Mock response | ✅ Real API call |
+| Response | `"[Notion] Found 5 results..."` | `{"object":"list","results":[...]}` |
+
+---
+
 ### Summary
 
 | Metric | Value |
 |--------|-------|
+| **Status** | ✅ **COMPLETE** (Feb 18, 2026) |
 | **Parallelism** | 0% (sequential H1 → H2) |
 | **Waves** | 2 |
 | **Bottleneck** | H1 (must complete first) |
 | **Merge Point** | **MP3: P1 Complete** ✅ |
-| **Unblocks** | Phase 2 (P2-B1: I1, J1, J2, K1) |
+| **Unblocks** | **Phase 1.5** (P1.5-B1: WS-J2, WS-K1, WS-K2, WS-K3, WS-K4, WS-K5) |
+| **Real API Testing** | ✅ Available (see "Real API Integration Testing" above) |
+
+#### What P1-B3 Enables
+
+| Capability | Before P1-B3 | After P1-B3 |
+|------------|--------------|-------------|
+| Credential Injection | Mock tokens | Real vault tokens |
+| Token Refresh | Not implemented | Full refresh flow |
+| Real API Calls | Not possible | ✅ Supported |
+| E2E Testing | Mock responses only | Real API responses |
+
+#### What Testing Revealed (P1.5)
+
+After P1-B3, testing via [Integration Validation Guide](../../INTEGRATION_VALIDATION_GUIDE.md) revealed bugs requiring a new Phase 1.5 before Phase 2:
+
+| Issue Found | Integration Guide Step | Fix |
+|-------------|------------------------|-----|
+| Tools filtered out / wrong names | Step 15-16 | WS-J2 |
+| Tokens lost on restart | Step 17 | WS-K1 |
+| Stale credentials | Step 17 | WS-K2 |
+| No permission validation | Step 9 | WS-K3, WS-K4, WS-K5 |
+
+---
+
+## Phase 1.5: Integration Testing Bug Fixes
+
+> **Prerequisite:** MP3 (P1 complete)
+> **Status:** ⏳ PENDING
+> **Worktrees:** mvp-prod-control, mvp-prod-gateway
+> **Source:** Bugs discovered during [Integration Validation Guide](../../INTEGRATION_VALIDATION_GUIDE.md) testing (Steps 1-18)
+> **Architecture Docs:** 
+> - [PERMISSION_FLOW_ARCHITECTURE.md](../../architecture/PERMISSION_FLOW_ARCHITECTURE.md)
+> - [MVP_ARCHITECTURE_DEEP_DIVE.md](../../architecture/MVP_ARCHITECTURE_DEEP_DIVE.md)
+
+### Background
+
+After completing Phase 1 (P1-B3), testing with the Integration Validation Guide revealed several issues:
+
+| Issue | Discovered In | Impact |
+|-------|---------------|--------|
+| Tool name derivation mismatch | Step 16 (MCP List Tools) | Tools filtered out, minimal schemas |
+| In-memory vault ephemeral | Container restart | Tokens lost, "Service not connected" errors |
+| Stale credential cache | Token updates | 60s cache TTL causes stale tokens |
+| No scope→permission mapping | Step 9 (Delegation) | Can't validate delegated permissions |
+| No delegation validation | Step 9 (Delegation) | Invalid permissions accepted |
+| No permission discovery | Step 9 (Delegation) | User must manually know permissions |
+
+These issues must be fixed before Phase 2 (Production Hardening) can proceed.
+
+---
+
+### Batch P1.5-B1: Integration Bug Fixes (6 tasks) - MP3.5
+
+### Dependencies
+
+| Task | Description | Dependencies | Worktree | Status | Spec |
+|------|-------------|--------------|----------|--------|------|
+| WS-J2 | Fix tool name derivation and cache alignment | MP3 | mvp-prod-gateway | ⏳ | [WS-J2-spec.md](./specs/WS-J2-spec.md) |
+| WS-K1 | Persistent Vault - Store OAuth tokens in PostgreSQL | MP3 | mvp-prod-control | ⏳ | [WS-K1-spec.md](./specs/WS-K1-spec.md) |
+| WS-K2 | Cache Invalidation via Redis Pub/Sub | WS-K1 | mvp-prod-control, mvp-prod-gateway | ⏳ | [WS-K2-spec.md](./specs/WS-K2-spec.md) |
+| WS-K3 | Scope-to-Permission Mapper | MP3 | mvp-prod-control | ⏳ | [WS-K3-spec.md](./specs/WS-K3-spec.md) |
+| WS-K4 | Delegation Permission Validation | WS-K3 | mvp-prod-control | ⏳ | [WS-K4-spec.md](./specs/WS-K4-spec.md) |
+| WS-K5 | Available Permissions Endpoint | WS-K3 | mvp-prod-control | ⏳ | [WS-K5-spec.md](./specs/WS-K5-spec.md) |
+
+### Wave Analysis
+
+| Wave | Control Plane (mvp-prod-control) | Gateway (mvp-prod-gateway) |
+|------|----------------------------------|----------------------------|
+| **1** | WS-K1, WS-K3 | WS-J2 |
+| **2** | WS-K2 (Control publisher), WS-K4, WS-K5 | WS-K2 (Gateway subscriber) |
+
+### Visual Dependency Graph
+
+```
+CONTROL (mvp-prod-control)                    GATEWAY (mvp-prod-gateway)
+──────────────────────────                    ─────────────────────────
+
+[MP3] ─────┬───────────────────────────────────┬───────────────────────
+           │                                   │
+           ▼                                   ▼
+    WS-K1 (Vault)       WS-K3 (ScopeMapper)   WS-J2 (Tool Names)
+           │                   │                      │
+           │                   ├──────────────────────┘
+           │                   │
+           ▼                   ▼
+    WS-K2 (Cache) ◄───────────┤
+    (publisher)               │
+           │                  ├───► WS-K4 (Delegation Validation)
+           │                  │
+           │                  └───► WS-K5 (Available Permissions)
+           │
+           └──────────────────────► WS-K2 (Cache)
+                                   (subscriber)
+                                        │
+                                        ▼
+                               [Batch P1.5-B1 Complete]
+                                       [MP3.5]
+                                        │
+                                        ▼
+                                   Phase 2 Unblocked
+```
+
+### Issue-to-Fix Mapping
+
+| Integration Guide Step | Issue | Root Cause | Fix |
+|------------------------|-------|------------|-----|
+| Step 15-16 | Tools filtered out / minimal schemas | Tool names derived wrong in initialize.py | **WS-J2** |
+| Step 17 | "Unauthorized: API token is invalid" after restart | In-memory vault lost tokens | **WS-K1** |
+| Step 17 | Stale credentials after token update | 60s cache TTL in CredentialInjector | **WS-K2** |
+| Step 9 | Can delegate any permission | No scope→permission mapping | **WS-K3** |
+| Step 9 | Invalid permissions accepted | No validation in delegation endpoint | **WS-K4** |
+| Step 9 | User must manually know permissions | No discovery endpoint | **WS-K5** |
+
+### Execution Strategy
+
+**Wave 1 (Parallel - 3 tasks):**
+- Control: WS-K1 (Persistent Vault) + WS-K3 (ScopeMapper) 
+- Gateway: WS-J2 (Tool Name Fix)
+
+**Wave 2 (Parallel - 3 tasks, depends on Wave 1):**
+- Control: WS-K2 (publisher), WS-K4, WS-K5
+- Gateway: WS-K2 (subscriber)
+
+### Commands
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# BATCH P1.5-B1 - Integration Bug Fixes
+# ═══════════════════════════════════════════════════════════════
+
+# Specs already created in docs/workstreams/mvp-production-readiness/specs/
+# Create task tickets if not yet done:
+
+# --- Create Task Tickets (from main repo) ---
+cd /Users/imaxxs/repositories/deepsecure-mvp
+/create-task-ticket WS-J2 mvp-production-readiness
+/create-task-ticket WS-K1 mvp-production-readiness
+/create-task-ticket WS-K2 mvp-production-readiness
+/create-task-ticket WS-K3 mvp-production-readiness
+/create-task-ticket WS-K4 mvp-production-readiness
+/create-task-ticket WS-K5 mvp-production-readiness
+
+# ───────────────────────────────────────────────────────────────
+# WAVE 1: Control (WS-K1, WS-K3) + Gateway (WS-J2)
+# ───────────────────────────────────────────────────────────────
+
+# Terminal 1: mvp-prod-control
+cd /Users/imaxxs/repositories/mvp-prod-control
+/execute-task WS-K1 mvp-production-readiness
+# Then:
+/execute-task WS-K3 mvp-production-readiness
+
+# Terminal 2: mvp-prod-gateway
+cd /Users/imaxxs/repositories/mvp-prod-gateway
+/execute-task WS-J2 mvp-production-readiness
+
+# ───────────────────────────────────────────────────────────────
+# WAVE 2: Control (WS-K2 pub, WS-K4, WS-K5) + Gateway (WS-K2 sub)
+# ───────────────────────────────────────────────────────────────
+
+# Terminal 1: mvp-prod-control (after Wave 1)
+/execute-task WS-K4 mvp-production-readiness
+/execute-task WS-K5 mvp-production-readiness
+/execute-task WS-K2 mvp-production-readiness  # Control Plane publisher
+
+# Terminal 2: mvp-prod-gateway (after WS-J2)
+/execute-task WS-K2 mvp-production-readiness  # Gateway subscriber
+```
+
+### Validation (MP3.5 Criteria)
+
+After completing all 6 tasks, re-run Integration Validation Guide steps 1-18:
+
+```bash
+# Full validation
+cd /Users/imaxxs/repositories/deepsecure-mvp
+
+# Rebuild containers
+docker compose build --no-cache deeptrail-control deeptrail-gateway
+docker compose up -d
+
+# Run integration steps
+# Follow docs/INTEGRATION_VALIDATION_GUIDE.md Steps 1-18
+
+# Expected results:
+# - Step 16: All 5 tools with full inputSchema
+# - Step 17: Real Notion API responses (not mock)
+# - Container restart: Tokens persist
+# - Step 9: Invalid permissions rejected with helpful error
+```
+
+### Summary
+
+| Metric | Value |
+|--------|-------|
+| **Status** | ⏳ Pending |
+| **Tasks** | 6 |
+| **Waves** | 2 |
+| **Parallelism** | 50% (3 tasks per wave) |
+| **Merge Point** | **MP3.5: Integration Bugs Fixed** |
+| **Unblocks** | Phase 2 (P2-B1) |
 
 ---
 
 ## Phase 2: Production Hardening
 
-> **Prerequisite:** MP3 (P1 complete)
+> **Prerequisite:** MP3.5 (P1.5 complete - Integration bugs fixed)
 > **Status:** ⏳ PENDING
-> **Worktrees:** mvp-prod-control, mvp-prod-gateway (continue from P1)
+> **Worktrees:** mvp-prod-control, mvp-prod-gateway (continue from P1.5)
 
 ---
 
@@ -1192,16 +1870,18 @@ echo "✅ P1-B3 Validation Complete"
 
 | Task | Description | Dependencies | Worktree | Status |
 |------|-------------|--------------|----------|--------|
-| I1 | Create IdP service | MP3 | mvp-prod-control | ⏳ |
-| J1 | Implement result filtering | MP3 | mvp-prod-gateway | ⏳ |
-| J2 | Implement prompt injection detection | MP3 | mvp-prod-gateway | ⏳ |
-| K1 | Create TaskToken model | MP3 | mvp-prod-control | ⏳ |
+| I1 | Create IdP service | MP3.5 | mvp-prod-control | ⏳ |
+| J4 | Implement result filtering (PII) | MP3.5 | mvp-prod-gateway | ⏳ |
+| J5 | Implement prompt injection detection | MP3.5 | mvp-prod-gateway | ⏳ |
+| K6 | Create TaskToken model | MP3.5 | mvp-prod-control | ⏳ |
+
+> **Note:** Task IDs J4, J5, K6 avoid conflict with P1.5 bug fix tasks (WS-J2, WS-K1-K5)
 
 ### Wave Analysis
 
 | Wave | Control Plane (mvp-prod-control) | Gateway (mvp-prod-gateway) |
 |------|----------------------------------|----------------------------|
-| **1** | I1, K1 | J1, J2 |
+| **1** | I1, K6 | J4, J5 |
 
 ### Visual Dependency Graph
 
@@ -1209,10 +1889,10 @@ echo "✅ P1-B3 Validation Complete"
 CONTROL (mvp-prod-control)             GATEWAY (mvp-prod-gateway)
 ──────────────────────────             ─────────────────────────
 
-[MP3] ─────┬───────────────────────────┬────────────────────────
-           │                           │
+[MP3.5] ───┬───────────────────────────┬────────────────────────
+(P1.5 Done)│                           │
            ▼                           ▼
-    I1 (IdP)    K1 (TaskToken)        J1 (PII)    J2 (Prompt)
+    I1 (IdP)    K6 (TaskToken)        J4 (PII)    J5 (Prompt)
     │           │                      │           │
     └─────┬─────┘                      └─────┬─────┘
           │                                  │
@@ -1227,8 +1907,8 @@ CONTROL (mvp-prod-control)             GATEWAY (mvp-prod-gateway)
 ### Execution Strategy
 
 All 4 tasks run in parallel across 2 worktrees:
-- Control: I1, K1 (2 tasks)
-- Gateway: J1, J2 (2 tasks)
+- Control: I1, K6 (2 tasks)
+- Gateway: J4, J5 (2 tasks)
 
 ### Commands
 
@@ -1244,27 +1924,27 @@ cd /Users/imaxxs/repositories/deepsecure-mvp
 
 # --- Create Task Tickets (from main repo) ---
 /create-task-ticket WS-I1 mvp-production-readiness
-/create-task-ticket WS-J1 mvp-production-readiness
-/create-task-ticket WS-J2 mvp-production-readiness
-/create-task-ticket WS-K1 mvp-production-readiness
+/create-task-ticket WS-J4 mvp-production-readiness
+/create-task-ticket WS-J5 mvp-production-readiness
+/create-task-ticket WS-K6 mvp-production-readiness
 
 # ───────────────────────────────────────────────────────────────
-# WAVE 1: Control (I1, K1) + Gateway (J1, J2)
+# WAVE 1: Control (I1, K6) + Gateway (J4, J5)
 # ───────────────────────────────────────────────────────────────
 
 # Terminal 1: mvp-prod-control
 cd /Users/imaxxs/repositories/mvp-prod-control
 /execute-task WS-I1 mvp-production-readiness
 /complete-task WS-I1 mvp-production-readiness
-/execute-task WS-K1 mvp-production-readiness
-/complete-task WS-K1 mvp-production-readiness
+/execute-task WS-K6 mvp-production-readiness
+/complete-task WS-K6 mvp-production-readiness
 
 # Terminal 2: mvp-prod-gateway
 cd /Users/imaxxs/repositories/mvp-prod-gateway
-/execute-task WS-J1 mvp-production-readiness
-/complete-task WS-J1 mvp-production-readiness
-/execute-task WS-J2 mvp-production-readiness
-/complete-task WS-J2 mvp-production-readiness
+/execute-task WS-J4 mvp-production-readiness
+/complete-task WS-J4 mvp-production-readiness
+/execute-task WS-J5 mvp-production-readiness
+/complete-task WS-J5 mvp-production-readiness
 
 # --- Sync Status (from main repo) ---
 cd /Users/imaxxs/repositories/deepsecure-mvp
@@ -1297,7 +1977,7 @@ pytest tests/security/test_prompt_injection.py -v
 | **Waves** | 1 |
 | **Bottleneck** | None |
 | **Merge Point** | None |
-| **Unblocks** | Batch P2-B2 (I2, J3, K2, K3) |
+| **Unblocks** | Batch P2-B2 (I2, J6, K7, K8) |
 
 ---
 
@@ -1308,16 +1988,18 @@ pytest tests/security/test_prompt_injection.py -v
 | Task | Description | Dependencies | Worktree | Status |
 |------|-------------|--------------|----------|--------|
 | I2 | Create SSO endpoints | I1 | mvp-prod-control | ⏳ |
-| J3 | Implement Keycloak token exchange | J1, J2 | mvp-prod-gateway | ⏳ |
-| K2 | Create TaskService | K1 | mvp-prod-control | ⏳ |
-| K3 | Create task endpoints | K2 | mvp-prod-control | ⏳ |
+| J6 | Implement Keycloak token exchange | J4, J5 | mvp-prod-gateway | ⏳ |
+| K7 | Create TaskService | K6 | mvp-prod-control | ⏳ |
+| K8 | Create task endpoints | K7 | mvp-prod-control | ⏳ |
+
+> **Note:** Task IDs J6, K7, K8 avoid conflict with P1.5 bug fix tasks (WS-K1-K5)
 
 ### Wave Analysis
 
 | Wave | Control Plane (mvp-prod-control) | Gateway (mvp-prod-gateway) |
 |------|----------------------------------|----------------------------|
-| **1** | I2, K2 | J3 |
-| **2** | K3 | (none) |
+| **1** | I2, K7 | J6 |
+| **2** | K8 | (none) |
 
 ### Visual Dependency Graph
 
@@ -1325,12 +2007,12 @@ pytest tests/security/test_prompt_injection.py -v
 CONTROL (mvp-prod-control)             GATEWAY (mvp-prod-gateway)
 ──────────────────────────             ─────────────────────────
 
-I1 ──▶ I2 (SSO)                        J1, J2 ──▶ J3 (Keycloak)
+I1 ──▶ I2 (SSO)                        J4, J5 ──▶ J6 (Keycloak)
            │                                       │
-K1 ──▶ K2 (TaskSvc)                                │
+K6 ──▶ K7 (TaskSvc)                                │
            │                                       │
            ▼                                       │
-       K3 (TaskAPI)                                │
+       K8 (TaskAPI)                                │
            │                                       │
            └───────────────┬───────────────────────┘
                            │
@@ -1342,8 +2024,8 @@ K1 ──▶ K2 (TaskSvc)                                │
 
 ### Execution Strategy
 
-Wave 1: I2, K2, J3 run in parallel.
-Wave 2: K3 runs after K2 completes.
+Wave 1: I2, K7, J6 run in parallel.
+Wave 2: K8 runs after K7 completes.
 
 ### Commands
 
@@ -1359,36 +2041,36 @@ cd /Users/imaxxs/repositories/deepsecure-mvp
 
 # --- Create Task Tickets (from main repo) ---
 /create-task-ticket WS-I2 mvp-production-readiness
-/create-task-ticket WS-J3 mvp-production-readiness
-/create-task-ticket WS-K2 mvp-production-readiness
-/create-task-ticket WS-K3 mvp-production-readiness
+/create-task-ticket WS-J6 mvp-production-readiness
+/create-task-ticket WS-K7 mvp-production-readiness
+/create-task-ticket WS-K8 mvp-production-readiness
 
 # ───────────────────────────────────────────────────────────────
-# WAVE 1: I2, K2 (Control) + J3 (Gateway)
+# WAVE 1: I2, K7 (Control) + J6 (Gateway)
 # ───────────────────────────────────────────────────────────────
 
 # Terminal 1: mvp-prod-control
 cd /Users/imaxxs/repositories/mvp-prod-control
 /execute-task WS-I2 mvp-production-readiness
 /complete-task WS-I2 mvp-production-readiness
-/execute-task WS-K2 mvp-production-readiness
-/complete-task WS-K2 mvp-production-readiness
+/execute-task WS-K7 mvp-production-readiness
+/complete-task WS-K7 mvp-production-readiness
 
 # Terminal 2: mvp-prod-gateway
 cd /Users/imaxxs/repositories/mvp-prod-gateway
-/execute-task WS-J3 mvp-production-readiness
-/complete-task WS-J3 mvp-production-readiness
+/execute-task WS-J6 mvp-production-readiness
+/complete-task WS-J6 mvp-production-readiness
 
-# ⏸️ WAIT: K2 must complete before K3
+# ⏸️ WAIT: K7 must complete before K8
 
 # ───────────────────────────────────────────────────────────────
-# WAVE 2: K3
+# WAVE 2: K8
 # ───────────────────────────────────────────────────────────────
 
 # Terminal 1: mvp-prod-control (continue)
 cd /Users/imaxxs/repositories/mvp-prod-control
-/execute-task WS-K3 mvp-production-readiness
-/complete-task WS-K3 mvp-production-readiness
+/execute-task WS-K8 mvp-production-readiness
+/complete-task WS-K8 mvp-production-readiness
 
 # --- Final Sync and Merge ---
 cd /Users/imaxxs/repositories/deepsecure-mvp
@@ -1487,7 +2169,7 @@ echo "✅ P2 Validation Complete - Production Ready"
 |--------|-------|
 | **Parallelism** | 75% (3 parallel in Wave 1, 1 in Wave 2) |
 | **Waves** | 2 |
-| **Bottleneck** | K2 → K3 dependency |
+| **Bottleneck** | K7 → K8 dependency |
 | **Merge Point** | **Production Ready** 🎉 |
 | **Unblocks** | Production deployment |
 
@@ -1505,7 +2187,8 @@ echo "✅ P2 Validation Complete - Production Ready"
 | P0-B4 | 2 | 1 | 0% | No (main) | ✅ Complete (MP1) |
 | P1-B1 | 3 | 1 | 100% | ✅ Yes | ✅ Complete |
 | P1-B2 | 7 | 1 | 100% | ✅ Yes | ✅ Complete (MP2) |
-| P1-B3 | 2 | 2 | 0% | No (gateway only) | ⏳ Pending (MP3) |
+| P1-B3 | 2 | 2 | 0% | No (gateway only) | ✅ Complete (MP3) |
+| **P1.5-B1** | 6 | 2 | 50% | ✅ Yes | ⏳ **NEW** (MP3.5) |
 | P2-B1 | 4 | 1 | 100% | ✅ Yes | ⏳ Pending |
 | P2-B2 | 4 | 2 | 75% | ✅ Yes | ⏳ Pending |
 
@@ -1515,27 +2198,29 @@ echo "✅ P2 Validation Complete - Production Ready"
 |-------|-------------|------------|------------------|--------|
 | MP1 | P0-B4 | D1 + D2 | Verify E2E demo passes | ✅ Reached |
 | MP2 | P1-B2 | E2 + E3 | Vault API ready | ✅ Reached |
-| MP3 | P1-B3 | H1 + H2 | Merge worktrees, verify credential injection | ⏳ Pending |
+| MP3 | P1-B3 | H1 + H2 | Verify credential injection works | ✅ Reached |
+| **MP3.5** | P1.5-B1 | WS-J2 + WS-K1-K5 | Integration bugs fixed, re-test Steps 1-18 | ⏳ **NEW** |
 | MP4 | P2-B2 | All P2 | Final merge to dev, production deployment | ⏳ Pending |
 
 ### Total Commands Needed
 
 | Command Type | Count | Notes |
 |--------------|-------|-------|
-| `/create-task-spec` | 9 | One per batch |
-| `/create-task-ticket` | 31 | One per task |
-| `/execute-task` | 31 | One per task |
-| `/complete-task` | 31 | Auto after execute |
-| `/sync-worktree-status` | 9 | One per batch |
-| Merge actions | 4 | At each merge point |
-| **Total** | ~115 | |
+| `/create-task-spec` | 10 | One per batch (includes P1.5-B1) |
+| `/create-task-ticket` | 37 | One per task (31 original + 6 P1.5 bug fixes) |
+| `/execute-task` | 37 | One per task |
+| `/complete-task` | 37 | Auto after execute |
+| `/sync-worktree-status` | 10 | One per batch |
+| Merge actions | 5 | At each merge point (includes MP3.5) |
+| **Total** | ~136 | |
 
 ### Critical Path
 
 ```
 P0: A1 → A2 → A3 → C3 → D1 → D2 → [MP1] ✅
-P1: E1 → E2 → H1 → H2 → [MP3]
-P2: K1 → K2 → K3 → [Production Ready]
+P1: E1 → E2 → H1 → H2 → [MP3] ✅
+P1.5: WS-K1 → WS-K2 → [MP3.5]  ← Integration bug fixes
+P2: I1 → I2 + K6 → K7 → K8 → [Production Ready]
 ```
 
 ### Worktree Distribution
@@ -1543,8 +2228,8 @@ P2: K1 → K2 → K3 → [Production Ready]
 | Worktree | Tasks | Phase |
 |----------|-------|-------|
 | **main** | A1-A3, B1-B3, C1-C3, D1-D2 (11 tasks) | P0 ✅ |
-| **mvp-prod-control** | E1-E3, F1-F3, I1-I2, K1-K3 (11 tasks) | P1, P2 |
-| **mvp-prod-gateway** | G1-G4, H1-H2, J1-J3 (9 tasks) | P1, P2 |
+| **mvp-prod-control** | E1-E3, F1-F3, WS-K1-K5, I1-I2, K6-K8 (16 tasks) | P1, P1.5, P2 |
+| **mvp-prod-gateway** | G1-G4, H1-H2, WS-J2, WS-K2 (sub), J4-J6 (10 tasks) | P1, P1.5, P2 |
 
 ### Parallelism Summary
 
@@ -1552,6 +2237,7 @@ P2: K1 → K2 → K3 → [Production Ready]
 |-------|------------------------|------------------|
 | P0 | 4 | 1 (main only) |
 | P1 | 7 | 2 (Control + Gateway) |
+| P1.5 | 3 | 2 (Control + Gateway) |
 | P2 | 4 | 2 (Control + Gateway) |
 
 ### Optimal Execution Strategy
@@ -1566,9 +2252,15 @@ P2: K1 → K2 → K3 → [Production Ready]
 - Developer 2: Gateway (G*, H*)
 - Merge at MP2 and MP3
 
+**P1.5:** ⚠️ **NEW** Integration Bug Fixes
+- Developer 1: Control Plane (WS-K1, WS-K2 pub, WS-K3, WS-K4, WS-K5)
+- Developer 2: Gateway (WS-J2, WS-K2 sub)
+- Re-test Integration Validation Guide Steps 1-18
+- Complete MP3.5 before proceeding to P2
+
 **P2:** Two developers (or two Claude instances)
-- Developer 1: Control Plane (I*, K*)
-- Developer 2: Gateway (J*)
+- Developer 1: Control Plane (I1, I2, K6, K7, K8)
+- Developer 2: Gateway (J4, J5, J6)
 - Final merge to dev at completion
 
 ---
@@ -1608,11 +2300,56 @@ cd ../mvp-prod-gateway
 /execute-task WS-G1 mvp-production-readiness
 ```
 
-### Start P2 (after MP3)
+### Start P1.5 (after MP3) - ⚠️ **NEXT: Bug Fixes**
 
 ```bash
 # 1. Verify MP3 criteria met
-python demos/demo_sarah_journey_e2e.py --real-oauth
+# All P1 batches complete, credential injection works
+
+# 2. Specs already created - see docs/workstreams/mvp-production-readiness/specs/
+# WS-J2-spec.md, WS-K1-spec.md, WS-K2-spec.md, WS-K3-spec.md, WS-K4-spec.md, WS-K5-spec.md
+
+# 3. Create task tickets (from main repo)
+cd /Users/imaxxs/repositories/deepsecure-mvp
+/create-task-ticket WS-J2 mvp-production-readiness
+/create-task-ticket WS-K1 mvp-production-readiness
+/create-task-ticket WS-K2 mvp-production-readiness
+/create-task-ticket WS-K3 mvp-production-readiness
+/create-task-ticket WS-K4 mvp-production-readiness
+/create-task-ticket WS-K5 mvp-production-readiness
+
+# 4. Execute Wave 1 in parallel
+# Terminal 1 (Control):
+cd ../mvp-prod-control
+/execute-task WS-K1 mvp-production-readiness
+/execute-task WS-K3 mvp-production-readiness
+
+# Terminal 2 (Gateway):
+cd ../mvp-prod-gateway
+/execute-task WS-J2 mvp-production-readiness
+
+# 5. Execute Wave 2 after Wave 1 completes
+# Terminal 1 (Control):
+/execute-task WS-K2 mvp-production-readiness
+/execute-task WS-K4 mvp-production-readiness
+/execute-task WS-K5 mvp-production-readiness
+
+# Terminal 2 (Gateway):
+/execute-task WS-K2 mvp-production-readiness  # Gateway subscriber
+
+# 6. Re-test Integration Validation Guide
+cd /Users/imaxxs/repositories/deepsecure-mvp
+docker compose build --no-cache deeptrail-control deeptrail-gateway
+docker compose up -d
+# Follow docs/INTEGRATION_VALIDATION_GUIDE.md Steps 1-18
+```
+
+### Start P2 (after MP3.5)
+
+```bash
+# 1. Verify MP3.5 criteria met
+# Re-run Integration Validation Guide Steps 1-18
+# All issues from P1.5 should be fixed
 
 # 2. Continue in existing worktrees (no new setup needed)
 cd ../mvp-prod-control

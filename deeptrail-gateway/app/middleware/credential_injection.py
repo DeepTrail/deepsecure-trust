@@ -500,6 +500,11 @@ class CredentialInjector:
         access_token = token_data.get("access_token", "")
         token_type = token_data.get("token_type", "Bearer")
         
+        # Normalize token_type to title case (Bearer, not bearer)
+        # Most OAuth APIs expect "Bearer" with capital B
+        if token_type.lower() == "bearer":
+            token_type = "Bearer"
+        
         # Backend-specific header formatting
         # Most OAuth APIs use Bearer token
         if backend_id in ("notion", "slack", "hubspot", "google"):

@@ -64,6 +64,8 @@ from .mcp.handlers import (
 from .mcp.session_manager import MCPSessionManager
 from .mcp.tool_cache import ToolCache
 from .security.fail_closed import configure_health_checker
+from .middleware.audit import configure_audit_middleware
+from .backends.adapter import create_backend_adapter
 
 # Configure basic logging
 logging.basicConfig(
@@ -157,9 +159,28 @@ configure_health_checker(
 )
 logger.info(f"Health checker configured with control plane URL: {config.control_plane_url}")
 
+# =============================================================================
+# Audit Middleware Configuration
+# =============================================================================
+
+# Configure audit middleware to dispatch events to Control Plane
+configure_audit_middleware(
+    control_plane_url=config.control_plane_url,
+    timeout_seconds=5.0,
+    enabled=True,
+)
+logger.info(f"Audit middleware configured: control_plane_url={config.control_plane_url}")
+
 # Initialize MCP Session Manager and Tool Cache
 mcp_session_manager = MCPSessionManager()
-mcp_tool_cache = ToolCache()
+
+# Get the global tool cache and populate it with proper tool definitions
+# The tools_list handler uses get_tool_cache() internally, so we must use the same instance
+from .mcp.tool_cache import get_tool_cache
+from .mcp.tool_definitions import populate_tool_cache
+mcp_tool_cache = get_tool_cache()
+populate_tool_cache(mcp_tool_cache)
+logger.info("Tool cache populated with backend tool definitions")
 
 # Configure MCP method handlers with dependencies
 configure_initialize_handler(
@@ -169,9 +190,15 @@ configure_tools_list_handler(
     session_manager=mcp_session_manager,
     tool_cache=mcp_tool_cache,
 )
+# =============================================================================
+# Backend Client Configuration
+# =============================================================================
+backend_client = create_backend_adapter()
+logger.info("Backend client adapter configured for real API calls")
+
 configure_tools_call_handler(
     session_manager=mcp_session_manager,
-    backend_client=None,  # MVP: No backend forwarding yet
+    backend_client=backend_client,  # Production: Real backend calls via adapter
     audit_logger=None,  # MVP: Basic audit logging
 )
 

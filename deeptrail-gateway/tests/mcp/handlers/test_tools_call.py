@@ -13,7 +13,7 @@ Tests cover:
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.mcp.handlers.tools_call import (
     handle_tools_call,
@@ -22,8 +22,6 @@ from app.mcp.handlers.tools_call import (
     ToolsCallParams,
     ToolsCallResult,
     ToolsCallErrorCode,
-    _validate_permission,
-    _validate_constraints,
     _generate_mock_response,
     _summarize_result,
 )
@@ -78,76 +76,37 @@ def configured_handler(session_manager, agent_session):
     configure_tools_call_handler(None)
 
 
-# =============================================================================
-# Test: Permission Validation
-# =============================================================================
+@pytest.fixture
+def mock_fail_closed():
+    """Mock enforce_fail_closed to allow tests to run without control plane."""
+    with patch(
+        "app.mcp.handlers.tools_call.enforce_fail_closed",
+        new_callable=AsyncMock,
+    ) as mock:
+        # Return a successful health check result
+        mock.return_value = MagicMock(healthy=True)
+        yield mock
 
 
+# =============================================================================
+# Test: Permission Validation (DEPRECATED - moved to DelegationValidator)
+# =============================================================================
+# NOTE: The _validate_permission and _validate_constraints functions were
+# removed in favor of DelegationValidator (C6) and ConstraintChecker (E5).
+# See tests/middleware/test_delegation_validator.py for current tests.
+# These legacy test classes are skipped to prevent import errors.
+
+
+@pytest.mark.skip(reason="Legacy tests - _validate_permission moved to DelegationValidator (C6)")
 class TestPermissionValidation:
-    """Tests for permission validation logic."""
-    
-    def test_permitted_tool_allowed(self):
-        """Test that permitted tool returns allowed=True."""
-        result = _validate_permission(
-            "notion.search_pages",
-            ["notion:pages:search", "slack:channels:list"]
-        )
-        assert result["allowed"] is True
-        assert result["required_permission"] == "notion:pages:search"
-    
-    def test_unpermitted_tool_denied(self):
-        """Test that unpermitted tool returns allowed=False."""
-        result = _validate_permission(
-            "notion.create_page",
-            ["notion:pages:search"]  # No create permission
-        )
-        assert result["allowed"] is False
-        assert result["required_permission"] == "notion:pages:create"
-    
-    def test_unknown_tool_denied(self):
-        """Test that unknown tool is denied (fail-closed)."""
-        result = _validate_permission(
-            "unknown.mystery_tool",
-            ["notion:pages:search"]
-        )
-        assert result["allowed"] is False
-        # Should try to infer or use unknown prefix
-        assert "unknown" in result["required_permission"]
-    
-    def test_backend_wildcard_permission(self):
-        """Test that backend wildcard (notion:*) allows all tools."""
-        result = _validate_permission(
-            "notion.search_pages",
-            ["notion:*"]  # Wildcard for all notion permissions
-        )
-        assert result["allowed"] is True
-        assert result["required_permission"] == "notion:pages:search"
-    
-    def test_full_wildcard_permission(self):
-        """Test that full wildcard (*:*) allows all tools."""
-        result = _validate_permission(
-            "notion.search_pages",
-            ["*:*"]  # Full wildcard
-        )
-        assert result["allowed"] is True
-    
-    def test_empty_permissions_denied(self):
-        """Test that empty permissions denies all tools."""
-        result = _validate_permission("notion.search_pages", [])
-        assert result["allowed"] is False
+    """Tests for permission validation logic (DEPRECATED)."""
+    pass
 
 
+@pytest.mark.skip(reason="Legacy tests - _validate_constraints moved to ConstraintChecker (E5)")
 class TestConstraintValidation:
-    """Tests for constraint validation (MVP placeholder)."""
-    
-    @pytest.mark.asyncio
-    async def test_constraints_always_allowed_mvp(self):
-        """Test that MVP constraint validation always allows."""
-        result = await _validate_constraints(
-            MagicMock(),  # agent_session
-            "notion.search_pages"
-        )
-        assert result["allowed"] is True
+    """Tests for constraint validation (DEPRECATED)."""
+    pass
 
 
 # =============================================================================
@@ -242,9 +201,9 @@ class TestToolsCallSuccess:
 
 class TestToolsCallPermissionDenied:
     """Tests for permission denied scenarios."""
-    
+
     @pytest.mark.asyncio
-    async def test_unpermitted_tool_denied(self, session_manager, agent_session):
+    async def test_unpermitted_tool_denied(self, session_manager, agent_session, mock_fail_closed):
         """Test that unpermitted tool is denied."""
         params = {
             "name": "notion.create_page",  # Not in permissions
@@ -254,15 +213,15 @@ class TestToolsCallPermissionDenied:
                 "delegated_permissions": ["notion:pages:search"],  # Only search
             },
         }
-        
+
         with pytest.raises(MCPError) as exc_info:
             await handle_tools_call_standalone(params, session_manager)
-        
+
         assert exc_info.value.code == ToolsCallErrorCode.PERMISSION_DENIED
         assert "notion:pages:create" in exc_info.value.message
-    
+
     @pytest.mark.asyncio
-    async def test_unknown_tool_denied(self, session_manager, agent_session):
+    async def test_unknown_tool_denied(self, session_manager, agent_session, mock_fail_closed):
         """Test that unknown tool is denied (fail-closed)."""
         params = {
             "name": "github.create_repo",  # Unknown backend
@@ -272,14 +231,14 @@ class TestToolsCallPermissionDenied:
                 "delegated_permissions": ["notion:pages:search"],
             },
         }
-        
+
         with pytest.raises(MCPError) as exc_info:
             await handle_tools_call_standalone(params, session_manager)
-        
+
         assert exc_info.value.code == ToolsCallErrorCode.PERMISSION_DENIED
-    
+
     @pytest.mark.asyncio
-    async def test_empty_permissions_denied(self, session_manager, agent_session):
+    async def test_empty_permissions_denied(self, session_manager, agent_session, mock_fail_closed):
         """Test that empty permissions denies all tools."""
         params = {
             "name": "notion.search_pages",
@@ -289,11 +248,57 @@ class TestToolsCallPermissionDenied:
                 "delegated_permissions": [],  # No permissions
             },
         }
-        
+
         with pytest.raises(MCPError) as exc_info:
             await handle_tools_call_standalone(params, session_manager)
-        
+
         assert exc_info.value.code == ToolsCallErrorCode.PERMISSION_DENIED
+
+    @pytest.mark.asyncio
+    async def test_permission_denied_includes_verbose_data(self, session_manager, agent_session, mock_fail_closed):
+        """Test that permission denied error includes verbose data object (WS-J1)."""
+        params = {
+            "name": "notion.create_page",
+            "arguments": {"title": "Test"},
+            "_context": {
+                "agent_session_id": "agent-sdr-001",
+                "delegated_permissions": ["notion:pages:search", "notion:pages:read"],
+            },
+        }
+
+        with pytest.raises(MCPError) as exc_info:
+            await handle_tools_call_standalone(params, session_manager)
+
+        # Verify error code
+        assert exc_info.value.code == ToolsCallErrorCode.PERMISSION_DENIED
+
+        # Verify data object is present (WS-J1 requirement)
+        assert exc_info.value.data is not None
+
+        # Verify data contents
+        data = exc_info.value.data
+        assert data["tool"] == "notion.create_page"
+        assert data["required_permission"] == "notion:pages:create"
+        assert data["delegated_permissions"] == ["notion:pages:search", "notion:pages:read"]
+
+    @pytest.mark.asyncio
+    async def test_permission_denied_data_empty_permissions(self, session_manager, agent_session, mock_fail_closed):
+        """Test data object with empty delegated_permissions list."""
+        params = {
+            "name": "notion.search_pages",
+            "arguments": {},
+            "_context": {
+                "agent_session_id": "agent-sdr-001",
+                "delegated_permissions": [],
+            },
+        }
+
+        with pytest.raises(MCPError) as exc_info:
+            await handle_tools_call_standalone(params, session_manager)
+
+        # Verify data object present even with empty permissions
+        assert exc_info.value.data is not None
+        assert exc_info.value.data["delegated_permissions"] == []
 
 
 # =============================================================================

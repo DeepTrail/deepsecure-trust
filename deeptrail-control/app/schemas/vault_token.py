@@ -8,8 +8,9 @@ Security Note:
     Refresh tokens are never exposed to agents.
 """
 
+from datetime import datetime
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import List, Optional
 
 
 class TokenResponse(BaseModel):
@@ -18,25 +19,27 @@ class TokenResponse(BaseModel):
     Returns the OAuth access token and metadata for a connected service.
 
     Attributes:
+        service_id: The service identifier (e.g., 'notion', 'slack').
         access_token: The OAuth access token for API calls.
         token_type: Token type, typically "bearer".
-        expires_in: Seconds until token expiration (optional).
-        scope: Space-separated list of granted scopes (optional).
+        scopes_granted: List of granted scopes (optional).
+        expires_at: ISO timestamp when token expires (optional).
 
     Security:
         - Does NOT include refresh_token (security requirement)
         - Agents should never see refresh tokens
     """
 
+    service_id: str = Field(..., description="Service identifier")
     access_token: str = Field(..., description="OAuth access token")
     token_type: str = Field(default="bearer", description="Token type")
-    expires_in: Optional[int] = Field(
+    scopes_granted: Optional[List[str]] = Field(
         default=None,
-        description="Seconds until token expiration"
+        description="List of granted scopes"
     )
-    scope: Optional[str] = Field(
+    expires_at: Optional[str] = Field(
         default=None,
-        description="Space-separated list of granted scopes"
+        description="ISO timestamp when token expires"
     )
 
 

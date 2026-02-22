@@ -10,7 +10,7 @@ MVP Simplification: Tokens stored in-memory vault only (no database table).
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Header, status
@@ -51,7 +51,7 @@ class OAuthToken(BaseModel):
     access_token: str
     token_type: str = "bearer"
     refresh_token: Optional[str] = None
-    expires_in: Optional[int] = None
+    expires_at: Optional[str] = None  # ISO timestamp when token expires
     scope: Optional[str] = None
 
 
@@ -163,15 +163,20 @@ def connect_service(
         if request.oauth_token.scope:
             scopes = request.oauth_token.scope.split()
 
-        # Build oauth response dict
+        # Build oauth response dict with timestamps
+        now = datetime.now(timezone.utc)
         oauth_response = {
             "access_token": request.oauth_token.access_token,
             "token_type": request.oauth_token.token_type,
+            "stored_at": now.isoformat(),
         }
         if request.oauth_token.refresh_token:
             oauth_response["refresh_token"] = request.oauth_token.refresh_token
-        if request.oauth_token.expires_in:
-            oauth_response["expires_in"] = request.oauth_token.expires_in
+        if request.oauth_token.expires_at:
+            # Store the expires_at timestamp directly
+            oauth_response["expires_at"] = request.oauth_token.expires_at
+        if request.oauth_token.scope:
+            oauth_response["scope"] = request.oauth_token.scope
 
         # Store token in vault
         token_ref = vault.store_token(current_user, request.service_id, oauth_response)

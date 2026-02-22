@@ -419,7 +419,12 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             )
         raise MCPError(
             ToolsCallErrorCode.PERMISSION_DENIED,
-            error_message
+            error_message,
+            data={
+                "tool": tool_name,
+                "required_permission": required_perm,
+                "delegated_permissions": agent_context.delegated_permissions if agent_context else []
+            }
         )
     
     logger.debug(f"Permission validated: {validation_result.required_permission}")

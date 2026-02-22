@@ -180,12 +180,26 @@ async def get_token_for_service(
         )
 
     # 5. Build response (never include refresh_token)
-    expires_in = token_data.get("expires_in")
     scope = token_data.get("scope")
 
-    # Convert scope list to space-separated string if needed
-    if isinstance(scope, list):
-        scope = " ".join(scope)
+    # Convert scope to list for consistency with connect response
+    scopes_granted = None
+    if scope:
+        if isinstance(scope, list):
+            scopes_granted = scope
+        elif isinstance(scope, str):
+            scopes_granted = scope.split()
+
+    # Calculate expires_at from expires_in if present
+    expires_at = token_data.get("expires_at")
+    if not expires_at and token_data.get("expires_in"):
+        # Calculate from stored_at + expires_in, or use now + expires_in
+        stored_at = token_data.get("stored_at")
+        if stored_at:
+            base_time = datetime.fromisoformat(stored_at.replace("Z", "+00:00"))
+        else:
+            base_time = datetime.now(timezone.utc)
+        expires_at = (base_time + timedelta(seconds=token_data["expires_in"])).isoformat()
 
     logger.info(
         "Token retrieved successfully: service=%s user=%s",
@@ -194,10 +208,11 @@ async def get_token_for_service(
     )
 
     return TokenResponse(
+        service_id=service_id,
         access_token=access_token,
         token_type=token_data.get("token_type", "bearer"),
-        expires_in=expires_in,
-        scope=scope,
+        scopes_granted=scopes_granted,
+        expires_at=expires_at,
     )
 
 

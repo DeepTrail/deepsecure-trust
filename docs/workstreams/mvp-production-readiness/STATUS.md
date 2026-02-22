@@ -1,8 +1,8 @@
 # MVP Production Readiness: Status
 
-> **Last Updated:** February 18, 2026
-> **Current Phase:** Phase 1 (P1) - ✅ **COMPLETE**
-> **Overall Progress:** P0 100% | P1 100% (P1-B1 + P1-B2 + P1-B3 complete: 12/12 tasks) | P2 0%
+> **Last Updated:** February 22, 2026
+> **Current Phase:** Phase 1.5 (P1.5) - ⚠️ **Integration Bug Fixes**
+> **Overall Progress:** P0 100% | P1 100% (12/12 tasks) | **P1.5 0%** (0/6 tasks) | P2 0%
 ---
 
 ## ⚠️ Important Clarification
@@ -71,7 +71,8 @@ The E2E demo passes all 10 steps, but this validates that:
 |-------|-------------|--------|----------|-------|
 | **P0** | E2E Flow Verification | ✅ Complete | 100% | Endpoints exist, formats correct, flow works |
 | **P1** | Replace Mocks with Real Code | ✅ Complete | 100% | P1-B1 ✅, P1-B2 ✅, P1-B3 ✅ |
-| **P2** | Production Hardening | Blocked by P1 | 0% | IdP, PII masking, prompt injection |
+| **P1.5** | Integration Bug Fixes | ⏳ **In Progress** | 0% | 6 tasks: WS-J2, WS-K1-K5 (fixes from testing) |
+| **P2** | Production Hardening | Blocked by P1.5 | 0% | IdP, PII masking, prompt injection |
 
 ---
 
@@ -124,6 +125,54 @@ The E2E demo passes all 10 steps, but this validates that:
 | **WS-H1** | Gateway credential injection from vault | ✅ Complete | [Report](./reports/WS-H1-completion.md) |
 | **WS-H2** | Token refresh integration | ✅ Complete | [Report](./reports/WS-H2-completion.md) |
 
+---
+
+## P1.5 Scope: Integration Bug Fixes (⏳ NEW)
+
+> **Source:** Bugs discovered during [Integration Validation Guide](../INTEGRATION_VALIDATION_GUIDE.md) testing (Steps 1-18)
+> **Architecture Docs:** [PERMISSION_FLOW_ARCHITECTURE.md](../architecture/PERMISSION_FLOW_ARCHITECTURE.md), [MVP_ARCHITECTURE_DEEP_DIVE.md](../architecture/MVP_ARCHITECTURE_DEEP_DIVE.md)
+
+After completing P1 and testing with the Integration Validation Guide, several issues were discovered:
+
+| Issue | Integration Guide Step | Impact |
+|-------|------------------------|--------|
+| Tool name derivation mismatch | Step 16 | Tools filtered out, minimal schemas |
+| In-memory vault ephemeral | Container restart | Tokens lost, "Service not connected" |
+| Stale credential cache | Token updates | 60s cache TTL causes stale tokens |
+| No scope→permission mapping | Step 9 | Can't validate delegated permissions |
+| No delegation validation | Step 9 | Invalid permissions accepted |
+| No permission discovery | Step 9 | User must manually know permissions |
+
+### P1.5-B1: Integration Bug Fixes (⏳ IN PROGRESS)
+
+| Task | Description | Status | Spec |
+|------|-------------|--------|------|
+| **WS-J2** | Fix tool name derivation and cache alignment | ⏳ Pending | [Spec](./specs/WS-J2-spec.md) |
+| **WS-K1** | Persistent Vault - Store OAuth tokens in PostgreSQL | ⏳ Pending | [Spec](./specs/WS-K1-spec.md) |
+| **WS-K2** | Cache Invalidation via Redis Pub/Sub | ⏳ Pending | [Spec](./specs/WS-K2-spec.md) |
+| **WS-K3** | Scope-to-Permission Mapper | ⏳ Pending | [Spec](./specs/WS-K3-spec.md) |
+| **WS-K4** | Delegation Permission Validation | ⏳ Pending | [Spec](./specs/WS-K4-spec.md) |
+| **WS-K5** | Available Permissions Endpoint | ⏳ Pending | [Spec](./specs/WS-K5-spec.md) |
+
+### Wave Analysis
+
+| Wave | Control Plane | Gateway |
+|------|---------------|---------|
+| **1** | WS-K1, WS-K3 | WS-J2 |
+| **2** | WS-K2, WS-K4, WS-K5 | WS-K2 (subscriber) |
+
+### Merge Point: MP3.5
+
+After completing all 6 tasks, re-run Integration Validation Guide Steps 1-18 to verify fixes.
+
+---
+
+### Bug Fixes / Enhancements (Completed Earlier)
+
+| Task | Description | Status | Report |
+|------|-------------|--------|--------|
+| **WS-J1** | Add verbose data to permission denied MCP errors | ✅ Complete | [Report](./reports/WS-J1-completion.md) |
+
 ### Remaining Mock Locations
 
 | Mock | File | Line | Required Change | Status |
@@ -141,8 +190,8 @@ The E2E demo passes all 10 steps, but this validates that:
 | **WS-G4** | Tool calls return mock strings (HubSpot) | Implement real HubSpot CRM REST API calls | ✅ Complete |
 | **P1-1** | Login accepts any password | Implement real password validation or IdP redirect | ⏳ Ready |
 | **P1-2** | Credential injection returns mock token | Call Control Plane vault API for real tokens | ✅ Complete (WS-H1) |
-| **P1-3** | Tool calls return mock strings | Implement real REST API calls to Notion/Slack | ⏳ Ready |
-| **P1-4** | Audit logs locally | Wire Gateway audit events to Control Plane DB | ⏳ Ready |
+| **P1-3 / WS-I2** | Tool calls return mock strings | Wire BackendClientAdapter in main.py | ✅ Complete | [Report](./reports/WS-I2-completion.md) |
+| **P1-4** | Audit logs locally | Wire Gateway audit events to Control Plane DB | ✅ Complete (WS-I1) |
 | **P1-5** | OAuth tokens in-memory | Persist to encrypted vault storage | ⏳ Ready |
 | **P1-6** | Token refresh not implemented | Implement refresh flow via Control Plane | ✅ Complete (WS-H2) |
 
@@ -161,9 +210,11 @@ deeptrail-gateway/app/middleware/credential_injection.py:283-298
 deeptrail-gateway/app/mcp/handlers/tools_call.py:589-671
 # Current: "MVP: Returns mock response"
 
-# P1-4: Real audit logging
-deeptrail-gateway/app/middleware/audit.py:338-391
-# Current: "MVP mode: Log locally"
+# P1-4 / WS-I1: Real audit logging
+# See: docs/workstreams/mvp-production-readiness/specs/WS-I1-spec.md
+# Task: docs/workstreams/mvp-production-readiness/tasks/WS-I1-wire-gateway-audit-to-control-plane.md
+deeptrail-gateway/app/main.py  # Add configure_audit_middleware() call
+# Current: audit.py:338-391 logs locally due to missing configuration
 
 # P1-5: Persistent vault storage
 deeptrail-control/app/services/vault_client.py
@@ -183,6 +234,7 @@ deeptrail-gateway/app/middleware/credential_injection.py:357-375
 | **MP1** | ✅ Reached | E2E flow verified | P1 unblocked, but mocks still present |
 | **MP2** | ✅ Reached | Vault API ready | E2, E3 complete - real token storage working |
 | **MP3** | ✅ Reached | P1 complete | H1, H2 complete (credential injection) |
+| **MP3.5** | ⏳ Pending | Integration bugs fixed | P1.5-B1: WS-J2, WS-K1-K5 (re-test Steps 1-18) |
 
 ---
 
@@ -190,8 +242,21 @@ deeptrail-gateway/app/middleware/credential_injection.py:357-375
 
 | Issue | Severity | Status | Description |
 |-------|----------|--------|-------------|
-| Mocks still present | Medium | Expected | P1 will address this |
+| ~~Mocks still present~~ | ~~Medium~~ | ✅ Resolved | P1 completed, mocks replaced |
 | ~~MERGE_POINTS.md missing~~ | ~~Low~~ | ✅ Resolved | Created Feb 16, 2026 |
+| Integration bugs (P1.5) | High | ⏳ In Progress | 6 tasks: WS-J2, WS-K1-K5 |
+
+### Current Blockers for Phase 2
+
+Phase 2 is blocked until P1.5-B1 completes (MP3.5 reached):
+
+| Blocker | Spec | Impact |
+|---------|------|--------|
+| Tool name mismatch | [WS-J2-spec.md](./specs/WS-J2-spec.md) | Tools filtered out during tools/list |
+| Ephemeral vault | [WS-K1-spec.md](./specs/WS-K1-spec.md) | Tokens lost on container restart |
+| Stale cache | [WS-K2-spec.md](./specs/WS-K2-spec.md) | Old credentials used after refresh |
+| No permission validation | [WS-K3](./specs/WS-K3-spec.md), [WS-K4](./specs/WS-K4-spec.md) | Invalid delegations accepted |
+| No permission discovery | [WS-K5-spec.md](./specs/WS-K5-spec.md) | Users can't see available permissions |
 
 ---
 
@@ -199,6 +264,20 @@ deeptrail-gateway/app/middleware/credential_injection.py:357-375
 
 | Date | Change | By |
 |------|--------|-----|
+| Feb 22, 2026 | **MERGE_POINTS.MD UPDATED:** Added MP3.5 merge point, marked MP3 as reached | Claude |
+| Feb 22, 2026 | **BATCH PLAN UPDATED:** Added Phase 1.5 (P1.5-B1) for integration bug fixes, renumbered P2 tasks | Claude |
+| Feb 22, 2026 | **WS-K5 CREATED:** Task spec for Available Permissions Endpoint (P1.5) | Claude |
+| Feb 22, 2026 | **WS-K4 CREATED:** Task spec for Delegation Permission Validation (P1.5) | Claude |
+| Feb 22, 2026 | **WS-K3 CREATED:** Task spec for Scope-to-Permission Mapper (P1.5) | Claude |
+| Feb 22, 2026 | **ARCHITECTURE DOC:** Created PERMISSION_FLOW_ARCHITECTURE.md | Claude |
+| Feb 22, 2026 | **WS-K2 CREATED:** Task spec for Cache Invalidation via Redis Pub/Sub (P1.5) | Claude |
+| Feb 22, 2026 | **WS-K1 CREATED:** Task spec for Persistent Vault - Store OAuth tokens in PostgreSQL (P1.5) | Claude |
+| Feb 22, 2026 | **ARCHITECTURE DOC:** Created MVP_ARCHITECTURE_DEEP_DIVE.md with storage mechanism analysis | Claude |
+| Feb 22, 2026 | **WS-J2 CREATED:** Task ticket for tool name derivation + cache alignment fix (Steps 16-17 fix) | Claude |
+| Feb 22, 2026 | **WS-I3 CREATED:** Task spec for expires_in → expires_at conversion (Test Scenario 9 fix) | Claude |
+| Feb 21, 2026 | **WS-I2 COMPLETED:** BackendClientAdapter wired for real API calls (Test Scenario 17 fix) | Claude |
+| Feb 21, 2026 | **WS-I2 CREATED:** Task spec + ticket for wiring backend clients (Test Scenario 17 fix) | Claude |
+| Feb 21, 2026 | **WS-J1 COMPLETED:** Added verbose data to permission denied MCP errors (Test Scenario 15 fix) | Claude |
 | Feb 18, 2026 | **P1 COMPLETE:** WS-H1 + WS-H2 done, P1-B3 complete, MP3 reached (12/12 P1 tasks) | Claude |
 | Feb 18, 2026 | **WS-H2 COMPLETED:** Token refresh integration (E3 API call with internal token + X-User-ID) | Claude |
 | Feb 18, 2026 | **WS-H1 COMPLETED:** Gateway credential injection from vault (E2 API call with Agent JWT) | Claude |
