@@ -21,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from ..permission_mapper import PermissionMapper
 from ..protocol import JsonRpcErrorCode, MCPError
 from ..session_manager import MCPSessionManager
 
@@ -221,36 +222,68 @@ async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
         # Check for notion permissions
         notion_perms = [p for p in delegated_permissions if p.startswith("notion:")]
         if notion_perms:
-            # Create tools from permissions (e.g., notion:pages:search -> search_pages)
+            # Use Permission Mapper to get correct tool names
             notion_tools = []
             for perm in notion_perms:
-                parts = perm.split(":")
-                if len(parts) >= 3:
-                    # Map permission to tool name (e.g., pages:search -> search_pages)
-                    tool_name = f"{parts[2]}_{parts[1]}" if len(parts) == 3 else parts[2]
-                    notion_tools.append(tool_name)
+                # Get all tools that require this permission
+                tools = PermissionMapper.get_all_tools_for_permission(perm)
+                for tool in tools:
+                    # Extract tool name without namespace (e.g., "notion.search_pages" → "search_pages")
+                    if "." in tool:
+                        _, tool_name = tool.split(".", 1)
+                        notion_tools.append(tool_name)
             
-            connected_services.append({
-                "service_id": "notion",
-                "oauth_token_ref": f"vault://notion-oauth-{agent_session_id}",
-                "available_tools": notion_tools or ["search_pages", "get_page"],
-            })
+            # Remove duplicates while preserving order
+            notion_tools = list(dict.fromkeys(notion_tools))
+            
+            if notion_tools:
+                connected_services.append({
+                    "service_id": "notion",
+                    "oauth_token_ref": f"vault://notion-oauth-{agent_session_id}",
+                    "available_tools": notion_tools,
+                })
         
         # Check for slack permissions
         slack_perms = [p for p in delegated_permissions if p.startswith("slack:")]
         if slack_perms:
+            # Use Permission Mapper to get correct tool names
             slack_tools = []
             for perm in slack_perms:
-                parts = perm.split(":")
-                if len(parts) >= 3:
-                    tool_name = f"{parts[2]}_{parts[1]}" if len(parts) == 3 else parts[2]
-                    slack_tools.append(tool_name)
+                tools = PermissionMapper.get_all_tools_for_permission(perm)
+                for tool in tools:
+                    if "." in tool:
+                        _, tool_name = tool.split(".", 1)
+                        slack_tools.append(tool_name)
             
-            connected_services.append({
-                "service_id": "slack",
-                "oauth_token_ref": f"vault://slack-oauth-{agent_session_id}",
-                "available_tools": slack_tools or ["send_message"],
-            })
+            slack_tools = list(dict.fromkeys(slack_tools))
+            
+            if slack_tools:
+                connected_services.append({
+                    "service_id": "slack",
+                    "oauth_token_ref": f"vault://slack-oauth-{agent_session_id}",
+                    "available_tools": slack_tools,
+                })
+        
+        # Check for hubspot permissions
+        hubspot_perms = [p for p in delegated_permissions if p.startswith("hubspot:")]
+        if hubspot_perms:
+            # Use Permission Mapper to get correct tool names
+            hubspot_tools = []
+            for perm in hubspot_perms:
+                tools = PermissionMapper.get_all_tools_for_permission(perm)
+                for tool in tools:
+                    if "." in tool:
+                        _, tool_name = tool.split(".", 1)
+                        hubspot_tools.append(tool_name)
+            
+            hubspot_tools = list(dict.fromkeys(hubspot_tools))
+            
+            if hubspot_tools:
+                connected_services.append({
+                    "service_id": "hubspot",
+                    "oauth_token_ref": f"vault://hubspot-oauth-{agent_session_id}",
+                    "available_tools": hubspot_tools,
+                })
         
         # Create the agent session
         try:

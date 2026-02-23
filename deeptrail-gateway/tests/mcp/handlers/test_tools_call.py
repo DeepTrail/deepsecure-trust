@@ -118,7 +118,7 @@ class TestToolsCallSuccess:
     """Tests for successful tool calls."""
     
     @pytest.mark.asyncio
-    async def test_permitted_tool_succeeds(self, session_manager, agent_session):
+    async def test_permitted_tool_succeeds(self, session_manager, agent_session, mock_fail_closed):
         """Test that permitted tool call succeeds."""
         params = {
             "name": "notion.search_pages",
@@ -138,7 +138,7 @@ class TestToolsCallSuccess:
         assert "Notion" in result["content"][0]["text"]
     
     @pytest.mark.asyncio
-    async def test_slack_tool_succeeds(self, session_manager, agent_session):
+    async def test_slack_tool_succeeds(self, session_manager, agent_session, mock_fail_closed):
         """Test Slack tool call succeeds."""
         params = {
             "name": "slack.list_channels",
@@ -155,7 +155,7 @@ class TestToolsCallSuccess:
         assert "Slack" in result["content"][0]["text"]
     
     @pytest.mark.asyncio
-    async def test_tool_with_arguments_passed_through(self, session_manager, agent_session):
+    async def test_tool_with_arguments_passed_through(self, session_manager, agent_session, mock_fail_closed):
         """Test that tool arguments are properly handled."""
         params = {
             "name": "notion.search_pages",
@@ -177,7 +177,7 @@ class TestToolsCallSuccess:
         assert "competitor analysis" in result["content"][0]["text"]
     
     @pytest.mark.asyncio
-    async def test_empty_arguments_allowed(self, session_manager, agent_session):
+    async def test_empty_arguments_allowed(self, session_manager, agent_session, mock_fail_closed):
         """Test that empty arguments are allowed."""
         params = {
             "name": "slack.list_channels",
@@ -310,7 +310,7 @@ class TestToolsCallNamespace:
     """Tests for namespace parsing."""
     
     @pytest.mark.asyncio
-    async def test_invalid_tool_name_no_dot(self, session_manager, agent_session):
+    async def test_invalid_tool_name_no_dot(self, session_manager, agent_session, mock_fail_closed):
         """Test error for tool name without namespace separator."""
         params = {
             "name": "search_pages",  # No namespace
@@ -327,7 +327,7 @@ class TestToolsCallNamespace:
         assert exc_info.value.code == ToolsCallErrorCode.INVALID_TOOL_NAME
     
     @pytest.mark.asyncio
-    async def test_invalid_tool_name_empty(self, session_manager, agent_session):
+    async def test_invalid_tool_name_empty(self, session_manager, agent_session, mock_fail_closed):
         """Test error for empty tool name."""
         params = {
             "name": "",
@@ -344,7 +344,7 @@ class TestToolsCallNamespace:
         assert exc_info.value.code == ToolsCallErrorCode.INVALID_TOOL_NAME
     
     @pytest.mark.asyncio
-    async def test_invalid_backend_id_format(self, session_manager, agent_session):
+    async def test_invalid_backend_id_format(self, session_manager, agent_session, mock_fail_closed):
         """Test error for invalid backend ID in namespace."""
         params = {
             "name": "Invalid.search_pages",  # Uppercase not allowed
@@ -361,7 +361,7 @@ class TestToolsCallNamespace:
         assert exc_info.value.code == ToolsCallErrorCode.INVALID_TOOL_NAME
     
     @pytest.mark.asyncio
-    async def test_tool_with_dots_in_name(self, session_manager):
+    async def test_tool_with_dots_in_name(self, session_manager, mock_fail_closed):
         """Test that tool names with dots are parsed correctly."""
         # Create a session with a tool that has dots
         session_manager.create_agent_session(
@@ -407,7 +407,7 @@ class TestToolsCallBackend:
     """Tests for backend session handling."""
     
     @pytest.mark.asyncio
-    async def test_missing_backend_returns_error(self, session_manager, agent_session):
+    async def test_missing_backend_returns_error(self, session_manager, agent_session, mock_fail_closed):
         """Test error when backend not connected."""
         params = {
             "name": "hubspot.get_contact",
@@ -446,7 +446,7 @@ class TestToolsCallSessionErrors:
     """Tests for session-related errors."""
     
     @pytest.mark.asyncio
-    async def test_no_session_context_raises_error(self, session_manager):
+    async def test_no_session_context_raises_error(self, session_manager, mock_fail_closed):
         """Test error when no session context provided."""
         params = {
             "name": "notion.search_pages",
@@ -460,7 +460,7 @@ class TestToolsCallSessionErrors:
         assert exc_info.value.code == ToolsCallErrorCode.SESSION_INVALID
     
     @pytest.mark.asyncio
-    async def test_invalid_session_id_raises_error(self, session_manager):
+    async def test_invalid_session_id_raises_error(self, session_manager, mock_fail_closed):
         """Test error when session ID doesn't exist."""
         params = {
             "name": "notion.search_pages",
@@ -477,7 +477,7 @@ class TestToolsCallSessionErrors:
         assert exc_info.value.code == ToolsCallErrorCode.SESSION_INVALID
     
     @pytest.mark.asyncio
-    async def test_handler_not_configured_raises_error(self):
+    async def test_handler_not_configured_raises_error(self, mock_fail_closed):
         """Test error when handler not configured."""
         # Reset global configuration
         configure_tools_call_handler(None)
@@ -506,7 +506,7 @@ class TestToolsCallAudit:
     """Tests for audit logging."""
     
     @pytest.mark.asyncio
-    async def test_successful_call_logged(self, session_manager, agent_session):
+    async def test_successful_call_logged(self, session_manager, agent_session, mock_fail_closed):
         """Test that successful calls are logged."""
         mock_audit = MagicMock()
         mock_audit.log = AsyncMock()
@@ -536,7 +536,7 @@ class TestToolsCallAudit:
         assert logged_event["result_summary"] is not None
     
     @pytest.mark.asyncio
-    async def test_permission_denied_logged(self, session_manager, agent_session):
+    async def test_permission_denied_logged(self, session_manager, agent_session, mock_fail_closed):
         """Test that permission denied is logged."""
         mock_audit = MagicMock()
         mock_audit.log = AsyncMock()
@@ -564,7 +564,7 @@ class TestToolsCallAudit:
         assert "notion:pages:create" in logged_event["error"]
     
     @pytest.mark.asyncio
-    async def test_backend_error_logged(self, session_manager, agent_session):
+    async def test_backend_error_logged(self, session_manager, agent_session, mock_fail_closed):
         """Test that backend errors are logged."""
         mock_audit = MagicMock()
         mock_audit.log = AsyncMock()
@@ -677,7 +677,7 @@ class TestBackendClientIntegration:
     """Tests for backend client integration."""
     
     @pytest.mark.asyncio
-    async def test_custom_backend_client_used(self, session_manager, agent_session):
+    async def test_custom_backend_client_used(self, session_manager, agent_session, mock_fail_closed):
         """Test that custom backend client is called."""
         mock_client = MagicMock()
         mock_client.call_tool = AsyncMock(return_value={
@@ -761,7 +761,7 @@ class TestEdgeCases:
     """Tests for edge cases and unusual scenarios."""
     
     @pytest.mark.asyncio
-    async def test_special_characters_in_arguments(self, session_manager, agent_session):
+    async def test_special_characters_in_arguments(self, session_manager, agent_session, mock_fail_closed):
         """Test handling of special characters in arguments."""
         params = {
             "name": "notion.search_pages",
@@ -781,7 +781,7 @@ class TestEdgeCases:
         assert "content" in result
     
     @pytest.mark.asyncio
-    async def test_very_long_arguments(self, session_manager, agent_session):
+    async def test_very_long_arguments(self, session_manager, agent_session, mock_fail_closed):
         """Test handling of very long arguments."""
         params = {
             "name": "notion.search_pages",
@@ -799,7 +799,7 @@ class TestEdgeCases:
         assert "content" in result
     
     @pytest.mark.asyncio
-    async def test_nested_arguments(self, session_manager, agent_session):
+    async def test_nested_arguments(self, session_manager, agent_session, mock_fail_closed):
         """Test handling of deeply nested arguments."""
         params = {
             "name": "notion.search_pages",
@@ -825,7 +825,7 @@ class TestEdgeCases:
         assert "content" in result
     
     @pytest.mark.asyncio
-    async def test_multiple_calls_same_session(self, session_manager, agent_session):
+    async def test_multiple_calls_same_session(self, session_manager, agent_session, mock_fail_closed):
         """Test multiple calls in the same session."""
         # First call
         params1 = {
@@ -855,7 +855,7 @@ class TestEdgeCases:
         assert "Slack" in result2["content"][0]["text"]
     
     @pytest.mark.asyncio
-    async def test_session_activity_updated(self, session_manager, agent_session):
+    async def test_session_activity_updated(self, session_manager, agent_session, mock_fail_closed):
         """Test that backend session activity is updated on call."""
         import time
         
