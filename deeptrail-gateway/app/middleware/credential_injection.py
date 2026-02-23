@@ -162,6 +162,8 @@ class CredentialInjector:
         self.internal_api_token = internal_api_token
         # Brief cache: credential_ref -> (token_data, cached_at)
         self._token_cache: dict[str, tuple[dict[str, Any], float]] = {}
+        # Track token_ref -> (user_id, service_id) for user+service invalidation
+        self._ref_to_user_service: dict[str, tuple[str, str]] = {}
     
     async def inject_credentials(
         self,
@@ -205,7 +207,9 @@ class CredentialInjector:
             )
 
         # Step 2: Retrieve token from vault
-        token_data = await self._get_token(credential_ref, backend_id, agent_jwt_token)
+        token_data = await self._get_token(
+            credential_ref, backend_id, agent_jwt_token, user_id
+        )
 
         if token_data is None:
             # Log partial ref only for security
@@ -256,6 +260,7 @@ class CredentialInjector:
         credential_ref: str,
         backend_id: str = "",
         agent_jwt_token: str | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any] | None:
         """
         Retrieve token from vault (with brief caching).
@@ -264,6 +269,7 @@ class CredentialInjector:
             credential_ref: Vault reference
             backend_id: Service identifier (e.g., "notion") for E2 URL
             agent_jwt_token: Raw Agent JWT for E2 auth
+            user_id: User ID for tracking (enables user+service cache invalidation)
 
         Returns:
             Token data dict or None if not found
@@ -285,6 +291,9 @@ class CredentialInjector:
         if token_data:
             # Cache briefly
             self._token_cache[credential_ref] = (token_data, now)
+            # Track for user+service invalidation
+            if user_id and backend_id:
+                self._ref_to_user_service[credential_ref] = (user_id, backend_id)
         
         return token_data
     
@@ -524,9 +533,11 @@ class CredentialInjector:
         }
     
     def clear_cache(self) -> None:
-        """Clear the token cache."""
+        """Clear the entire token cache (e.g., on Control Plane restart)."""
+        count = len(self._token_cache)
         self._token_cache.clear()
-        logger.debug("Token cache cleared")
+        self._ref_to_user_service.clear()
+        logger.info(f"Cleared credential cache: {count} entries")
     
     def invalidate_credential(self, credential_ref: str) -> None:
         """
@@ -537,8 +548,35 @@ class CredentialInjector:
         Args:
             credential_ref: Vault reference to invalidate
         """
-        self._token_cache.pop(credential_ref, None)
-        logger.debug("Credential invalidated from cache")
+        if credential_ref in self._token_cache:
+            self._token_cache.pop(credential_ref, None)
+            self._ref_to_user_service.pop(credential_ref, None)
+            logger.debug("Credential invalidated from cache")
+    
+    def invalidate_user_service(self, user_id: str, service_id: str) -> None:
+        """
+        Invalidate all cached tokens for a user+service combination.
+        
+        Called when a user disconnects a service. All tokens for that
+        user+service pair are removed from cache.
+        
+        Args:
+            user_id: User identifier
+            service_id: Service identifier (e.g., "notion")
+        """
+        refs_to_remove = [
+            ref for ref, (uid, sid) in self._ref_to_user_service.items()
+            if uid == user_id and sid == service_id
+        ]
+        for ref in refs_to_remove:
+            self._token_cache.pop(ref, None)
+            self._ref_to_user_service.pop(ref, None)
+        
+        if refs_to_remove:
+            logger.info(
+                f"Invalidated {len(refs_to_remove)} cached tokens for "
+                f"user={user_id} service={service_id}"
+            )
     
     def get_cache_stats(self) -> dict[str, Any]:
         """Get cache statistics for monitoring."""

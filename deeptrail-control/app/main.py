@@ -1,5 +1,7 @@
 """Main FastAPI application entrypoint."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import logging
@@ -11,9 +13,35 @@ from app.api.deps import DbDep
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
 
+from app.services.cache_events import (
+    configure_cache_publisher,
+    publish_control_plane_restart,
+    close_publisher,
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager for startup and shutdown tasks."""
+    # Startup
+    logger.info("Starting DeepSecure Control Plane...")
+
+    # Configure cache invalidation publisher
+    if configure_cache_publisher():
+        # Notify Gateway to clear caches (Control Plane is starting fresh)
+        publish_control_plane_restart()
+        logger.info("Published control_plane_restart event to clear Gateway caches")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down DeepSecure Control Plane...")
+    close_publisher()
+    logger.info("DeepSecure Control Plane stopped")
 
 # Request logging middleware
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -40,7 +68,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="API for managing DeepSecure agent credentials and identities.",
-    version=settings.PROJECT_VERSION
+    version=settings.PROJECT_VERSION,
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -83,5 +112,3 @@ async def health_check(db: DbDep):
 # TODO: Add routers for vault endpoints
 # from app.api.v1 import vault_router
 # app.include_router(vault_router, prefix="/v1/vault", tags=["Vault"])
-
-# TODO: Add startup/shutdown events (e.g., connect/disconnect DB) 
