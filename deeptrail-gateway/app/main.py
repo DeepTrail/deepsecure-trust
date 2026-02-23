@@ -65,7 +65,9 @@ from .mcp.session_manager import MCPSessionManager
 from .mcp.tool_cache import ToolCache
 from .security.fail_closed import configure_health_checker
 from .middleware.audit import configure_audit_middleware
+from .middleware.credential_injection import get_credential_injector
 from .backends.adapter import create_backend_adapter
+from .services.cache_subscriber import start_cache_subscriber, stop_cache_subscriber
 
 # Configure basic logging
 logging.basicConfig(
@@ -89,11 +91,28 @@ async def lifespan(app: FastAPI):
     logger.info(f"Configuration: {config.proxy_type} on {config.host}:{config.port}")
     logger.info(f"Target header: {config.routing.target_header}")
     logger.info(f"Path prefix: {config.routing.path_prefix}")
-    
+
+    # Start cache invalidation subscriber
+    if config.redis_url:
+        try:
+            injector = get_credential_injector()
+            await start_cache_subscriber(
+                redis_url=config.redis_url,
+                on_token_invalidate=injector.invalidate_credential,
+                on_user_service_invalidate=injector.invalidate_user_service,
+                on_clear_all=injector.clear_cache,
+            )
+            logger.info("Cache invalidation subscriber started")
+        except Exception as e:
+            logger.warning(f"Failed to start cache subscriber: {e}")
+    else:
+        logger.info("REDIS_URL not set, cache invalidation subscriber disabled")
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down DeepTrail Gateway...")
+    await stop_cache_subscriber()
     await close_http_client()
     logger.info("DeepTrail Gateway stopped")
 

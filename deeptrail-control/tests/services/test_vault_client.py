@@ -39,6 +39,9 @@ from app.services.vault_client import (
 @pytest.fixture
 def vault() -> VaultClient:
     """Create a VaultClient with a test encryption key."""
+    # Reset singleton for test isolation
+    VaultClient._instance = None
+    VaultClient._initialized = False
     test_key = Fernet.generate_key().decode()
     return VaultClient(encryption_key=test_key)
 
@@ -196,13 +199,16 @@ class TestTokenEncryption:
     ):
         """Token encrypted with one key cannot be decrypted with another."""
         ref = vault.store_token("user@example.com", "service", sample_token_data)
+        encrypted_data = vault._storage[ref]
 
-        # Create a new vault with different key
+        # Reset singleton to create vault with different key
+        VaultClient._instance = None
+        VaultClient._initialized = False
         other_key = Fernet.generate_key().decode()
         other_vault = VaultClient(encryption_key=other_key)
 
         # Transfer the encrypted data (simulating storage access)
-        other_vault._storage[ref] = vault._storage[ref]
+        other_vault._storage[ref] = encrypted_data
 
         # Attempting to retrieve should fail
         with pytest.raises(DecryptionError):
@@ -945,3 +951,256 @@ class TestStoredTokenDataDataClass:
         assert stored.token_data == sample_token_data
         assert stored.metadata.created_at is not None
         assert stored.metadata.refresh_count == 0
+
+
+# ============================================================================
+# Database-Backed Tests (WS-K1: Persistent Vault)
+# ============================================================================
+
+
+class TestVaultClientWithDatabase:
+    """Tests for VaultClient with PostgreSQL persistence.
+    
+    These tests verify the database-backed storage functionality added in WS-K1.
+    """
+
+    @pytest.fixture
+    def vault_with_db(self) -> VaultClient:
+        """Create a VaultClient with a test encryption key (for DB tests)."""
+        # Reset singleton for fresh instance
+        VaultClient._instance = None
+        VaultClient._initialized = False
+        test_key = Fernet.generate_key().decode()
+        return VaultClient(encryption_key=test_key)
+
+    @pytest.fixture
+    def sample_token(self) -> dict:
+        """Sample OAuth token data."""
+        return {
+            "access_token": "db_test_access_token",
+            "refresh_token": "db_test_refresh_token",
+            "expires_in": 3600,
+            "token_type": "Bearer",
+        }
+
+    def test_store_and_retrieve_with_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """VaultClient should store and retrieve tokens using database."""
+        ref = vault_with_db.store_token(
+            "dbuser@example.com", "notion", sample_token, db=db
+        )
+
+        retrieved = vault_with_db.retrieve_token(ref, db=db)
+
+        assert retrieved is not None
+        assert retrieved["access_token"] == "db_test_access_token"
+        assert retrieved["refresh_token"] == "db_test_refresh_token"
+        assert "metadata" in retrieved
+
+    def test_token_persisted_in_database(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """Token should be stored in database, not just in memory."""
+        from app.models.vault_token import VaultToken
+
+        ref = vault_with_db.store_token(
+            "persist@example.com", "slack", sample_token, db=db
+        )
+
+        # Verify record exists in database
+        vault_token = db.query(VaultToken).filter(
+            VaultToken.token_ref == ref
+        ).first()
+
+        assert vault_token is not None
+        assert vault_token.user_id == "persist@example.com"
+        assert vault_token.service_id == "slack"
+        assert vault_token.encrypted_data is not None
+
+    def test_delete_token_from_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """delete_token should remove token from database."""
+        ref = vault_with_db.store_token(
+            "delete@example.com", "notion", sample_token, db=db
+        )
+
+        result = vault_with_db.delete_token(ref, db=db)
+
+        assert result is True
+        assert vault_with_db.retrieve_token(ref, db=db) is None
+
+    def test_update_token_in_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """update_token should update token data in database."""
+        ref = vault_with_db.store_token(
+            "update@example.com", "notion", sample_token, db=db
+        )
+
+        new_data = {"access_token": "updated_access_token"}
+        result = vault_with_db.update_token(ref, new_data, db=db)
+
+        assert result is True
+        retrieved = vault_with_db.retrieve_token(ref, db=db)
+        assert retrieved["access_token"] == "updated_access_token"
+
+    def test_refresh_token_in_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """refresh_token should update access token and increment count in DB."""
+        ref = vault_with_db.store_token(
+            "refresh@example.com", "notion", sample_token, db=db
+        )
+
+        result = vault_with_db.refresh_token(
+            ref,
+            new_access_token="refreshed_access_token",
+            new_expires_in=7200,
+            db=db,
+        )
+
+        assert result is True
+        retrieved = vault_with_db.retrieve_token(ref, db=db)
+        assert retrieved["access_token"] == "refreshed_access_token"
+        assert retrieved["metadata"]["refresh_count"] == 1
+
+    def test_token_exists_with_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """token_exists should query database."""
+        ref = vault_with_db.store_token(
+            "exists@example.com", "notion", sample_token, db=db
+        )
+
+        assert vault_with_db.token_exists(ref, db=db) is True
+        assert vault_with_db.token_exists("vault://nonexistent", db=db) is False
+
+    def test_get_expiring_tokens_from_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """get_expiring_tokens should query database for expiring tokens."""
+        # Token expiring in 5 minutes
+        ref1 = vault_with_db.store_token(
+            "expiring1@example.com", "notion", sample_token, expires_in=300, db=db
+        )
+        # Token expiring in 2 hours (should not be included)
+        ref2 = vault_with_db.store_token(
+            "expiring2@example.com", "slack", sample_token, expires_in=7200, db=db
+        )
+
+        expiring = vault_with_db.get_expiring_tokens(threshold_minutes=15, db=db)
+
+        assert ref1 in expiring
+        assert ref2 not in expiring
+
+    def test_is_token_expired_with_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """is_token_expired should check expiration in database."""
+        # Already expired
+        ref = vault_with_db.store_token(
+            "expired@example.com", "notion", sample_token, expires_in=0, db=db
+        )
+
+        assert vault_with_db.is_token_expired(ref, db=db) is True
+
+    def test_list_tokens_for_user_with_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """list_tokens_for_user should query database."""
+        user = "listuser@example.com"
+        ref1 = vault_with_db.store_token(user, "notion", sample_token, db=db)
+        ref2 = vault_with_db.store_token(user, "slack", sample_token, db=db)
+
+        refs = vault_with_db.list_tokens_for_user(user, db=db)
+
+        assert ref1 in refs
+        assert ref2 in refs
+
+    def test_delete_user_tokens_from_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """delete_user_tokens should delete all user tokens from database."""
+        user = "deleteuser@example.com"
+        vault_with_db.store_token(user, "notion", sample_token, db=db)
+        vault_with_db.store_token(user, "slack", sample_token, db=db)
+
+        count = vault_with_db.delete_user_tokens(user, db=db)
+
+        assert count == 2
+        assert vault_with_db.list_tokens_for_user(user, db=db) == []
+
+    def test_delete_user_tokens_by_service_from_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """delete_user_tokens should filter by service when provided."""
+        user = "deletebyservice@example.com"
+        ref_notion = vault_with_db.store_token(user, "notion", sample_token, db=db)
+        ref_slack = vault_with_db.store_token(user, "slack", sample_token, db=db)
+
+        count = vault_with_db.delete_user_tokens(user, service_id="notion", db=db)
+
+        assert count == 1
+        refs = vault_with_db.list_tokens_for_user(user, db=db)
+        assert ref_slack in refs
+        assert ref_notion not in refs
+
+    def test_clear_all_from_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """clear_all should delete all tokens from database."""
+        vault_with_db.store_token("clear1@example.com", "notion", sample_token, db=db)
+        vault_with_db.store_token("clear2@example.com", "slack", sample_token, db=db)
+
+        count = vault_with_db.clear_all(db=db)
+
+        assert count >= 2
+
+    def test_usage_tracking_in_db(
+        self, vault_with_db: VaultClient, sample_token: dict, db
+    ):
+        """retrieve_token should update last_used_at in database."""
+        from app.models.vault_token import VaultToken
+
+        ref = vault_with_db.store_token(
+            "usage@example.com", "notion", sample_token, db=db
+        )
+
+        # Initial state
+        vault_token = db.query(VaultToken).filter(VaultToken.token_ref == ref).first()
+        assert vault_token.last_used_at is None
+
+        # Retrieve with usage tracking
+        vault_with_db.retrieve_token(ref, update_usage=True, db=db)
+
+        # Refresh from DB
+        db.refresh(vault_token)
+        assert vault_token.last_used_at is not None
+
+    def test_encryption_roundtrip_with_db(
+        self, vault_with_db: VaultClient, db
+    ):
+        """Token data should be encrypted and decrypted correctly via DB."""
+        from app.models.vault_token import VaultToken
+
+        complex_data = {
+            "access_token": "secret_token",
+            "nested": {"key": "value"},
+            "list": [1, 2, 3],
+        }
+
+        ref = vault_with_db.store_token(
+            "encrypt@example.com", "notion", complex_data, db=db
+        )
+
+        # Verify encrypted data is not plaintext
+        vault_token = db.query(VaultToken).filter(VaultToken.token_ref == ref).first()
+        assert b"secret_token" not in vault_token.encrypted_data
+
+        # Verify decryption works
+        retrieved = vault_with_db.retrieve_token(ref, db=db)
+        assert retrieved["access_token"] == "secret_token"
+        assert retrieved["nested"]["key"] == "value"
+        assert retrieved["list"] == [1, 2, 3]

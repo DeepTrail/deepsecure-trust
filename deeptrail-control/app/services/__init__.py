@@ -38,6 +38,7 @@ from .oauth_service import (  # noqa
     OAuthStateError,
     get_oauth_service,
 )
+from .scope_mapper import ScopeMapper  # noqa
 from .vault_client import (  # noqa
     DecryptionError,
     TokenNotFoundError,
@@ -48,6 +49,8 @@ from .vault_client import (  # noqa
 __all__ = [
     # AgentSessionService
     "AgentSessionService",
+    # ScopeMapper
+    "ScopeMapper",
     "AgentSessionError",
     "AgentNotFoundError",
     "ChallengeExpiredError",

@@ -1,20 +1,21 @@
-"""Secure OAuth token vault storage.
+"""Secure OAuth token vault storage with PostgreSQL persistence.
 
-This module provides encrypted storage for OAuth tokens. For MVP, tokens are
-stored in-memory with encryption. In production, this would integrate with
-HashiCorp Vault, AWS Secrets Manager, or similar.
+This module provides encrypted storage for OAuth tokens using PostgreSQL
+for persistence. Tokens survive container restarts.
 
 Security properties:
 - Tokens are encrypted at rest using Fernet (AES-128-CBC + HMAC)
 - Encryption key is loaded from environment (never hardcoded)
 - Token references are opaque (no token data in reference string)
 - No token data appears in logs
+- SQL injection prevented via SQLAlchemy ORM
 
 Token lifecycle features:
 - Expiration tracking (expires_at timestamp)
 - Usage tracking (last_used_at timestamp)
 - Refresh support (refresh_token, refresh_count)
 - Expiring token identification (get_expiring_tokens)
+- User token cleanup (delete_user_tokens)
 """
 
 import json
@@ -22,10 +23,17 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from cryptography.fernet import Fernet, InvalidToken
+from sqlalchemy.orm import Session
+
+from app.services.cache_events import (
+    publish_token_stored,
+    publish_token_updated,
+    publish_token_deleted,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +128,10 @@ class DecryptionError(VaultError):
 
 
 class VaultClient:
-    """Secure storage for OAuth tokens.
+    """Secure storage for OAuth tokens using PostgreSQL.
 
-    MVP Implementation: In-memory encrypted storage (singleton pattern).
-    Production: Integrate with HashiCorp Vault or AWS Secrets Manager.
+    Stores encrypted OAuth tokens in PostgreSQL for persistence across
+    container restarts. Uses Fernet encryption for token data.
 
     Example:
         vault = VaultClient()
@@ -131,11 +139,11 @@ class VaultClient:
             "access_token": "abc123",
             "refresh_token": "xyz789",
             "expires_in": 3600
-        })
+        }, db=db_session)
         # ref = "vault://sarah-notion-a1b2c3d4"
 
         # Later, retrieve the token
-        token = vault.retrieve_token(ref)
+        token = vault.retrieve_token(ref, db=db_session)
         # token = {"access_token": "abc123", ...}
     """
 
@@ -146,23 +154,29 @@ class VaultClient:
     _instance: Optional["VaultClient"] = None
     _initialized: bool = False
 
-    def __new__(cls, encryption_key: Optional[str] = None) -> "VaultClient":
+    def __new__(cls, encryption_key: Optional[str] = None, db_session_factory: Optional[Callable[[], Session]] = None) -> "VaultClient":
         """Ensure only one instance exists (singleton pattern)."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, encryption_key: Optional[str] = None):
-        """Initialize vault with encryption key.
+    def __init__(
+        self,
+        encryption_key: Optional[str] = None,
+        db_session_factory: Optional[Callable[[], Session]] = None,
+    ):
+        """Initialize vault with encryption key and optional database session factory.
 
         Args:
             encryption_key: Fernet-compatible base64 key. If None, loads from
                            VAULT_ENCRYPTION_KEY environment variable. If env
                            var not set, generates ephemeral key (dev only).
+            db_session_factory: Callable that returns a database session.
+                               If None, operations require explicit db parameter.
 
         Note:
             In production, always provide encryption_key or set the environment
-            variable. Ephemeral keys will cause token loss on restart.
+            variable. Ephemeral keys will cause token loss on key change.
         """
         # Prevent re-initialization (singleton pattern)
         if self._initialized:
@@ -173,7 +187,6 @@ class VaultClient:
 
         if not key:
             # Development only - generate ephemeral key
-            # Log warning to make it obvious this is not production-ready
             logger.warning(
                 "No encryption key provided. Generating ephemeral key. "
                 "Set %s environment variable for production.",
@@ -185,8 +198,10 @@ class VaultClient:
         key_bytes = key.encode() if isinstance(key, str) else key
         self._fernet = Fernet(key_bytes)
 
-        # In-memory storage: token_ref -> encrypted_data
-        # In production, this would be replaced with vault API calls
+        # Database session factory for obtaining sessions
+        self._db_session_factory = db_session_factory
+
+        # In-memory fallback for testing (when no db provided)
         self._storage: Dict[str, bytes] = {}
 
     @staticmethod
@@ -195,11 +210,6 @@ class VaultClient:
 
         Returns:
             Base64-encoded Fernet key suitable for VAULT_ENCRYPTION_KEY env var.
-
-        Example:
-            key = VaultClient.generate_encryption_key()
-            # Set as environment variable:
-            # export VAULT_ENCRYPTION_KEY="<key>"
         """
         return Fernet.generate_key().decode()
 
@@ -215,11 +225,13 @@ class VaultClient:
         Returns:
             Opaque reference string (e.g., "vault://sarah-notion-a1b2c3d4")
         """
-        # Sanitize user_id: take part before @ if email, otherwise use as-is
         user_part = user_id.split("@")[0] if "@" in user_id else user_id
-        # Use 8 chars of UUID for uniqueness
         suffix = uuid.uuid4().hex[:8]
         return f"vault://{user_part}-{service_id}-{suffix}"
+
+    def _use_database(self, db: Optional[Session]) -> bool:
+        """Check if we should use database storage."""
+        return db is not None
 
     def store_token(
         self,
@@ -227,6 +239,7 @@ class VaultClient:
         service_id: str,
         token_data: Dict[str, Any],
         expires_in: Optional[int] = None,
+        db: Optional[Session] = None,
     ) -> str:
         """Store OAuth token securely.
 
@@ -238,25 +251,19 @@ class VaultClient:
             expires_in: Seconds until token expires. If None, token has no
                        expiration. If provided, expires_at is calculated as
                        current time + expires_in.
+            db: Database session. If provided, stores in PostgreSQL.
+                If None, falls back to in-memory storage (testing only).
 
         Returns:
             Opaque token reference (e.g., "vault://sarah-notion-a1b2c3d4")
-
-        Note:
-            The token_data is serialized to JSON and encrypted before storage.
-            The reference contains no sensitive data.
         """
         token_ref = self._generate_ref(user_id, service_id)
 
-        # Calculate timestamps
         now = datetime.now(timezone.utc)
         expires_at = None
         if expires_in is not None:
-            from datetime import timedelta
-
             expires_at = now + timedelta(seconds=expires_in)
 
-        # Create metadata
         metadata = TokenMetadata(
             created_at=now,
             expires_at=expires_at,
@@ -264,17 +271,26 @@ class VaultClient:
             refresh_count=0,
         )
 
-        # Wrap token with metadata
         stored = StoredTokenData(token_data=token_data, metadata=metadata)
-
-        # Serialize and encrypt token data
         plaintext = json.dumps(stored.to_dict()).encode("utf-8")
         encrypted = self._fernet.encrypt(plaintext)
 
-        # Store encrypted data
-        self._storage[token_ref] = encrypted
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
 
-        # Log without exposing token data
+            vault_token = VaultToken(
+                token_ref=token_ref,
+                user_id=user_id,
+                service_id=service_id,
+                encrypted_data=encrypted,
+                expires_at=expires_at,
+                refresh_count=0,
+            )
+            db.add(vault_token)
+            db.commit()
+        else:
+            self._storage[token_ref] = encrypted
+
         logger.debug(
             "Stored token for user=%s service=%s ref=%s expires_at=%s",
             user_id,
@@ -283,57 +299,65 @@ class VaultClient:
             expires_at.isoformat() if expires_at else "never",
         )
 
+        # Publish cache invalidation event
+        publish_token_stored(user_id, service_id, token_ref)
+
         return token_ref
 
     def retrieve_token(
-        self, token_ref: str, update_usage: bool = True
+        self,
+        token_ref: str,
+        update_usage: bool = True,
+        db: Optional[Session] = None,
     ) -> Optional[Dict[str, Any]]:
         """Retrieve decrypted OAuth token.
 
         Args:
             token_ref: Token reference from store_token()
             update_usage: If True, updates last_used_at timestamp.
-                         Set to False for read-only access (e.g., checking expiration).
+            db: Database session. If provided, retrieves from PostgreSQL.
 
         Returns:
             Decrypted token data dictionary with metadata, or None if not found.
-            Structure: {
-                "access_token": "...",
-                "refresh_token": "...",
-                ...original token fields...,
-                "metadata": {
-                    "created_at": "2026-02-16T12:00:00+00:00",
-                    "expires_at": "2026-02-16T13:00:00+00:00" or None,
-                    "last_used_at": "2026-02-16T12:30:00+00:00" or None,
-                    "refresh_count": 0
-                }
-            }
 
         Raises:
-            DecryptionError: If the token exists but cannot be decrypted
-                            (e.g., key mismatch, data corruption).
+            DecryptionError: If the token exists but cannot be decrypted.
         """
-        encrypted = self._storage.get(token_ref)
-        if not encrypted:
-            logger.debug("Token not found: ref=%s", token_ref)
-            return None
+        encrypted: Optional[bytes] = None
+
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            vault_token = db.query(VaultToken).filter(
+                VaultToken.token_ref == token_ref
+            ).first()
+
+            if not vault_token:
+                logger.debug("Token not found in database: ref=%s", token_ref)
+                return None
+
+            encrypted = vault_token.encrypted_data
+
+            if update_usage:
+                vault_token.last_used_at = datetime.now(timezone.utc)
+                db.commit()
+        else:
+            encrypted = self._storage.get(token_ref)
+            if not encrypted:
+                logger.debug("Token not found: ref=%s", token_ref)
+                return None
 
         try:
-            # Decrypt token data
             plaintext = self._fernet.decrypt(encrypted)
             raw_data = json.loads(plaintext.decode("utf-8"))
-
-            # Parse stored data (handles legacy format)
             stored = StoredTokenData.from_dict(raw_data)
 
-            # Optionally update usage timestamp
-            if update_usage:
+            # For in-memory storage, update usage in memory
+            if not self._use_database(db) and update_usage:
                 stored.metadata.last_used_at = datetime.now(timezone.utc)
-                # Re-encrypt and store updated data
                 updated_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
                 self._storage[token_ref] = self._fernet.encrypt(updated_plaintext)
 
-            # Return token data with metadata included
             result = dict(stored.token_data)
             result["metadata"] = stored.metadata.to_dict()
 
@@ -343,70 +367,131 @@ class VaultClient:
             logger.error("Failed to decrypt token: ref=%s error=%s", token_ref, e)
             raise DecryptionError(f"Failed to decrypt token: {token_ref}") from e
 
-    def delete_token(self, token_ref: str) -> bool:
+    def delete_token(
+        self,
+        token_ref: str,
+        db: Optional[Session] = None,
+    ) -> bool:
         """Delete token from storage.
 
         Args:
             token_ref: Token reference to delete.
+            db: Database session.
 
         Returns:
             True if token was deleted, False if not found.
         """
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            result = db.query(VaultToken).filter(
+                VaultToken.token_ref == token_ref
+            ).delete()
+            db.commit()
+
+            if result > 0:
+                logger.debug("Deleted token from database: ref=%s", token_ref)
+                publish_token_deleted(token_ref)
+                return True
+            logger.debug("Token not found for deletion in database: ref=%s", token_ref)
+            return False
+
         if token_ref in self._storage:
             del self._storage[token_ref]
             logger.debug("Deleted token: ref=%s", token_ref)
+            publish_token_deleted(token_ref)
             return True
 
         logger.debug("Token not found for deletion: ref=%s", token_ref)
         return False
 
-    def token_exists(self, token_ref: str) -> bool:
+    def token_exists(
+        self,
+        token_ref: str,
+        db: Optional[Session] = None,
+    ) -> bool:
         """Check if token exists in storage.
 
         Args:
             token_ref: Token reference to check.
+            db: Database session.
 
         Returns:
             True if token exists, False otherwise.
         """
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            count = db.query(VaultToken).filter(
+                VaultToken.token_ref == token_ref
+            ).count()
+            return count > 0
+
         return token_ref in self._storage
 
     def update_token(
         self,
         token_ref: str,
         token_data: Dict[str, Any],
+        db: Optional[Session] = None,
     ) -> bool:
         """Update an existing token in storage.
 
-        Useful for token refresh operations where the reference stays
-        the same but the token data changes. Preserves existing metadata.
+        Preserves existing metadata while replacing token data.
 
         Args:
             token_ref: Existing token reference.
             token_data: New token data to store.
+            db: Database session.
 
         Returns:
             True if token was updated, False if not found.
         """
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            vault_token = db.query(VaultToken).filter(
+                VaultToken.token_ref == token_ref
+            ).first()
+
+            if not vault_token:
+                logger.debug("Token not found for update in database: ref=%s", token_ref)
+                return False
+
+            try:
+                plaintext = self._fernet.decrypt(vault_token.encrypted_data)
+                raw_data = json.loads(plaintext.decode("utf-8"))
+                stored = StoredTokenData.from_dict(raw_data)
+                stored.token_data = token_data
+
+                new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
+                vault_token.encrypted_data = self._fernet.encrypt(new_plaintext)
+                db.commit()
+
+                logger.debug("Updated token in database: ref=%s", token_ref)
+                publish_token_updated(token_ref)
+                return True
+            except InvalidToken as e:
+                logger.error("Failed to decrypt token for update: ref=%s error=%s", token_ref, e)
+                return False
+
+        # In-memory fallback
         if token_ref not in self._storage:
             logger.debug("Token not found for update: ref=%s", token_ref)
             return False
 
         try:
-            # Get existing data to preserve metadata
             encrypted = self._storage[token_ref]
             plaintext = self._fernet.decrypt(encrypted)
             raw_data = json.loads(plaintext.decode("utf-8"))
             stored = StoredTokenData.from_dict(raw_data)
-
-            # Update token data, preserve metadata
             stored.token_data = token_data
 
-            # Serialize and encrypt new token data
             new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
             self._storage[token_ref] = self._fernet.encrypt(new_plaintext)
 
             logger.debug("Updated token: ref=%s", token_ref)
+            publish_token_updated(token_ref)
             return True
         except InvalidToken as e:
             logger.error("Failed to decrypt token for update: ref=%s error=%s", token_ref, e)
@@ -418,54 +503,87 @@ class VaultClient:
         new_access_token: str,
         new_expires_in: Optional[int] = None,
         new_refresh_token: Optional[str] = None,
+        db: Optional[Session] = None,
     ) -> bool:
         """Update token after OAuth refresh flow.
 
         Updates the access_token (and optionally refresh_token) while preserving
-        other token data and metadata. Recalculates expires_at if new_expires_in
-        is provided. Increments refresh_count.
+        other token data and metadata. Increments refresh_count.
 
         Args:
             token_ref: Existing token reference.
             new_access_token: The new access token from refresh flow.
-            new_expires_in: Seconds until new token expires. If None, keeps
-                           existing expires_at.
-            new_refresh_token: New refresh token, if rotated. If None, keeps
-                              existing refresh_token.
+            new_expires_in: Seconds until new token expires.
+            new_refresh_token: New refresh token, if rotated.
+            db: Database session.
 
         Returns:
             True if token was refreshed, False if not found.
         """
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            vault_token = db.query(VaultToken).filter(
+                VaultToken.token_ref == token_ref
+            ).first()
+
+            if not vault_token:
+                logger.debug("Token not found for refresh in database: ref=%s", token_ref)
+                return False
+
+            try:
+                plaintext = self._fernet.decrypt(vault_token.encrypted_data)
+                raw_data = json.loads(plaintext.decode("utf-8"))
+                stored = StoredTokenData.from_dict(raw_data)
+
+                stored.token_data["access_token"] = new_access_token
+                if new_refresh_token is not None:
+                    stored.token_data["refresh_token"] = new_refresh_token
+
+                now = datetime.now(timezone.utc)
+                if new_expires_in is not None:
+                    stored.metadata.expires_at = now + timedelta(seconds=new_expires_in)
+                    vault_token.expires_at = stored.metadata.expires_at
+
+                stored.metadata.refresh_count += 1
+                vault_token.refresh_count = stored.metadata.refresh_count
+
+                new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
+                vault_token.encrypted_data = self._fernet.encrypt(new_plaintext)
+                db.commit()
+
+                logger.debug(
+                    "Refreshed token in database: ref=%s refresh_count=%d",
+                    token_ref,
+                    stored.metadata.refresh_count,
+                )
+                return True
+            except InvalidToken as e:
+                logger.error("Failed to decrypt token for refresh: ref=%s error=%s", token_ref, e)
+                return False
+
+        # In-memory fallback
         if token_ref not in self._storage:
             logger.debug("Token not found for refresh: ref=%s", token_ref)
             return False
 
         try:
-            # Get existing data
             encrypted = self._storage[token_ref]
             plaintext = self._fernet.decrypt(encrypted)
             raw_data = json.loads(plaintext.decode("utf-8"))
             stored = StoredTokenData.from_dict(raw_data)
 
-            # Update access_token
             stored.token_data["access_token"] = new_access_token
-
-            # Update refresh_token if provided
             if new_refresh_token is not None:
                 stored.token_data["refresh_token"] = new_refresh_token
 
-            # Update expires_at if new_expires_in provided
             if new_expires_in is not None:
-                from datetime import timedelta
-
                 stored.metadata.expires_at = datetime.now(timezone.utc) + timedelta(
                     seconds=new_expires_in
                 )
 
-            # Increment refresh count
             stored.metadata.refresh_count += 1
 
-            # Serialize and encrypt updated data
             new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
             self._storage[token_ref] = self._fernet.encrypt(new_plaintext)
 
@@ -479,31 +597,48 @@ class VaultClient:
             logger.error("Failed to decrypt token for refresh: ref=%s error=%s", token_ref, e)
             return False
 
-    def get_expiring_tokens(self, threshold_minutes: int = 15) -> list[str]:
+    def get_expiring_tokens(
+        self,
+        threshold_minutes: int = 15,
+        db: Optional[Session] = None,
+    ) -> List[str]:
         """Find tokens that are expiring within the threshold.
 
         Useful for proactive token refresh before API calls fail.
 
         Args:
             threshold_minutes: Minutes until expiration to consider "expiring".
-                              Default is 15 minutes.
+            db: Database session.
 
         Returns:
             List of token references that will expire within threshold_minutes.
-            Tokens with expires_at=None (no expiration) are NOT included.
         """
-        from datetime import timedelta
-
-        expiring = []
         threshold = datetime.now(timezone.utc) + timedelta(minutes=threshold_minutes)
 
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            results = db.query(VaultToken.token_ref).filter(
+                VaultToken.expires_at.isnot(None),
+                VaultToken.expires_at <= threshold,
+            ).all()
+
+            expiring = [r[0] for r in results]
+            logger.debug(
+                "Found %d tokens expiring within %d minutes (database)",
+                len(expiring),
+                threshold_minutes,
+            )
+            return expiring
+
+        # In-memory fallback
+        expiring = []
         for token_ref, encrypted in self._storage.items():
             try:
                 plaintext = self._fernet.decrypt(encrypted)
                 raw_data = json.loads(plaintext.decode("utf-8"))
                 stored = StoredTokenData.from_dict(raw_data)
 
-                # Only consider tokens with expiration set
                 if stored.metadata.expires_at is not None:
                     if stored.metadata.expires_at <= threshold:
                         expiring.append(token_ref)
@@ -518,21 +653,49 @@ class VaultClient:
         )
         return expiring
 
-    def is_token_expired(self, token_ref: str) -> bool:
+    def is_token_expired(
+        self,
+        token_ref: str,
+        db: Optional[Session] = None,
+    ) -> bool:
         """Check if a token has expired.
 
         Args:
             token_ref: Token reference to check.
+            db: Database session.
 
         Returns:
             True if the token has passed its expires_at time.
-            False if the token is still valid, has no expiration (expires_at=None),
-            or if the token is not found.
-
-        Note:
-            Returns False for non-existent tokens. Use token_exists() to
-            distinguish between "not expired" and "not found".
+            False if still valid, has no expiration, or not found.
         """
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            vault_token = db.query(VaultToken).filter(
+                VaultToken.token_ref == token_ref
+            ).first()
+
+            if not vault_token:
+                logger.debug("Token not found for expiration check in database: ref=%s", token_ref)
+                return False
+
+            if vault_token.expires_at is None:
+                return False
+
+            expires_at = vault_token.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+            is_expired = expires_at <= datetime.now(timezone.utc)
+            if is_expired:
+                logger.debug(
+                    "Token expired: ref=%s expires_at=%s",
+                    token_ref,
+                    expires_at.isoformat(),
+                )
+            return is_expired
+
+        # In-memory fallback
         if token_ref not in self._storage:
             logger.debug("Token not found for expiration check: ref=%s", token_ref)
             return False
@@ -543,11 +706,9 @@ class VaultClient:
             raw_data = json.loads(plaintext.decode("utf-8"))
             stored = StoredTokenData.from_dict(raw_data)
 
-            # No expiration = never expired
             if stored.metadata.expires_at is None:
                 return False
 
-            # Check if past expiration
             is_expired = stored.metadata.expires_at <= datetime.now(timezone.utc)
             if is_expired:
                 logger.debug(
@@ -560,23 +721,87 @@ class VaultClient:
             logger.error("Failed to decrypt token for expiration check: ref=%s error=%s", token_ref, e)
             return False
 
-    def list_tokens_for_user(self, user_id: str) -> list[str]:
+    def list_tokens_for_user(
+        self,
+        user_id: str,
+        db: Optional[Session] = None,
+    ) -> List[str]:
         """List all token references for a user.
 
         Args:
             user_id: User identifier.
+            db: Database session.
 
         Returns:
             List of token references belonging to the user.
         """
-        # Extract user part for matching
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            results = db.query(VaultToken.token_ref).filter(
+                VaultToken.user_id == user_id
+            ).all()
+            return [r[0] for r in results]
+
+        # In-memory fallback
         user_part = user_id.split("@")[0] if "@" in user_id else user_id
         prefix = f"vault://{user_part}-"
-
         return [ref for ref in self._storage.keys() if ref.startswith(prefix)]
 
-    def clear_all(self) -> int:
+    def delete_user_tokens(
+        self,
+        user_id: str,
+        service_id: Optional[str] = None,
+        db: Optional[Session] = None,
+    ) -> int:
+        """Delete all tokens for a user (or user+service).
+
+        Args:
+            user_id: User identifier.
+            service_id: Optional service to filter by.
+            db: Database session.
+
+        Returns:
+            Number of tokens deleted.
+        """
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            query = db.query(VaultToken).filter(VaultToken.user_id == user_id)
+            if service_id:
+                query = query.filter(VaultToken.service_id == service_id)
+
+            count = query.delete()
+            db.commit()
+            logger.debug(
+                "Deleted %d tokens for user=%s service=%s",
+                count,
+                user_id,
+                service_id or "all",
+            )
+            return count
+
+        # In-memory fallback
+        refs_to_delete = self.list_tokens_for_user(user_id)
+        if service_id:
+            refs_to_delete = [r for r in refs_to_delete if f"-{service_id}-" in r]
+
+        for ref in refs_to_delete:
+            del self._storage[ref]
+
+        logger.debug(
+            "Deleted %d tokens for user=%s service=%s",
+            len(refs_to_delete),
+            user_id,
+            service_id or "all",
+        )
+        return len(refs_to_delete)
+
+    def clear_all(self, db: Optional[Session] = None) -> int:
         """Clear all tokens from storage.
+
+        Args:
+            db: Database session.
 
         Returns:
             Number of tokens deleted.
@@ -584,6 +809,14 @@ class VaultClient:
         Warning:
             This is primarily for testing. Use with extreme caution in production.
         """
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            count = db.query(VaultToken).delete()
+            db.commit()
+            logger.warning("Cleared all tokens from vault (database): count=%d", count)
+            return count
+
         count = len(self._storage)
         self._storage.clear()
         logger.warning("Cleared all tokens from vault: count=%d", count)

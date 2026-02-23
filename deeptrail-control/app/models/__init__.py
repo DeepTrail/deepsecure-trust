@@ -11,6 +11,7 @@ from .delegation import DelegationToken  # noqa
 from .nonce import Nonce  # noqa
 from .policy import Policy  # noqa
 from .user_session import UserSession  # noqa
+from .vault_token import VaultToken  # noqa
 
 __all__ = [
     "Agent",
@@ -26,4 +27,5 @@ __all__ = [
     "PlatformType",
     "Policy",
     "UserSession",
+    "VaultToken",
 ] 
