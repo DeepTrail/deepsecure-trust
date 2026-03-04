@@ -211,8 +211,8 @@ def connect_service(
         if request.oauth_token.scope:
             oauth_response["scope"] = request.oauth_token.scope
 
-        # Store token in vault
-        token_ref = vault.store_token(current_user, request.service_id, oauth_response)
+        # Store token in vault (with db for persistence)
+        token_ref = vault.store_token(current_user, request.service_id, oauth_response, db=db)
 
         # Service name mapping
         service_names = {

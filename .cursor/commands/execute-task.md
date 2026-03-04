@@ -6,6 +6,149 @@ Automatically implement a task by reading its ticket and executing the implement
 
 When given a task ID and feature name, execute the following steps:
 
+### 0. Verify Ticket Exists and Is Synced (CRITICAL)
+
+**Before doing anything else, verify the ticket is available in the current worktree.**
+
+#### Step 0a: Detect Current Context
+
+```bash
+# Determine if we're in main repo or a worktree
+CURRENT_DIR=$(pwd)
+WORKTREE_INFO=$(git worktree list | grep "^$CURRENT_DIR ")
+MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+
+# Check if current dir is a worktree
+if [[ "$CURRENT_DIR" == "$MAIN_REPO" ]]; then
+  echo "Running in MAIN REPO"
+  WORKTREE_TYPE="main"
+else
+  echo "Running in WORKTREE: $CURRENT_DIR"
+  WORKTREE_TYPE=$(echo "$CURRENT_DIR" | grep -oE '(control|gateway)' || echo "unknown")
+fi
+```
+
+#### Step 0b: Determine Expected Worktree
+
+Based on task ID prefix, determine which worktree should have this ticket:
+
+| Task ID Pattern | Expected Worktree | Worktree Pattern |
+|-----------------|-------------------|------------------|
+| WS-A*, WS-C*, WS-E*, WS-F*, WS-K* | Control Plane | `*-control` |
+| WS-B*, WS-D*, WS-G*, WS-H*, WS-I*, WS-J* | Gateway | `*-gateway` |
+| WS-K2 (special case) | BOTH | Both worktrees |
+
+**Cross-service tasks (require BOTH worktrees):** WS-E*, WS-F*, WS-K2
+
+#### Step 0c: Verify Ticket Exists Locally
+
+```bash
+# Check if ticket exists in current directory
+FEATURE="[feature-name]"  # e.g., mvp-production-readiness
+TASK_ID="[WS-ID]"         # e.g., WS-K1
+
+TICKET_PATH="docs/workstreams/$FEATURE/tasks/$TASK_ID-*.md"
+
+if ls $TICKET_PATH 1>/dev/null 2>&1; then
+  echo "✅ Ticket found locally: $(ls $TICKET_PATH)"
+else
+  echo "❌ TICKET NOT FOUND LOCALLY"
+  echo "   Expected at: $TICKET_PATH"
+fi
+```
+
+#### Step 0d: If Ticket Missing - Auto-Sync from Main Repo
+
+**If ticket is not found locally, attempt to sync it:**
+
+```bash
+# Get main repo path
+MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+MAIN_TICKET=$(ls $MAIN_REPO/docs/workstreams/$FEATURE/tasks/$TASK_ID-*.md 2>/dev/null)
+
+if [[ -n "$MAIN_TICKET" ]]; then
+  echo "Found ticket in main repo: $MAIN_TICKET"
+  
+  # Create directory if needed
+  mkdir -p docs/workstreams/$FEATURE/tasks
+  
+  # Copy ticket
+  cp "$MAIN_TICKET" docs/workstreams/$FEATURE/tasks/
+  
+  echo "✅ Ticket synced to worktree"
+else
+  echo "❌ TICKET NOT FOUND IN MAIN REPO EITHER"
+  echo "   Run /create-task-ticket $TASK_ID $FEATURE first"
+  # STOP EXECUTION
+fi
+```
+
+#### Step 0e: Verify Correct Worktree
+
+**If running in a worktree, verify it's the correct one for this task:**
+
+```bash
+# Extract task letter (e.g., WS-K1 → K)
+TASK_LETTER=$(echo "$TASK_ID" | sed 's/WS-\([A-Z]\).*/\1/')
+
+# Determine expected worktree
+case $TASK_LETTER in
+  A|C|K) EXPECTED="control" ;;      # Control Plane tasks
+  B|D|G|H|I|J) EXPECTED="gateway" ;; # Gateway tasks
+  E|F) EXPECTED="both" ;;            # Cross-service tasks
+  *) EXPECTED="unknown" ;;
+esac
+
+# Check current worktree type
+CURRENT_WT=$(pwd | grep -oE '(control|gateway)' || echo "main")
+
+if [[ "$EXPECTED" == "both" ]]; then
+  echo "ℹ️  Cross-service task - can run in either worktree"
+elif [[ "$EXPECTED" == "$CURRENT_WT" ]] || [[ "$CURRENT_WT" == "main" ]]; then
+  echo "✅ Correct worktree for task $TASK_ID"
+else
+  echo "⚠️  WARNING: Task $TASK_ID should run in $EXPECTED worktree, currently in $CURRENT_WT"
+  echo "   Consider switching to the correct worktree"
+fi
+```
+
+#### Step 0f: Verification Summary
+
+```markdown
+## Ticket Verification: [WS-ID]
+
+| Check | Status |
+|-------|--------|
+| Ticket exists locally | ✅ / ❌ |
+| Ticket synced from main repo | ✅ / ❌ / N/A |
+| Correct worktree | ✅ / ⚠️ Wrong worktree |
+| Ready to execute | ✅ / 🚫 BLOCKED |
+```
+
+**If verification fails:**
+
+```markdown
+## 🚫 Cannot Execute: Ticket Not Available
+
+**Task:** [WS-ID]
+**Feature:** [feature-name]
+
+**Issue:** Ticket not found in current worktree
+
+**Resolution:**
+1. Run from main repo: `/create-task-ticket [WS-ID] [feature-name]`
+2. Or manually sync: 
+   ```bash
+   MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+   cp $MAIN_REPO/docs/workstreams/[feature]/tasks/[WS-ID]-*.md docs/workstreams/[feature]/tasks/
+   ```
+3. Then retry: `/execute-task [WS-ID] [feature-name]`
+```
+
+**STOP and do not proceed to Step 1 until ticket is verified.**
+
+---
+
 ### 1. Read and Analyze Task Ticket
 
 ```

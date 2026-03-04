@@ -65,7 +65,7 @@ from .mcp.session_manager import MCPSessionManager
 from .mcp.tool_cache import ToolCache
 from .security.fail_closed import configure_health_checker
 from .middleware.audit import configure_audit_middleware
-from .middleware.credential_injection import get_credential_injector
+from .middleware.credential_injection import get_credential_injector, configure_credential_injector
 from .backends.adapter import create_backend_adapter
 from .services.cache_subscriber import start_cache_subscriber, stop_cache_subscriber
 
@@ -200,6 +200,15 @@ from .mcp.tool_definitions import populate_tool_cache
 mcp_tool_cache = get_tool_cache()
 populate_tool_cache(mcp_tool_cache)
 logger.info("Tool cache populated with backend tool definitions")
+
+# Configure credential injector with Control Plane URL
+# This enables real vault token retrieval instead of mock tokens
+configure_credential_injector(
+    control_plane_url=config.control_plane_url,
+    cache_ttl_seconds=60,
+    internal_api_token=getattr(config, 'internal_api_token', None),
+)
+logger.info(f"Credential injector configured with Control Plane URL: {config.control_plane_url}")
 
 # Configure MCP method handlers with dependencies
 configure_initialize_handler(

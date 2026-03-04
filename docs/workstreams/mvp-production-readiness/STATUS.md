@@ -1,8 +1,8 @@
 # MVP Production Readiness: Status
 
-> **Last Updated:** February 22, 2026
-> **Current Phase:** Phase 1.5 (P1.5) - ⚠️ **Integration Bug Fixes**
-> **Overall Progress:** P0 100% | P1 100% (12/12 tasks) | **P1.5 0%** (0/6 tasks) | P2 0%
+> **Last Updated:** February 23, 2026
+> **Current Phase:** Phase 1.5 (P1.5) - ✅ **Integration Bug Fixes COMPLETE**
+> **Overall Progress:** P0 100% | P1 100% (12/12 tasks) | **P1.5 100%** (6/6 tasks) | P2 0%
 ---
 
 ## ⚠️ Important Clarification
@@ -71,8 +71,8 @@ The E2E demo passes all 10 steps, but this validates that:
 |-------|-------------|--------|----------|-------|
 | **P0** | E2E Flow Verification | ✅ Complete | 100% | Endpoints exist, formats correct, flow works |
 | **P1** | Replace Mocks with Real Code | ✅ Complete | 100% | P1-B1 ✅, P1-B2 ✅, P1-B3 ✅ |
-| **P1.5** | Integration Bug Fixes | ⏳ **In Progress** | 0% | 6 tasks: WS-J2, WS-K1-K5 (fixes from testing) |
-| **P2** | Production Hardening | Blocked by P1.5 | 0% | IdP, PII masking, prompt injection |
+| **P1.5** | Integration Bug Fixes | ✅ **Complete** | 100% | 6 tasks: WS-J2, WS-K1-K5 ✅ MP3.5 Reached |
+| **P2** | Production Hardening | ⏳ Ready | 0% | IdP, PII masking, prompt injection |
 
 ---
 
@@ -143,16 +143,16 @@ After completing P1 and testing with the Integration Validation Guide, several i
 | No delegation validation | Step 9 | Invalid permissions accepted |
 | No permission discovery | Step 9 | User must manually know permissions |
 
-### P1.5-B1: Integration Bug Fixes (⏳ IN PROGRESS)
+### P1.5-B1: Integration Bug Fixes (✅ COMPLETE)
 
-| Task | Description | Status | Spec |
-|------|-------------|--------|------|
-| **WS-J2** | Fix tool name derivation and cache alignment | ⏳ Pending | [Spec](./specs/WS-J2-spec.md) |
-| **WS-K1** | Persistent Vault - Store OAuth tokens in PostgreSQL | ⏳ Pending | [Spec](./specs/WS-K1-spec.md) |
-| **WS-K2** | Cache Invalidation via Redis Pub/Sub | ⏳ Pending | [Spec](./specs/WS-K2-spec.md) |
-| **WS-K3** | Scope-to-Permission Mapper | ⏳ Pending | [Spec](./specs/WS-K3-spec.md) |
-| **WS-K4** | Delegation Permission Validation | ⏳ Pending | [Spec](./specs/WS-K4-spec.md) |
-| **WS-K5** | Available Permissions Endpoint | ⏳ Pending | [Spec](./specs/WS-K5-spec.md) |
+| Task | Description | Status | Spec | Report |
+|------|-------------|--------|------|--------|
+| **WS-J2** | Fix tool name derivation and cache alignment | ✅ Complete | [Spec](./specs/WS-J2-spec.md) | [Report](./reports/WS-J2-completion.md) |
+| **WS-K1** | Persistent Vault - Store OAuth tokens in PostgreSQL | ✅ Complete | [Spec](./specs/WS-K1-spec.md) | [Report](./reports/WS-K1-completion.md) |
+| **WS-K2** | Cache Invalidation via Redis Pub/Sub | ✅ Complete | [Spec](./specs/WS-K2-spec.md) | [Report](./reports/WS-K2-completion.md) |
+| **WS-K3** | Scope-to-Permission Mapper | ✅ Complete | [Spec](./specs/WS-K3-spec.md) | [Report](./reports/WS-K3-completion.md) |
+| **WS-K4** | Delegation Permission Validation | ✅ Complete | [Spec](./specs/WS-K4-spec.md) | [Report](./reports/WS-K4-completion.md) |
+| **WS-K5** | Available Permissions Endpoint | ✅ Complete | [Spec](./specs/WS-K5-spec.md) | [Report](./reports/WS-K5-completion.md) |
 
 ### Wave Analysis
 
@@ -234,7 +234,7 @@ deeptrail-gateway/app/middleware/credential_injection.py:357-375
 | **MP1** | ✅ Reached | E2E flow verified | P1 unblocked, but mocks still present |
 | **MP2** | ✅ Reached | Vault API ready | E2, E3 complete - real token storage working |
 | **MP3** | ✅ Reached | P1 complete | H1, H2 complete (credential injection) |
-| **MP3.5** | ⏳ Pending | Integration bugs fixed | P1.5-B1: WS-J2, WS-K1-K5 (re-test Steps 1-18) |
+| **MP3.5** | ✅ Reached | Integration bugs fixed | All 6 P1.5 tasks complete, ready for re-testing Steps 1-18 |
 
 ---
 
@@ -244,19 +244,19 @@ deeptrail-gateway/app/middleware/credential_injection.py:357-375
 |-------|----------|--------|-------------|
 | ~~Mocks still present~~ | ~~Medium~~ | ✅ Resolved | P1 completed, mocks replaced |
 | ~~MERGE_POINTS.md missing~~ | ~~Low~~ | ✅ Resolved | Created Feb 16, 2026 |
-| Integration bugs (P1.5) | High | ⏳ In Progress | 6 tasks: WS-J2, WS-K1-K5 |
+| ~~Integration bugs (P1.5)~~ | ~~High~~ | ✅ Resolved | 6/6 tasks complete, MP3.5 reached |
 
-### Current Blockers for Phase 2
+### Phase 2 Unblocked
 
-Phase 2 is blocked until P1.5-B1 completes (MP3.5 reached):
+All P1.5 blockers resolved:
 
-| Blocker | Spec | Impact |
-|---------|------|--------|
-| Tool name mismatch | [WS-J2-spec.md](./specs/WS-J2-spec.md) | Tools filtered out during tools/list |
-| Ephemeral vault | [WS-K1-spec.md](./specs/WS-K1-spec.md) | Tokens lost on container restart |
-| Stale cache | [WS-K2-spec.md](./specs/WS-K2-spec.md) | Old credentials used after refresh |
-| No permission validation | [WS-K3](./specs/WS-K3-spec.md), [WS-K4](./specs/WS-K4-spec.md) | Invalid delegations accepted |
-| No permission discovery | [WS-K5-spec.md](./specs/WS-K5-spec.md) | Users can't see available permissions |
+| Issue | Task | Status |
+|-------|------|--------|
+| ~~Tool name mismatch~~ | WS-J2 | ✅ Fixed |
+| ~~Ephemeral vault~~ | WS-K1 | ✅ PostgreSQL storage |
+| ~~Stale cache~~ | WS-K2 | ✅ Redis pub/sub |
+| ~~No permission validation~~ | WS-K3, WS-K4 | ✅ Scope mapper + validation |
+| ~~No permission discovery~~ | WS-K5 | ✅ Available permissions endpoint |
 
 ---
 
@@ -264,6 +264,14 @@ Phase 2 is blocked until P1.5-B1 completes (MP3.5 reached):
 
 | Date | Change | By |
 |------|--------|-----|
+| Feb 23, 2026 | **WORKTREE SYNC:** Consolidated status from mvp-prod-control + mvp-prod-gateway → main repo | Claude |
+| Feb 23, 2026 | **MP3.5 REACHED:** All P1.5 tasks complete (6/6), Phase 2 unblocked | Claude |
+| Feb 23, 2026 | **WS-K2 COMPLETED (control):** Cache Invalidation via Redis Pub/Sub - Cross-service implementation | Claude |
+| Feb 23, 2026 | **WS-K5 COMPLETED (control):** Available Permissions Endpoint - User permission discovery | Claude |
+| Feb 23, 2026 | **WS-K4 COMPLETED (control):** Delegation Permission Validation - Enforces monotonic attenuation | Claude |
+| Feb 23, 2026 | **WS-K3 COMPLETED (control):** Scope-to-Permission Mapper - Maps OAuth scopes to DeepSecure permissions | Claude |
+| Feb 23, 2026 | **WS-K1 COMPLETED (control):** Persistent Vault - OAuth tokens now stored in PostgreSQL | Claude |
+| Feb 22, 2026 | **WS-J2 COMPLETED (gateway):** Fixed tool name derivation and cache alignment | Claude |
 | Feb 22, 2026 | **MERGE_POINTS.MD UPDATED:** Added MP3.5 merge point, marked MP3 as reached | Claude |
 | Feb 22, 2026 | **BATCH PLAN UPDATED:** Added Phase 1.5 (P1.5-B1) for integration bug fixes, renumbered P2 tasks | Claude |
 | Feb 22, 2026 | **WS-K5 CREATED:** Task spec for Available Permissions Endpoint (P1.5) | Claude |
@@ -287,6 +295,11 @@ Phase 2 is blocked until P1.5-B1 completes (MP3.5 reached):
 | Feb 17, 2026 | **WS-G3 COMPLETED:** Slack REST API calls (7 tools with direct httpx calls) | Claude |
 | Feb 17, 2026 | **WS-G2 COMPLETED:** Notion REST API calls (7 tools) | Claude |
 | Feb 17, 2026 | **WS-F3 COMPLETED:** OAuth endpoints (authorize, callback, refresh) | Claude |
+| Feb 22, 2026 | **WS-K5 TICKET CREATED:** Available Permissions Endpoint | Claude |
+| Feb 22, 2026 | **WS-K4 TICKET CREATED:** Delegation Permission Validation | Claude |
+| Feb 22, 2026 | **WS-K3 TICKET CREATED:** Scope-to-Permission Mapper | Claude |
+| Feb 22, 2026 | **WS-K2 TICKET CREATED:** Cache Invalidation via Redis Pub/Sub | Claude |
+| Feb 22, 2026 | **WS-K1 TICKET CREATED:** Persistent Vault - PostgreSQL storage | Claude |
 | Feb 17, 2026 | **WS-F2 COMPLETED:** OAuth configuration module | Claude |
 | Feb 17, 2026 | **WS-E3 COMPLETED:** Token refresh endpoint implemented | Claude |
 | Feb 17, 2026 | **WS-E2 COMPLETED:** Vault token retrieval endpoint | Claude |
