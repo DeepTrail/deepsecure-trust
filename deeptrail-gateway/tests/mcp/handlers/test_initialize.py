@@ -443,3 +443,163 @@ class TestConstants:
         """Test that SERVER_CAPABILITIES includes tools."""
         assert "tools" in SERVER_CAPABILITIES
         assert "listChanged" in SERVER_CAPABILITIES["tools"]
+
+
+# =============================================================================
+# WS-J2: Tool Name Derivation Tests (PermissionMapper Integration)
+# =============================================================================
+
+
+class TestPermissionMapperIntegration:
+    """Tests for WS-J2: Verify initialize handler uses PermissionMapper correctly."""
+    
+    @pytest.fixture
+    def session_manager_mock(self, mocker):
+        """Mock session manager to capture created sessions."""
+        from app.mcp.handlers.initialize import configure_initialize_handler
+        from app.mcp.session_manager import MCPSessionManager
+        
+        mock_manager = mocker.Mock(spec=MCPSessionManager)
+        configure_initialize_handler(mock_manager)
+        return mock_manager
+    
+    @pytest.mark.asyncio
+    async def test_notion_permission_derives_singular_tool_name(self, session_manager_mock):
+        """Test that notion:pages:read derives 'read_page' (singular), not 'read_pages'."""
+        params = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "TestClient", "version": "1.0"},
+            "_context": {
+                "agent_session_id": "test-agent-123",
+                "delegated_permissions": ["notion:pages:read"],
+                "delegator": "user@example.com"
+            }
+        }
+        
+        await handle_initialize(params)
+        
+        # Verify session was created with correct tool name
+        session_manager_mock.create_agent_session.assert_called_once()
+        call_kwargs = session_manager_mock.create_agent_session.call_args
+        connected_services = call_kwargs.kwargs.get("connected_services", [])
+        
+        notion_service = next((s for s in connected_services if s["service_id"] == "notion"), None)
+        assert notion_service is not None, "Notion service should be in connected_services"
+        assert "read_page" in notion_service["available_tools"], \
+            "Tool name should be 'read_page' (singular), not 'read_pages'"
+        assert "read_pages" not in notion_service["available_tools"], \
+            "Tool name should NOT be 'read_pages' (plural)"
+    
+    @pytest.mark.asyncio
+    async def test_slack_permission_derives_singular_tool_name(self, session_manager_mock):
+        """Test that slack:messages:send derives 'send_message' (singular)."""
+        params = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "TestClient", "version": "1.0"},
+            "_context": {
+                "agent_session_id": "test-agent-123",
+                "delegated_permissions": ["slack:messages:send"],
+                "delegator": "user@example.com"
+            }
+        }
+        
+        await handle_initialize(params)
+        
+        session_manager_mock.create_agent_session.assert_called_once()
+        call_kwargs = session_manager_mock.create_agent_session.call_args
+        connected_services = call_kwargs.kwargs.get("connected_services", [])
+        
+        slack_service = next((s for s in connected_services if s["service_id"] == "slack"), None)
+        assert slack_service is not None, "Slack service should be in connected_services"
+        assert "send_message" in slack_service["available_tools"], \
+            "Tool name should be 'send_message'"
+    
+    @pytest.mark.asyncio
+    async def test_hubspot_permission_creates_service(self, session_manager_mock):
+        """Test that HubSpot permissions create connected service."""
+        params = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "TestClient", "version": "1.0"},
+            "_context": {
+                "agent_session_id": "test-agent-123",
+                "delegated_permissions": ["hubspot:contacts:read"],
+                "delegator": "user@example.com"
+            }
+        }
+        
+        await handle_initialize(params)
+        
+        session_manager_mock.create_agent_session.assert_called_once()
+        call_kwargs = session_manager_mock.create_agent_session.call_args
+        connected_services = call_kwargs.kwargs.get("connected_services", [])
+        
+        hubspot_service = next((s for s in connected_services if s["service_id"] == "hubspot"), None)
+        assert hubspot_service is not None, "HubSpot service should be in connected_services"
+        assert "get_contact" in hubspot_service["available_tools"], \
+            "Tool name should be 'get_contact'"
+    
+    @pytest.mark.asyncio
+    async def test_multiple_permissions_same_backend(self, session_manager_mock):
+        """Test that multiple permissions for same backend produce multiple tools."""
+        params = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "TestClient", "version": "1.0"},
+            "_context": {
+                "agent_session_id": "test-agent-123",
+                "delegated_permissions": [
+                    "notion:pages:search",
+                    "notion:pages:read",
+                    "notion:pages:create"
+                ],
+                "delegator": "user@example.com"
+            }
+        }
+        
+        await handle_initialize(params)
+        
+        session_manager_mock.create_agent_session.assert_called_once()
+        call_kwargs = session_manager_mock.create_agent_session.call_args
+        connected_services = call_kwargs.kwargs.get("connected_services", [])
+        
+        notion_service = next((s for s in connected_services if s["service_id"] == "notion"), None)
+        assert notion_service is not None
+        
+        # Should have all three tools
+        assert "search_pages" in notion_service["available_tools"]
+        assert "read_page" in notion_service["available_tools"]
+        assert "create_page" in notion_service["available_tools"]
+    
+    @pytest.mark.asyncio
+    async def test_no_duplicate_tools(self, session_manager_mock):
+        """Test that tool names are deduplicated."""
+        params = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "TestClient", "version": "1.0"},
+            "_context": {
+                "agent_session_id": "test-agent-123",
+                "delegated_permissions": [
+                    "notion:pages:search",
+                    "notion:pages:search",  # Duplicate
+                ],
+                "delegator": "user@example.com"
+            }
+        }
+        
+        await handle_initialize(params)
+        
+        call_kwargs = session_manager_mock.create_agent_session.call_args
+        connected_services = call_kwargs.kwargs.get("connected_services", [])
+        
+        notion_service = next((s for s in connected_services if s["service_id"] == "notion"), None)
+        
+        # Should only have search_pages once
+        tool_counts = {}
+        for tool in notion_service["available_tools"]:
+            tool_counts[tool] = tool_counts.get(tool, 0) + 1
+        
+        assert tool_counts.get("search_pages", 0) == 1, "search_pages should appear only once"

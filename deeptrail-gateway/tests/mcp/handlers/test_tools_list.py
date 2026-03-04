@@ -12,6 +12,7 @@ Tests cover:
 """
 
 import pytest
+from unittest.mock import patch, AsyncMock, MagicMock
 
 from app.mcp.handlers.tools_list import (
     handle_tools_list,
@@ -69,6 +70,17 @@ def configured_handler(session_manager, populated_tool_cache):
     """Configure the handler with dependencies."""
     configure_tools_list_handler(session_manager, populated_tool_cache)
     return session_manager, populated_tool_cache
+
+
+@pytest.fixture
+def mock_fail_closed():
+    """Mock enforce_fail_closed to allow tests to run without control plane."""
+    with patch(
+        "app.mcp.handlers.tools_list.enforce_fail_closed",
+        new_callable=AsyncMock,
+    ) as mock:
+        mock.return_value = MagicMock(healthy=True)
+        yield mock
 
 
 @pytest.fixture
@@ -159,7 +171,7 @@ class TestHandleToolsList:
     
     @pytest.mark.asyncio
     async def test_returns_filtered_tools(
-        self, configured_handler, agent_session_with_permissions
+        self, configured_handler, agent_session_with_permissions, mock_fail_closed
     ):
         """Test that only permitted tools are returned."""
         session_manager, _ = configured_handler
@@ -192,7 +204,7 @@ class TestHandleToolsList:
     
     @pytest.mark.asyncio
     async def test_tools_are_namespaced(
-        self, configured_handler, agent_session_with_permissions
+        self, configured_handler, agent_session_with_permissions, mock_fail_closed
     ):
         """Test that tools have namespace prefix."""
         params = {
@@ -213,7 +225,7 @@ class TestHandleToolsList:
     
     @pytest.mark.asyncio
     async def test_descriptions_have_backend_prefix(
-        self, configured_handler, agent_session_with_permissions
+        self, configured_handler, agent_session_with_permissions, mock_fail_closed
     ):
         """Test that descriptions are enhanced with backend prefix."""
         params = {
@@ -232,7 +244,7 @@ class TestHandleToolsList:
     
     @pytest.mark.asyncio
     async def test_empty_permissions_returns_empty_list(
-        self, configured_handler, agent_session_with_permissions
+        self, configured_handler, agent_session_with_permissions, mock_fail_closed
     ):
         """Test that no permissions = no tools."""
         params = {
@@ -247,7 +259,7 @@ class TestHandleToolsList:
         assert result["tools"] == []
     
     @pytest.mark.asyncio
-    async def test_no_session_returns_empty_list(self, configured_handler):
+    async def test_no_session_returns_empty_list(self, configured_handler, mock_fail_closed):
         """Test that missing session returns empty tools."""
         params = {
             "_context": {
@@ -261,7 +273,7 @@ class TestHandleToolsList:
         assert result["tools"] == []
     
     @pytest.mark.asyncio
-    async def test_invalid_session_raises_error(self, configured_handler):
+    async def test_invalid_session_raises_error(self, configured_handler, mock_fail_closed):
         """Test that invalid session ID raises error."""
         params = {
             "_context": {
@@ -279,7 +291,7 @@ class TestHandleToolsList:
     
     @pytest.mark.asyncio
     async def test_next_cursor_is_null(
-        self, configured_handler, agent_session_with_permissions
+        self, configured_handler, agent_session_with_permissions, mock_fail_closed
     ):
         """Test that nextCursor is null (pagination not implemented)."""
         params = {
@@ -304,7 +316,7 @@ class TestHandleToolsListStandalone:
     
     @pytest.mark.asyncio
     async def test_standalone_with_explicit_deps(
-        self, session_manager, populated_tool_cache
+        self, session_manager, populated_tool_cache, mock_fail_closed
     ):
         """Test standalone handler with explicit dependencies."""
         # Create session
@@ -418,7 +430,7 @@ class TestToolsListIntegration:
     
     @pytest.mark.asyncio
     async def test_full_flow_sarah_scenario(
-        self, session_manager, populated_tool_cache
+        self, session_manager, populated_tool_cache, mock_fail_closed
     ):
         """Test Sarah's journey: agent sees 4 tools, not 20+."""
         configure_tools_list_handler(session_manager, populated_tool_cache)
@@ -476,7 +488,7 @@ class TestToolsListIntegration:
     
     @pytest.mark.asyncio
     async def test_response_format_matches_mcp_spec(
-        self, configured_handler, agent_session_with_permissions
+        self, configured_handler, agent_session_with_permissions, mock_fail_closed
     ):
         """Test that response matches MCP specification."""
         params = {
@@ -509,7 +521,7 @@ class TestEdgeCases:
     """Tests for edge cases."""
     
     @pytest.mark.asyncio
-    async def test_empty_context(self, configured_handler):
+    async def test_empty_context(self, configured_handler, mock_fail_closed):
         """Test handling of empty context."""
         params = {}  # No _context at all
         
@@ -520,7 +532,7 @@ class TestEdgeCases:
     
     @pytest.mark.asyncio
     async def test_multiple_calls_same_session(
-        self, session_manager, populated_tool_cache
+        self, session_manager, populated_tool_cache, mock_fail_closed
     ):
         """Test multiple tools/list calls for same session."""
         # Create dedicated session for this test
@@ -554,7 +566,7 @@ class TestEdgeCases:
     
     @pytest.mark.asyncio
     async def test_tool_without_namespace_skipped(
-        self, session_manager, populated_tool_cache
+        self, session_manager, populated_tool_cache, mock_fail_closed
     ):
         """Test that tools without namespace separator are skipped."""
         configure_tools_list_handler(session_manager, populated_tool_cache)

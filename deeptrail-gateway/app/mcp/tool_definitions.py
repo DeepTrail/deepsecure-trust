@@ -47,8 +47,8 @@ NOTION_TOOLS = [
         }
     ),
     CachedTool(
-        name="get_page",
-        description="Get a specific Notion page by ID",
+        name="read_page",
+        description="Read a specific Notion page by ID",
         inputSchema={
             "type": "object",
             "properties": {
@@ -100,6 +100,57 @@ NOTION_TOOLS = [
             "required": ["page_id"]
         }
     ),
+    CachedTool(
+        name="delete_page",
+        description="Archive/delete a Notion page",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "The Notion page ID to delete"
+                }
+            },
+            "required": ["page_id"]
+        }
+    ),
+    CachedTool(
+        name="list_databases",
+        description="List all databases in Notion workspace",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "page_size": {
+                    "type": "integer",
+                    "description": "Number of results to return",
+                    "default": 10
+                }
+            }
+        }
+    ),
+    CachedTool(
+        name="query_database",
+        description="Query a Notion database with filters",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "database_id": {
+                    "type": "string",
+                    "description": "The Notion database ID"
+                },
+                "filter": {
+                    "type": "object",
+                    "description": "Filter conditions"
+                },
+                "page_size": {
+                    "type": "integer",
+                    "description": "Number of results",
+                    "default": 100
+                }
+            },
+            "required": ["database_id"]
+        }
+    ),
 ]
 
 
@@ -132,6 +183,28 @@ SLACK_TOOLS = [
         }
     ),
     CachedTool(
+        name="send_message",
+        description="Send a message to a Slack channel",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "Channel ID to send message to"
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Message text"
+                },
+                "thread_ts": {
+                    "type": "string",
+                    "description": "Optional thread timestamp for replies"
+                }
+            },
+            "required": ["channel", "text"]
+        }
+    ),
+    CachedTool(
         name="list_channels",
         description="List available Slack channels",
         inputSchema={
@@ -151,25 +224,53 @@ SLACK_TOOLS = [
         }
     ),
     CachedTool(
-        name="post_message",
-        description="Post a message to a Slack channel",
+        name="join_channel",
+        description="Join a Slack channel",
         inputSchema={
             "type": "object",
             "properties": {
                 "channel": {
                     "type": "string",
-                    "description": "Channel ID to post to"
-                },
-                "text": {
-                    "type": "string",
-                    "description": "Message text"
-                },
-                "thread_ts": {
-                    "type": "string",
-                    "description": "Optional thread timestamp for replies"
+                    "description": "Channel ID to join"
                 }
             },
-            "required": ["channel", "text"]
+            "required": ["channel"]
+        }
+    ),
+    CachedTool(
+        name="post_reaction",
+        description="Add a reaction emoji to a message",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "Channel containing the message"
+                },
+                "timestamp": {
+                    "type": "string",
+                    "description": "Message timestamp"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Reaction emoji name (without colons)"
+                }
+            },
+            "required": ["channel", "timestamp", "name"]
+        }
+    ),
+    CachedTool(
+        name="list_users",
+        description="List users in Slack workspace",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum users to return",
+                    "default": 100
+                }
+            }
         }
     ),
 ]
@@ -180,25 +281,6 @@ SLACK_TOOLS = [
 # =============================================================================
 
 HUBSPOT_TOOLS = [
-    CachedTool(
-        name="search_contacts",
-        description="Search HubSpot contacts by criteria",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query (email, name, company)"
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum results to return",
-                    "default": 10
-                }
-            },
-            "required": ["query"]
-        }
-    ),
     CachedTool(
         name="get_contact",
         description="Get a specific HubSpot contact by ID",
@@ -240,6 +322,38 @@ HUBSPOT_TOOLS = [
         }
     ),
     CachedTool(
+        name="update_contact",
+        description="Update an existing HubSpot contact",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "contact_id": {
+                    "type": "string",
+                    "description": "HubSpot contact ID"
+                },
+                "properties": {
+                    "type": "object",
+                    "description": "Contact properties to update"
+                }
+            },
+            "required": ["contact_id"]
+        }
+    ),
+    CachedTool(
+        name="list_contacts",
+        description="List HubSpot contacts with optional filters",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum contacts to return",
+                    "default": 20
+                }
+            }
+        }
+    ),
+    CachedTool(
         name="list_deals",
         description="List HubSpot deals with optional filters",
         inputSchema={
@@ -255,6 +369,50 @@ HUBSPOT_TOOLS = [
                     "default": 20
                 }
             }
+        }
+    ),
+    CachedTool(
+        name="create_deal",
+        description="Create a new deal in HubSpot",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "dealname": {
+                    "type": "string",
+                    "description": "Deal name"
+                },
+                "amount": {
+                    "type": "number",
+                    "description": "Deal amount"
+                },
+                "dealstage": {
+                    "type": "string",
+                    "description": "Deal stage"
+                },
+                "pipeline": {
+                    "type": "string",
+                    "description": "Pipeline ID"
+                }
+            },
+            "required": ["dealname"]
+        }
+    ),
+    CachedTool(
+        name="update_deal",
+        description="Update an existing HubSpot deal",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "deal_id": {
+                    "type": "string",
+                    "description": "HubSpot deal ID"
+                },
+                "properties": {
+                    "type": "object",
+                    "description": "Deal properties to update"
+                }
+            },
+            "required": ["deal_id"]
         }
     ),
 ]
