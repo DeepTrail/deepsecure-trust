@@ -24,7 +24,6 @@ from app.models.delegation import DelegationToken
 from app.services.delegation_service import (
     DelegationService,
     PermissionValidationError,
-    ValidationResult,
 )
 
 
@@ -97,9 +96,9 @@ class TestCreateDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        # Create connected service
+        # Create connected service with scopes that map to permissions
         create_connected_service(
-            db_session, user_id, "notion", ["pages:search", "pages:read"]
+            db_session, user_id, "notion", ["read_pages"]
         )
 
         delegation = service.create_delegation(
@@ -123,7 +122,7 @@ class TestCreateDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
 
         delegation = service.create_delegation(
             delegator=user_id,
@@ -148,12 +147,12 @@ class TestCreateDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "slack", ["messages:read"])
+        create_connected_service(db_session, user_id, "slack", ["search:read"])
 
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
-            permissions=["slack:messages:read"],
+            permissions=["slack:messages:search"],
             expires_in_days=30,
         )
         db_session.commit()
@@ -176,7 +175,7 @@ class TestCreateDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
 
         delegation = service.create_delegation(
             delegator=user_id,
@@ -197,7 +196,7 @@ class TestCreateDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
 
         delegation = service.create_delegation(
             delegator=user_id,
@@ -220,7 +219,7 @@ class TestCreateDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
 
         delegation = service.create_delegation(
             delegator=user_id,
@@ -243,7 +242,7 @@ class TestCreateDelegation:
         agent_id = unique_agent_id()
 
         create_connected_service(
-            db_session, user_id, "notion", ["pages:search", "pages:read"]
+            db_session, user_id, "notion", ["read_pages"]
         )
 
         # Create first delegation
@@ -289,9 +288,9 @@ class TestPermissionValidation:
         agent_id = unique_agent_id()
 
         # User has Notion but not HubSpot
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
 
-        with pytest.raises(PermissionValidationError, match="not connected"):
+        with pytest.raises(PermissionValidationError, match="not allowed"):
             service.create_delegation(
                 delegator=user_id,
                 agent_id=agent_id,
@@ -324,17 +323,17 @@ class TestPermissionValidation:
         agent_id = unique_agent_id()
 
         create_connected_service(
-            db_session, user_id, "notion", ["pages:search", "pages:read"]
+            db_session, user_id, "notion", ["read_pages"]
         )
         create_connected_service(
-            db_session, user_id, "slack", ["messages:read", "messages:write"]
+            db_session, user_id, "slack", ["search:read", "chat:write"]
         )
 
         # Should succeed - user has both services
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
-            permissions=["notion:pages:search", "slack:messages:read"],
+            permissions=["notion:pages:search", "slack:messages:search"],
         )
         db_session.commit()
 
@@ -345,13 +344,13 @@ class TestPermissionValidation:
         service: DelegationService,
         db_session: Session,
     ):
-        """Should reject malformed permission strings."""
+        """Should reject malformed permission strings (treated as not allowed)."""
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
 
-        with pytest.raises(PermissionValidationError, match="Invalid permission format"):
+        with pytest.raises(PermissionValidationError, match="not allowed"):
             service.create_delegation(
                 delegator=user_id,
                 agent_id=agent_id,
@@ -376,7 +375,7 @@ class TestValidateDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -409,7 +408,7 @@ class TestValidateDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -435,7 +434,7 @@ class TestValidateDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
 
         # Create delegation that's already expired
         delegation = DelegationToken(
@@ -470,7 +469,7 @@ class TestRevokeDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -502,7 +501,7 @@ class TestRevokeDelegation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -533,7 +532,7 @@ class TestDelegationQueries:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -563,8 +562,8 @@ class TestDelegationQueries:
         """get_delegations_for_user should return user's delegations."""
         user_id = unique_user_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
-        create_connected_service(db_session, user_id, "slack", ["messages:read"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
+        create_connected_service(db_session, user_id, "slack", ["search:read"])
 
         service.create_delegation(
             delegator=user_id,
@@ -574,7 +573,7 @@ class TestDelegationQueries:
         service.create_delegation(
             delegator=user_id,
             agent_id=unique_agent_id(),
-            permissions=["slack:messages:read"],
+            permissions=["slack:messages:search"],
         )
         db_session.commit()
 
@@ -590,7 +589,7 @@ class TestDelegationQueries:
         """get_delegations_for_user should exclude revoked by default."""
         user_id = unique_user_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
 
         d1 = service.create_delegation(
             delegator=user_id,
@@ -625,8 +624,8 @@ class TestDelegationQueries:
         user1 = unique_user_id()
         user2 = unique_user_id()
 
-        create_connected_service(db_session, user1, "notion", ["pages:search"])
-        create_connected_service(db_session, user2, "slack", ["messages:read"])
+        create_connected_service(db_session, user1, "notion", ["read_pages"])
+        create_connected_service(db_session, user2, "slack", ["search:read"])
 
         service.create_delegation(
             delegator=user1,
@@ -636,7 +635,7 @@ class TestDelegationQueries:
         service.create_delegation(
             delegator=user2,
             agent_id=agent_id,
-            permissions=["slack:messages:read"],
+            permissions=["slack:messages:search"],
         )
         db_session.commit()
 
@@ -653,7 +652,7 @@ class TestDelegationQueries:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -675,7 +674,7 @@ class TestDelegationQueries:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -717,7 +716,7 @@ class TestHasPermission:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -736,7 +735,7 @@ class TestHasPermission:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -755,7 +754,7 @@ class TestHasPermission:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -794,7 +793,7 @@ class TestGetPermissionsForAgent:
         agent_id = unique_agent_id()
 
         create_connected_service(
-            db_session, user_id, "notion", ["pages:search", "pages:read"]
+            db_session, user_id, "notion", ["read_pages"]
         )
         service.create_delegation(
             delegator=user_id,
@@ -818,13 +817,13 @@ class TestGetPermissionsForAgent:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
-        create_connected_service(db_session, user_id, "slack", ["messages:read"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
+        create_connected_service(db_session, user_id, "slack", ["search:read"])
 
         service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
-            permissions=["notion:pages:search", "slack:messages:read"],
+            permissions=["notion:pages:search", "slack:messages:search"],
         )
         db_session.commit()
 
@@ -859,8 +858,8 @@ class TestBulkRevocation:
         """revoke_all_for_user should revoke all user's delegations."""
         user_id = unique_user_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
-        create_connected_service(db_session, user_id, "slack", ["messages:read"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
+        create_connected_service(db_session, user_id, "slack", ["search:read"])
 
         service.create_delegation(
             delegator=user_id,
@@ -870,7 +869,7 @@ class TestBulkRevocation:
         service.create_delegation(
             delegator=user_id,
             agent_id=unique_agent_id(),
-            permissions=["slack:messages:read"],
+            permissions=["slack:messages:search"],
         )
         db_session.commit()
 
@@ -894,8 +893,8 @@ class TestBulkRevocation:
         user1 = unique_user_id()
         user2 = unique_user_id()
 
-        create_connected_service(db_session, user1, "notion", ["pages:search"])
-        create_connected_service(db_session, user2, "slack", ["messages:read"])
+        create_connected_service(db_session, user1, "notion", ["read_pages"])
+        create_connected_service(db_session, user2, "slack", ["search:read"])
 
         service.create_delegation(
             delegator=user1,
@@ -905,7 +904,7 @@ class TestBulkRevocation:
         service.create_delegation(
             delegator=user2,
             agent_id=agent_id,
-            permissions=["slack:messages:read"],
+            permissions=["slack:messages:search"],
         )
         db_session.commit()
 
@@ -936,7 +935,7 @@ class TestConstraints:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -958,7 +957,7 @@ class TestConstraints:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        create_connected_service(db_session, user_id, "notion", ["pages:search"])
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
@@ -999,17 +998,17 @@ class TestIntegration:
 
         # 1. Connect services
         create_connected_service(
-            db_session, user_id, "notion", ["pages:search", "pages:read"]
+            db_session, user_id, "notion", ["read_pages"]
         )
         create_connected_service(
-            db_session, user_id, "slack", ["messages:read"]
+            db_session, user_id, "slack", ["search:read"]
         )
 
         # 2. Create delegation
         delegation = service.create_delegation(
             delegator=user_id,
             agent_id=agent_id,
-            permissions=["notion:pages:search", "slack:messages:read"],
+            permissions=["notion:pages:search", "slack:messages:search"],
             constraints={"max_actions_per_day": 100},
             expires_in_days=7,
         )

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 from typing import Any, Dict, List, Optional
 import logging
 import uuid
@@ -7,7 +8,9 @@ import jwt
 
 from app import models, schemas
 from app.api import deps
+from app.models.connected_service import ConnectedService
 from app.services.macaroon_service import macaroon_service
+from app.services.scope_mapper import ScopeMapper
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -93,15 +96,69 @@ def get_current_user_from_token(
 def create_user_delegation(
     request: UserDelegationRequest,
     authorization: str = Header(...),
+    db: Session = Depends(deps.get_db),
 ):
     """
     Create a delegation from a user to an agent.
     
     This is Step 4 of Sarah's Journey: Sarah Delegates to Agent.
     
+    Validates that requested permissions are allowed by the user's
+    connected service scopes (monotonic attenuation principle).
+    
     MVP: Creates a macaroon-based delegation token.
     """
     current_user = get_current_user_from_token(authorization)
+    
+    # Get user's connected services for permission validation
+    connections = (
+        db.query(ConnectedService)
+        .filter(
+            ConnectedService.user_id == current_user,
+            ConnectedService.disconnected_at.is_(None),
+        )
+        .all()
+    )
+    
+    if not connections:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "no_connected_services",
+                "message": "User has no connected services",
+                "hint": "Connect a service before creating delegations",
+            },
+        )
+    
+    # Build list of (service_id, scopes) for ScopeMapper
+    connected_services = [
+        (conn.service_id, conn.scopes_granted or [])
+        for conn in connections
+    ]
+    
+    # Validate permissions using ScopeMapper
+    is_valid, invalid_perms = ScopeMapper.validate_permissions(
+        request.permissions,
+        connected_services,
+    )
+    
+    if not is_valid:
+        allowed = ScopeMapper.get_all_allowed_permissions(connected_services)
+        logger.warning(
+            "Permission validation failed: user=%s invalid=%s",
+            current_user,
+            invalid_perms,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "permission_validation_failed",
+                "message": "Requested permissions not allowed by connected scopes",
+                "invalid_permissions": invalid_perms,
+                "allowed_permissions": sorted(list(allowed)),
+                "hint": "Connect service with additional scopes or remove invalid permissions",
+            },
+        )
     
     # Calculate TTL from constraints
     ttl_hours = 8  # Default

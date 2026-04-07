@@ -69,7 +69,9 @@ from .middleware.audit import configure_audit_middleware
 from .middleware.result_filter import configure_result_filter
 from .security.prompt_injection import configure_prompt_injection_detector
 from .security.token_exchange import configure_token_exchange_client, TokenExchangeConfig
+from .middleware.credential_injection import get_credential_injector, configure_credential_injector
 from .backends.adapter import create_backend_adapter
+from .services.cache_subscriber import start_cache_subscriber, stop_cache_subscriber
 
 # Configure basic logging
 logging.basicConfig(
@@ -93,11 +95,28 @@ async def lifespan(app: FastAPI):
     logger.info(f"Configuration: {config.proxy_type} on {config.host}:{config.port}")
     logger.info(f"Target header: {config.routing.target_header}")
     logger.info(f"Path prefix: {config.routing.path_prefix}")
-    
+
+    # Start cache invalidation subscriber
+    if config.redis_url:
+        try:
+            injector = get_credential_injector()
+            await start_cache_subscriber(
+                redis_url=config.redis_url,
+                on_token_invalidate=injector.invalidate_credential,
+                on_user_service_invalidate=injector.invalidate_user_service,
+                on_clear_all=injector.clear_cache,
+            )
+            logger.info("Cache invalidation subscriber started")
+        except Exception as e:
+            logger.warning(f"Failed to start cache subscriber: {e}")
+    else:
+        logger.info("REDIS_URL not set, cache invalidation subscriber disabled")
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down DeepTrail Gateway...")
+    await stop_cache_subscriber()
     await close_http_client()
     logger.info("DeepTrail Gateway stopped")
 
@@ -222,6 +241,15 @@ from .mcp.tool_definitions import populate_tool_cache
 mcp_tool_cache = get_tool_cache()
 populate_tool_cache(mcp_tool_cache)
 logger.info("Tool cache populated with backend tool definitions")
+
+# Configure credential injector with Control Plane URL
+# This enables real vault token retrieval instead of mock tokens
+configure_credential_injector(
+    control_plane_url=config.control_plane_url,
+    cache_ttl_seconds=60,
+    internal_api_token=getattr(config, 'internal_api_token', None),
+)
+logger.info(f"Credential injector configured with Control Plane URL: {config.control_plane_url}")
 
 # Configure MCP method handlers with dependencies
 configure_initialize_handler(

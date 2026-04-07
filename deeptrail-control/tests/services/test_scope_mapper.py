@@ -1,0 +1,396 @@
+"""Unit tests for ScopeMapper.
+
+Tests the mapping of OAuth scopes to DeepSecure permission strings.
+"""
+
+from app.services.scope_mapper import ScopeMapper
+
+
+class TestGetPermissionsForScope:
+    """Test single scope → permissions."""
+    
+    def test_notion_read_pages(self):
+        """Notion read_pages scope grants read and search permissions."""
+        perms = ScopeMapper.get_permissions_for_scope("notion", "read_pages")
+        assert "notion:pages:read" in perms
+        assert "notion:pages:search" in perms
+        assert len(perms) == 2
+    
+    def test_notion_read_content(self):
+        """Notion read_content scope grants multiple permissions."""
+        perms = ScopeMapper.get_permissions_for_scope("notion", "read_content")
+        assert "notion:pages:read" in perms
+        assert "notion:pages:search" in perms
+        assert "notion:databases:list" in perms
+        assert "notion:databases:query" in perms
+    
+    def test_notion_write_pages(self):
+        """Notion write_pages scope grants create and update permissions."""
+        perms = ScopeMapper.get_permissions_for_scope("notion", "write_pages")
+        assert "notion:pages:create" in perms
+        assert "notion:pages:update" in perms
+    
+    def test_slack_channels_read(self):
+        """Slack channels:read scope grants list channels permission."""
+        perms = ScopeMapper.get_permissions_for_scope("slack", "channels:read")
+        assert perms == ["slack:channels:list"]
+    
+    def test_slack_chat_write(self):
+        """Slack chat:write scope grants send messages permission."""
+        perms = ScopeMapper.get_permissions_for_scope("slack", "chat:write")
+        assert perms == ["slack:messages:send"]
+    
+    def test_hubspot_contacts_read(self):
+        """HubSpot contacts read scope grants read and list permissions."""
+        perms = ScopeMapper.get_permissions_for_scope("hubspot", "crm.objects.contacts.read")
+        assert "hubspot:contacts:read" in perms
+        assert "hubspot:contacts:list" in perms
+    
+    def test_unknown_scope_returns_empty(self):
+        """Unknown scope returns empty list."""
+        perms = ScopeMapper.get_permissions_for_scope("notion", "unknown_scope")
+        assert perms == []
+    
+    def test_unknown_service_returns_empty(self):
+        """Unknown service returns empty list."""
+        perms = ScopeMapper.get_permissions_for_scope("unknown_service", "read_pages")
+        assert perms == []
+    
+    def test_case_insensitive_service_id(self):
+        """Service ID should be case-insensitive."""
+        perms_lower = ScopeMapper.get_permissions_for_scope("notion", "read_pages")
+        perms_upper = ScopeMapper.get_permissions_for_scope("NOTION", "read_pages")
+        perms_mixed = ScopeMapper.get_permissions_for_scope("Notion", "read_pages")
+        
+        assert perms_lower == perms_upper == perms_mixed
+
+
+class TestGetPermissionsForScopes:
+    """Test multiple scopes → permissions."""
+    
+    def test_multiple_scopes_combined(self):
+        """Multiple scopes combine their permissions."""
+        perms = ScopeMapper.get_permissions_for_scopes(
+            "notion", ["read_pages", "write_pages"]
+        )
+        # From read_pages
+        assert "notion:pages:read" in perms
+        assert "notion:pages:search" in perms
+        # From write_pages
+        assert "notion:pages:create" in perms
+        assert "notion:pages:update" in perms
+    
+    def test_deduplication(self):
+        """Overlapping permissions are deduplicated."""
+        perms = ScopeMapper.get_permissions_for_scopes(
+            "notion", ["read_pages", "search_content"]
+        )
+        # Both scopes grant notion:pages:search
+        assert "notion:pages:search" in perms
+        # Total should be unique set
+        assert len(perms) == 2
+    
+    def test_empty_scopes(self):
+        """Empty scope list returns empty set."""
+        perms = ScopeMapper.get_permissions_for_scopes("notion", [])
+        assert perms == set()
+    
+    def test_all_unknown_scopes(self):
+        """All unknown scopes returns empty set."""
+        perms = ScopeMapper.get_permissions_for_scopes(
+            "notion", ["unknown1", "unknown2"]
+        )
+        assert perms == set()
+    
+    def test_mixed_known_unknown_scopes(self):
+        """Mix of known and unknown scopes returns only known permissions."""
+        perms = ScopeMapper.get_permissions_for_scopes(
+            "notion", ["read_pages", "unknown_scope"]
+        )
+        assert "notion:pages:read" in perms
+        assert "notion:pages:search" in perms
+        assert len(perms) == 2
+
+
+class TestGetAllAllowedPermissions:
+    """Test all allowed permissions across services."""
+    
+    def test_single_service(self):
+        """Single service with single scope."""
+        allowed = ScopeMapper.get_all_allowed_permissions([
+            ("notion", ["read_pages"])
+        ])
+        assert "notion:pages:read" in allowed
+        assert "notion:pages:search" in allowed
+    
+    def test_multiple_services(self):
+        """Multiple services combine permissions."""
+        allowed = ScopeMapper.get_all_allowed_permissions([
+            ("notion", ["read_pages"]),
+            ("slack", ["channels:read"]),
+        ])
+        assert "notion:pages:read" in allowed
+        assert "notion:pages:search" in allowed
+        assert "slack:channels:list" in allowed
+    
+    def test_empty_connected_services(self):
+        """No connected services returns empty set."""
+        allowed = ScopeMapper.get_all_allowed_permissions([])
+        assert allowed == set()
+
+
+class TestValidatePermissions:
+    """Test permission validation."""
+    
+    def test_valid_permissions(self):
+        """All requested permissions are valid."""
+        is_valid, invalid = ScopeMapper.validate_permissions(
+            ["notion:pages:search"],
+            [("notion", ["read_pages"])],
+        )
+        assert is_valid is True
+        assert invalid == []
+    
+    def test_invalid_permission(self):
+        """Single invalid permission detected."""
+        is_valid, invalid = ScopeMapper.validate_permissions(
+            ["notion:pages:create"],  # Requires write scope
+            [("notion", ["read_pages"])],  # Only read scope
+        )
+        assert is_valid is False
+        assert "notion:pages:create" in invalid
+    
+    def test_mixed_valid_invalid(self):
+        """Mix of valid and invalid returns only invalid ones."""
+        is_valid, invalid = ScopeMapper.validate_permissions(
+            ["notion:pages:search", "notion:pages:create"],
+            [("notion", ["read_pages"])],
+        )
+        assert is_valid is False
+        assert invalid == ["notion:pages:create"]
+        assert "notion:pages:search" not in invalid
+    
+    def test_multiple_invalid_permissions(self):
+        """Multiple invalid permissions all returned."""
+        is_valid, invalid = ScopeMapper.validate_permissions(
+            ["notion:pages:create", "notion:pages:delete", "slack:messages:send"],
+            [("notion", ["read_pages"])],  # No write permissions, no Slack
+        )
+        assert is_valid is False
+        assert len(invalid) == 3
+        assert "notion:pages:create" in invalid
+        assert "notion:pages:delete" in invalid
+        assert "slack:messages:send" in invalid
+    
+    def test_cross_service_validation(self):
+        """Validation works across multiple services."""
+        is_valid, invalid = ScopeMapper.validate_permissions(
+            ["notion:pages:search", "slack:channels:list"],
+            [("notion", ["read_pages"]), ("slack", ["channels:read"])],
+        )
+        assert is_valid is True
+        assert invalid == []
+    
+    def test_empty_requested_permissions(self):
+        """Empty requested permissions are valid."""
+        is_valid, invalid = ScopeMapper.validate_permissions(
+            [],
+            [("notion", ["read_pages"])],
+        )
+        assert is_valid is True
+        assert invalid == []
+    
+    def test_no_connected_services(self):
+        """All permissions invalid when no services connected."""
+        is_valid, invalid = ScopeMapper.validate_permissions(
+            ["notion:pages:search"],
+            [],
+        )
+        assert is_valid is False
+        assert invalid == ["notion:pages:search"]
+
+
+class TestGetAvailablePermissionsByService:
+    """Test available permissions helper."""
+    
+    def test_grouped_by_service(self):
+        """Permissions grouped by service."""
+        result = ScopeMapper.get_available_permissions_by_service([
+            ("notion", ["read_pages"]),
+            ("slack", ["channels:read"]),
+        ])
+        
+        assert "notion" in result
+        assert "slack" in result
+        assert "notion:pages:read" in result["notion"]
+        assert "notion:pages:search" in result["notion"]
+        assert "slack:channels:list" in result["slack"]
+    
+    def test_single_service(self):
+        """Single service returns single key."""
+        result = ScopeMapper.get_available_permissions_by_service([
+            ("notion", ["read_pages"]),
+        ])
+        
+        assert list(result.keys()) == ["notion"]
+        assert "notion:pages:read" in result["notion"]
+    
+    def test_permissions_are_sorted(self):
+        """Permissions are sorted alphabetically."""
+        result = ScopeMapper.get_available_permissions_by_service([
+            ("notion", ["full_access"]),
+        ])
+        
+        perms = result["notion"]
+        assert perms == sorted(perms)
+    
+    def test_empty_connected_services(self):
+        """Empty connected services returns empty dict."""
+        result = ScopeMapper.get_available_permissions_by_service([])
+        assert result == {}
+    
+    def test_unknown_service_excluded(self):
+        """Unknown services are excluded from result."""
+        result = ScopeMapper.get_available_permissions_by_service([
+            ("unknown_service", ["some_scope"]),
+        ])
+        assert result == {}
+
+
+class TestGetSupportedServices:
+    """Test supported services listing."""
+    
+    def test_returns_all_services(self):
+        """Returns all configured services."""
+        services = ScopeMapper.get_supported_services()
+        assert "notion" in services
+        assert "slack" in services
+        assert "hubspot" in services
+    
+    def test_exactly_three_services(self):
+        """Currently supports exactly 3 services."""
+        services = ScopeMapper.get_supported_services()
+        assert len(services) == 3
+
+
+class TestGetSupportedScopes:
+    """Test supported scopes listing."""
+    
+    def test_notion_scopes(self):
+        """Notion has expected scopes."""
+        scopes = ScopeMapper.get_supported_scopes("notion")
+        assert "read_content" in scopes
+        assert "read_pages" in scopes
+        assert "write_pages" in scopes
+    
+    def test_slack_scopes(self):
+        """Slack has expected scopes."""
+        scopes = ScopeMapper.get_supported_scopes("slack")
+        assert "channels:read" in scopes
+        assert "chat:write" in scopes
+        assert "search:read" in scopes
+    
+    def test_hubspot_scopes(self):
+        """HubSpot has expected scopes."""
+        scopes = ScopeMapper.get_supported_scopes("hubspot")
+        assert "crm.objects.contacts.read" in scopes
+        assert "crm.objects.contacts.write" in scopes
+    
+    def test_unknown_service_returns_empty(self):
+        """Unknown service returns empty list."""
+        scopes = ScopeMapper.get_supported_scopes("unknown_service")
+        assert scopes == []
+    
+    def test_case_insensitive(self):
+        """Service ID is case-insensitive."""
+        scopes_lower = ScopeMapper.get_supported_scopes("notion")
+        scopes_upper = ScopeMapper.get_supported_scopes("NOTION")
+        assert scopes_lower == scopes_upper
+
+
+class TestGetAllPermissionsForService:
+    """Test getting all permissions for a service."""
+    
+    def test_notion_all_permissions(self):
+        """Notion has all expected permissions."""
+        perms = ScopeMapper.get_all_permissions_for_service("notion")
+        assert "notion:pages:read" in perms
+        assert "notion:pages:search" in perms
+        assert "notion:pages:create" in perms
+        assert "notion:pages:update" in perms
+        assert "notion:pages:delete" in perms
+        assert "notion:databases:list" in perms
+        assert "notion:databases:query" in perms
+    
+    def test_slack_all_permissions(self):
+        """Slack has all expected permissions."""
+        perms = ScopeMapper.get_all_permissions_for_service("slack")
+        assert "slack:channels:list" in perms
+        assert "slack:messages:search" in perms
+        assert "slack:messages:send" in perms
+        assert "slack:users:list" in perms
+        assert "slack:reactions:write" in perms
+    
+    def test_hubspot_all_permissions(self):
+        """HubSpot has all expected permissions."""
+        perms = ScopeMapper.get_all_permissions_for_service("hubspot")
+        assert "hubspot:contacts:read" in perms
+        assert "hubspot:contacts:list" in perms
+        assert "hubspot:contacts:create" in perms
+        assert "hubspot:contacts:update" in perms
+        assert "hubspot:deals:list" in perms
+        assert "hubspot:deals:create" in perms
+        assert "hubspot:deals:update" in perms
+    
+    def test_unknown_service_returns_empty(self):
+        """Unknown service returns empty set."""
+        perms = ScopeMapper.get_all_permissions_for_service("unknown")
+        assert perms == set()
+
+
+class TestPermissionConsistency:
+    """Test that permission strings are consistent with Gateway PermissionMapper."""
+    
+    # These are the permission strings used by Gateway's PermissionMapper
+    # If these tests fail, the permission strings have drifted
+    
+    def test_notion_permissions_match_gateway(self):
+        """Notion permissions match Gateway's PermissionMapper."""
+        expected = {
+            "notion:pages:search",
+            "notion:pages:read",
+            "notion:pages:create",
+            "notion:pages:update",
+            "notion:pages:delete",
+            "notion:databases:list",
+            "notion:databases:query",
+        }
+        actual = ScopeMapper.get_all_permissions_for_service("notion")
+        assert expected == actual
+    
+    def test_slack_permissions_match_gateway(self):
+        """Slack permissions match Gateway's PermissionMapper."""
+        expected = {
+            "slack:messages:search",
+            "slack:messages:send",
+            "slack:channels:list",
+            "slack:channels:join",
+            "slack:reactions:write",
+            "slack:users:list",
+        }
+        actual = ScopeMapper.get_all_permissions_for_service("slack")
+        assert expected == actual
+    
+    def test_hubspot_permissions_match_gateway(self):
+        """HubSpot permissions match Gateway's PermissionMapper."""
+        expected = {
+            "hubspot:contacts:read",
+            "hubspot:contacts:create",
+            "hubspot:contacts:update",
+            "hubspot:contacts:list",
+            "hubspot:deals:list",
+            "hubspot:deals:create",
+            "hubspot:deals:update",
+        }
+        actual = ScopeMapper.get_all_permissions_for_service("hubspot")
+        assert expected == actual

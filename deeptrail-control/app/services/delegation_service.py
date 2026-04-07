@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.models.connected_service import ConnectedService
 from app.models.delegation import DelegationToken
+from app.services.scope_mapper import ScopeMapper
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,24 @@ class DelegationError(Exception):
 
 
 class PermissionValidationError(DelegationError):
-    """Raised when requested permissions fail validation."""
+    """Raised when requested permissions fail validation.
 
-    pass
+    Attributes:
+        message: Human-readable error message
+        invalid_permissions: List of permissions that were not allowed
+        allowed_permissions: List of permissions that are allowed
+    """
+
+    def __init__(
+        self,
+        message: str,
+        invalid_permissions: Optional[List[str]] = None,
+        allowed_permissions: Optional[List[str]] = None,
+    ):
+        super().__init__(message)
+        self.message = message
+        self.invalid_permissions = invalid_permissions or []
+        self.allowed_permissions = allowed_permissions or []
 
 
 class DelegationNotFoundError(DelegationError):
@@ -134,18 +150,21 @@ class DelegationService:
         self,
         delegator: str,
         requested_permissions: List[str],
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, Optional[str], List[str], List[str]]:
         """Validate that requested permissions are subset of user's scopes.
 
         Enforces the Monotonic Attenuation principle: agent permissions must
         be a subset of the delegator's connected service scopes.
+
+        Uses ScopeMapper to validate that requested permissions are allowed
+        by the OAuth scopes the user granted when connecting services.
 
         Args:
             delegator: User ID (e.g., "sarah@acme.com")
             requested_permissions: List of permissions to delegate
 
         Returns:
-            Tuple of (is_valid, reason_if_invalid)
+            Tuple of (is_valid, reason_if_invalid, invalid_permissions, allowed_permissions)
         """
         # Get all user's active connected services
         connections = (
@@ -158,30 +177,31 @@ class DelegationService:
         )
 
         if not connections:
-            return False, "User has no connected services"
+            return False, "User has no connected services", [], []
 
-        # Build map of connected services and their scopes
-        connected_services = {}
-        for conn in connections:
-            connected_services[conn.service_id] = set(conn.scopes_granted or [])
+        # Build list of (service_id, scopes) for ScopeMapper
+        connected_services = [
+            (conn.service_id, conn.scopes_granted or [])
+            for conn in connections
+        ]
 
-        # Validate each requested permission
-        for perm in requested_permissions:
-            parts = perm.split(":")
-            if len(parts) < 2:
-                return False, f"Invalid permission format: {perm}"
+        # Validate each requested permission using ScopeMapper
+        is_valid, invalid_perms = ScopeMapper.validate_permissions(
+            requested_permissions,
+            connected_services,
+        )
 
-            service = parts[0]
+        if not is_valid:
+            # Get allowed permissions for error message
+            allowed = ScopeMapper.get_all_allowed_permissions(connected_services)
+            return (
+                False,
+                f"Permissions not allowed by connected scopes: {invalid_perms}",
+                invalid_perms,
+                sorted(list(allowed)),
+            )
 
-            # Check if user has this service connected
-            if service not in connected_services:
-                return False, f"User not connected to service: {service}"
-
-            # For MVP: Allow any permission if service is connected
-            # In production, would check against specific scopes
-            # e.g., "notion:pages:search" requires "pages:search" scope
-
-        return True, None
+        return True, None, [], []
 
     def create_delegation(
         self,
@@ -217,14 +237,21 @@ class DelegationService:
             PermissionValidationError: If permissions validation fails
         """
         # Validate permissions are subset of user's connected scopes
-        is_valid, reason = self._validate_permissions_subset(delegator, permissions)
+        is_valid, reason, invalid_perms, allowed_perms = self._validate_permissions_subset(
+            delegator, permissions
+        )
         if not is_valid:
             logger.warning(
-                "Permission validation failed: delegator=%s reason=%s",
+                "Permission validation failed: delegator=%s reason=%s invalid=%s",
                 delegator,
                 reason,
+                invalid_perms,
             )
-            raise PermissionValidationError(f"Permission validation failed: {reason}")
+            raise PermissionValidationError(
+                message=reason or "Permission validation failed",
+                invalid_permissions=invalid_perms,
+                allowed_permissions=allowed_perms,
+            )
 
         # Check for existing active delegation and revoke it
         existing = self.get_active_delegation(delegator, agent_id)

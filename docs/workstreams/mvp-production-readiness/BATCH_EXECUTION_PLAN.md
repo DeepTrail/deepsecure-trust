@@ -4,9 +4,9 @@
 >
 > **Source Plan:** [mvp_production_readiness.plan.md](../../../.cursor/plans/mvp_production_readiness.plan.md)
 >
-> **Last Updated:** February 22, 2026
+> **Last Updated:** February 23, 2026
 >
-> **Latest Change:** Added Phase 1.5 (Integration Bug Fixes) - 6 tasks to fix issues found during Integration Validation Guide testing
+> **Latest Change:** Worktree sync - P1.5-B1 complete (6/6 tasks), MP3.5 reached, Phase 2 unblocked
 
 ---
 
@@ -21,11 +21,11 @@
 | P1-B1 | 3 | 3 ✅ | 1 | ✅ Complete | mvp-prod-control, mvp-prod-gateway |
 | P1-B2 | 7 | 7 ✅ | 1 | ✅ Complete (MP2!) | mvp-prod-control, mvp-prod-gateway |
 | P1-B3 | 2 | 2 ✅ | 2 | ✅ Complete (MP3!) | mvp-prod-gateway |
-| **P1.5-B1** | 6 | 0 | 2 | ⏳ **NEW** Bug Fixes | mvp-prod-control, mvp-prod-gateway |
+| **P1.5-B1** | 6 | 6 ✅ | 2 | ✅ Complete (MP3.5!) | mvp-prod-control, mvp-prod-gateway |
 | P2-B1 | 4 | 0 | 1 | ⏳ Pending | mvp-prod-control, mvp-prod-gateway |
 | P2-B2 | 4 | 0 | 2 | ⏳ Pending | mvp-prod-control, mvp-prod-gateway |
 
-**Total Tasks:** 37 | **Completed:** 23 (P0 + P1) | **Remaining:** 14 (P1.5 + P2)
+**Total Tasks:** 37 | **Completed:** 29 (P0 + P1 + P1.5) | **Remaining:** 8 (P2)
 
 ---
 
@@ -62,7 +62,7 @@ cp -r .cursor ../mvp-prod-gateway/
 │  PHASE 0 (E2E)      PHASE 1 (Integration)     P1.5 (Bug Fixes)    PHASE 2 (Harden)           │
 │  ──────────────     ─────────────────────     ────────────────    ────────────────           │
 │  P0-B1 │...│ P0-B4 │ P1-B1 │ P1-B2 │ P1-B3 │    P1.5-B1       │ P2-B1 │ P2-B2 │            │
-│   ✅   │ ✅ │  ✅   │  ✅   │  ✅   │  ✅   │      ⏳          │  ⏳   │  ⏳   │            │
+│   ✅   │ ✅ │  ✅   │  ✅   │  ✅   │  ✅   │      ✅          │  ⏳   │  ⏳   │            │
 │                    [MP1]         [MP2]  [MP3]                 [MP3.5]                        │
 │                                                                                               │
 │  Phase 1.5 addresses bugs found during Integration Validation Guide testing (Steps 1-18)     │
@@ -1703,18 +1703,18 @@ These issues must be fixed before Phase 2 (Production Hardening) can proceed.
 
 ---
 
-### Batch P1.5-B1: Integration Bug Fixes (6 tasks) - MP3.5
+### Batch P1.5-B1: Integration Bug Fixes (6 tasks) - MP3.5 ✅ COMPLETE
 
 ### Dependencies
 
-| Task | Description | Dependencies | Worktree | Status | Spec |
-|------|-------------|--------------|----------|--------|------|
-| WS-J2 | Fix tool name derivation and cache alignment | MP3 | mvp-prod-gateway | ⏳ | [WS-J2-spec.md](./specs/WS-J2-spec.md) |
-| WS-K1 | Persistent Vault - Store OAuth tokens in PostgreSQL | MP3 | mvp-prod-control | ⏳ | [WS-K1-spec.md](./specs/WS-K1-spec.md) |
-| WS-K2 | Cache Invalidation via Redis Pub/Sub | WS-K1 | mvp-prod-control, mvp-prod-gateway | ⏳ | [WS-K2-spec.md](./specs/WS-K2-spec.md) |
-| WS-K3 | Scope-to-Permission Mapper | MP3 | mvp-prod-control | ⏳ | [WS-K3-spec.md](./specs/WS-K3-spec.md) |
-| WS-K4 | Delegation Permission Validation | WS-K3 | mvp-prod-control | ⏳ | [WS-K4-spec.md](./specs/WS-K4-spec.md) |
-| WS-K5 | Available Permissions Endpoint | WS-K3 | mvp-prod-control | ⏳ | [WS-K5-spec.md](./specs/WS-K5-spec.md) |
+| Task | Description | Dependencies | Worktree | Status | Report |
+|------|-------------|--------------|----------|--------|--------|
+| WS-J2 | Fix tool name derivation and cache alignment | MP3 | mvp-prod-gateway | ✅ | [Report](./reports/WS-J2-completion.md) |
+| WS-K1 | Persistent Vault - Store OAuth tokens in PostgreSQL | MP3 | mvp-prod-control | ✅ | [Report](./reports/WS-K1-completion.md) |
+| WS-K2 | Cache Invalidation via Redis Pub/Sub | WS-K1 | mvp-prod-control, mvp-prod-gateway | ✅ | [Report](./reports/WS-K2-completion.md) |
+| WS-K3 | Scope-to-Permission Mapper | MP3 | mvp-prod-control | ✅ | [Report](./reports/WS-K3-completion.md) |
+| WS-K4 | Delegation Permission Validation | WS-K3 | mvp-prod-control | ✅ | [Report](./reports/WS-K4-completion.md) |
+| WS-K5 | Available Permissions Endpoint | WS-K3 | mvp-prod-control | ✅ | [Report](./reports/WS-K5-completion.md) |
 
 ### Wave Analysis
 
@@ -2188,7 +2188,7 @@ echo "✅ P2 Validation Complete - Production Ready"
 | P1-B1 | 3 | 1 | 100% | ✅ Yes | ✅ Complete |
 | P1-B2 | 7 | 1 | 100% | ✅ Yes | ✅ Complete (MP2) |
 | P1-B3 | 2 | 2 | 0% | No (gateway only) | ✅ Complete (MP3) |
-| **P1.5-B1** | 6 | 2 | 50% | ✅ Yes | ⏳ **NEW** (MP3.5) |
+| **P1.5-B1** | 6 | 2 | 50% | ✅ Yes | ✅ Complete (MP3.5) |
 | P2-B1 | 4 | 1 | 100% | ✅ Yes | ⏳ Pending |
 | P2-B2 | 4 | 2 | 75% | ✅ Yes | ⏳ Pending |
 
@@ -2199,7 +2199,7 @@ echo "✅ P2 Validation Complete - Production Ready"
 | MP1 | P0-B4 | D1 + D2 | Verify E2E demo passes | ✅ Reached |
 | MP2 | P1-B2 | E2 + E3 | Vault API ready | ✅ Reached |
 | MP3 | P1-B3 | H1 + H2 | Verify credential injection works | ✅ Reached |
-| **MP3.5** | P1.5-B1 | WS-J2 + WS-K1-K5 | Integration bugs fixed, re-test Steps 1-18 | ⏳ **NEW** |
+| **MP3.5** | P1.5-B1 | WS-J2 + WS-K1-K5 | Integration bugs fixed, re-test Steps 1-18 | ✅ Reached |
 | MP4 | P2-B2 | All P2 | Final merge to dev, production deployment | ⏳ Pending |
 
 ### Total Commands Needed

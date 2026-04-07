@@ -11,6 +11,18 @@ from .delegation import DelegationToken  # noqa
 from .nonce import Nonce  # noqa
 from .policy import Policy  # noqa
 from .user_session import UserSession  # noqa
+from .vault_token import VaultToken  # noqa
+from .task_token import (  # noqa
+    Task,
+    ScopedPermission,
+    TaskStatus,
+    generate_task_id,
+    generate_scoped_permission_id,
+    ScopedPermissionRequest,
+    TaskCreate,
+    TaskResponse,
+    TaskTokenResponse,
+)
 
 __all__ = [
     "Agent",
@@ -25,5 +37,15 @@ __all__ = [
     "PartyType",
     "PlatformType",
     "Policy",
+    "ScopedPermission",
+    "ScopedPermissionRequest",
+    "Task",
+    "TaskCreate",
+    "TaskResponse",
+    "TaskStatus",
+    "TaskTokenResponse",
     "UserSession",
+    "VaultToken",
+    "generate_scoped_permission_id",
+    "generate_task_id",
 ] 

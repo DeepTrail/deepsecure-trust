@@ -482,6 +482,43 @@ class TestCaching:
         assert "vault://ref-1" not in injector._token_cache
         assert "vault://ref-2" in injector._token_cache
 
+    def test_invalidate_user_service(self, injector):
+        """K2: Should be able to invalidate all tokens for user+service."""
+        # Set up cache with user+service tracking
+        injector._token_cache["vault://sarah-notion-1"] = ({"token": "a"}, time.time())
+        injector._token_cache["vault://sarah-notion-2"] = ({"token": "b"}, time.time())
+        injector._token_cache["vault://sarah-slack-1"] = ({"token": "c"}, time.time())
+        injector._token_cache["vault://bob-notion-1"] = ({"token": "d"}, time.time())
+        
+        # Set up tracking
+        injector._ref_to_user_service["vault://sarah-notion-1"] = ("sarah@acme.com", "notion")
+        injector._ref_to_user_service["vault://sarah-notion-2"] = ("sarah@acme.com", "notion")
+        injector._ref_to_user_service["vault://sarah-slack-1"] = ("sarah@acme.com", "slack")
+        injector._ref_to_user_service["vault://bob-notion-1"] = ("bob@acme.com", "notion")
+        
+        # Invalidate sarah's notion tokens
+        injector.invalidate_user_service("sarah@acme.com", "notion")
+        
+        # Only sarah's notion tokens should be gone
+        assert "vault://sarah-notion-1" not in injector._token_cache
+        assert "vault://sarah-notion-2" not in injector._token_cache
+        assert "vault://sarah-slack-1" in injector._token_cache
+        assert "vault://bob-notion-1" in injector._token_cache
+        
+        # Tracking should also be cleaned up
+        assert "vault://sarah-notion-1" not in injector._ref_to_user_service
+        assert "vault://sarah-notion-2" not in injector._ref_to_user_service
+
+    def test_clear_cache_also_clears_tracking(self, injector):
+        """K2: clear_cache should also clear user+service tracking."""
+        injector._token_cache["vault://ref-1"] = ({"token": "a"}, time.time())
+        injector._ref_to_user_service["vault://ref-1"] = ("user@test.com", "notion")
+        
+        injector.clear_cache()
+        
+        assert len(injector._token_cache) == 0
+        assert len(injector._ref_to_user_service) == 0
+
     def test_get_cache_stats(self, injector):
         """C7: Should return cache statistics."""
         injector._token_cache["vault://ref-1"] = ({"token": "a"}, time.time())

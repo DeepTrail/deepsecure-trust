@@ -10,7 +10,7 @@ MVP Simplification: Tokens stored in-memory vault only (no database table).
 
 import logging
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Header, status
@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 
 from app.api import deps
 from app.services.vault_client import VaultClient
+from app.services.scope_mapper import ScopeMapper
+from app.services.cache_events import publish_service_disconnected
 from app.models.connected_service import ConnectedService
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,37 @@ class ConnectServiceResponseModel(BaseModel):
 
     success: bool
     connection: ConnectedServiceResponse
+
+
+class ServicePermissions(BaseModel):
+    """Permissions available for a single connected service."""
+
+    connected: bool = True
+    service_name: Optional[str] = None
+    scopes_granted: List[str] = Field(default_factory=list)
+    available_permissions: List[str] = Field(default_factory=list)
+    connected_at: Optional[str] = None
+
+
+class AvailablePermissionsResponse(BaseModel):
+    """Response for available permissions endpoint."""
+
+    services: Dict[str, ServicePermissions] = Field(
+        default_factory=dict,
+        description="Map of service_id to permissions info",
+    )
+    all_permissions: List[str] = Field(
+        default_factory=list,
+        description="Flat list of all available permissions",
+    )
+    total_services: int = Field(
+        default=0,
+        description="Number of connected services",
+    )
+    total_permissions: int = Field(
+        default=0,
+        description="Total unique permissions available",
+    )
 
 
 # =============================================================================
@@ -178,8 +211,8 @@ def connect_service(
         if request.oauth_token.scope:
             oauth_response["scope"] = request.oauth_token.scope
 
-        # Store token in vault
-        token_ref = vault.store_token(current_user, request.service_id, oauth_response)
+        # Store token in vault (with db for persistence)
+        token_ref = vault.store_token(current_user, request.service_id, oauth_response, db=db)
 
         # Service name mapping
         service_names = {
@@ -257,3 +290,122 @@ def connect_service(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to connect service: {str(e)}",
         )
+
+
+@router.get(
+    "/me/available-permissions",
+    response_model=AvailablePermissionsResponse,
+    summary="Get available permissions for delegation",
+    description="""
+    Returns all permissions the user can delegate based on their connected services.
+    
+    This helps users discover what permissions they can grant to agents without
+    having to know the permission string format.
+    
+    **Use case:** Before creating a delegation, UI can show a picker of available
+    permissions instead of requiring manual input.
+    """,
+)
+def get_available_permissions(
+    current_user: CurrentUserDep,
+    db: deps.DbDep,
+) -> AvailablePermissionsResponse:
+    """Get all permissions available for delegation based on connected services.
+
+    Returns:
+        AvailablePermissionsResponse with services map and flat permission list
+    """
+    # Get all active connected services for user
+    connections = (
+        db.query(ConnectedService)
+        .filter(
+            ConnectedService.user_id == current_user,
+            ConnectedService.disconnected_at.is_(None),
+        )
+        .all()
+    )
+
+    services: Dict[str, ServicePermissions] = {}
+    all_permissions: set = set()
+
+    for conn in connections:
+        # Get permissions for this service's scopes
+        scopes = conn.scopes_granted or []
+        perms = ScopeMapper.get_permissions_for_scopes(conn.service_id, scopes)
+
+        services[conn.service_id] = ServicePermissions(
+            connected=True,
+            service_name=conn.service_name,
+            scopes_granted=scopes,
+            available_permissions=sorted(list(perms)),
+            connected_at=conn.connected_at.isoformat() if conn.connected_at else None,
+        )
+
+        all_permissions.update(perms)
+
+    return AvailablePermissionsResponse(
+        services=services,
+        all_permissions=sorted(list(all_permissions)),
+        total_services=len(services),
+        total_permissions=len(all_permissions),
+    )
+
+
+class DisconnectServiceResponse(BaseModel):
+    """Response after disconnecting a service."""
+
+    success: bool
+    service_id: str
+    message: str
+
+
+@router.delete(
+    "/me/services/{service_id}",
+    response_model=DisconnectServiceResponse,
+    summary="Disconnect a backend service",
+    description="""
+    Disconnect a backend service from the user's account.
+    
+    This marks the service as disconnected but preserves the connection record
+    for audit purposes. The token remains in the vault but is invalidated.
+    
+    Publishes a cache invalidation event so Gateway clears cached tokens.
+    """,
+)
+def disconnect_service(
+    service_id: str,
+    current_user: CurrentUserDep,
+    db: deps.DbDep,
+) -> DisconnectServiceResponse:
+    """Disconnect a backend service for the current user."""
+    # Find the connection
+    connection = db.query(ConnectedService).filter(
+        ConnectedService.user_id == current_user,
+        ConnectedService.service_id == service_id,
+        ConnectedService.disconnected_at.is_(None),
+    ).first()
+
+    if not connection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Service '{service_id}' not connected or already disconnected",
+        )
+
+    # Mark as disconnected (soft delete)
+    connection.disconnected_at = datetime.now(timezone.utc)
+    db.commit()
+
+    # Remove from in-memory storage for backward compatibility
+    if current_user in _connected_services:
+        _connected_services[current_user].pop(service_id, None)
+
+    # Publish cache invalidation event
+    publish_service_disconnected(current_user, service_id)
+
+    logger.info(f"User {current_user} disconnected service {service_id}")
+
+    return DisconnectServiceResponse(
+        success=True,
+        service_id=service_id,
+        message=f"Service '{service_id}' disconnected successfully",
+    )

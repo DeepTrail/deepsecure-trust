@@ -152,7 +152,7 @@ async def get_token_for_service(
         )
 
     token_ref = connection.oauth_token_ref
-    token_data = vault_client.retrieve_token(token_ref)
+    token_data = vault_client.retrieve_token(token_ref, db=db)
 
     if not token_data:
         logger.warning(
@@ -324,7 +324,7 @@ async def refresh_token(
         )
 
     token_ref = connection.oauth_token_ref
-    token_data = vault_client.retrieve_token(token_ref, update_usage=False)
+    token_data = vault_client.retrieve_token(token_ref, update_usage=False, db=db)
 
     if not token_data:
         logger.warning(
