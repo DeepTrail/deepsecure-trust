@@ -66,6 +66,9 @@ from .mcp.session_manager import MCPSessionManager
 from .mcp.tool_cache import ToolCache
 from .security.fail_closed import configure_health_checker
 from .middleware.audit import configure_audit_middleware
+from .middleware.result_filter import configure_result_filter
+from .security.prompt_injection import configure_prompt_injection_detector
+from .security.token_exchange import configure_token_exchange_client, TokenExchangeConfig
 from .middleware.credential_injection import get_credential_injector, configure_credential_injector
 from .middleware.result_filter import configure_result_filter
 from .security.prompt_injection import configure_prompt_injection_detector

@@ -11,6 +11,8 @@ from app.api.v1.endpoints import (
     internal,
     oauth,
     policies,
+    sso,
+    tasks,
     users,
     vault,
 )
@@ -35,4 +37,6 @@ api_router.include_router(
 api_router.include_router(internal.router, prefix="/internal", tags=["internal"], include_in_schema=False)
 api_router.include_router(bootstrap.router, prefix="/bootstrap", tags=["bootstrap"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
-api_router.include_router(oauth.router, prefix="/oauth", tags=["oauth"]) 
+api_router.include_router(oauth.router, prefix="/oauth", tags=["oauth"])
+api_router.include_router(sso.router, prefix="/auth/sso", tags=["sso"])
+api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
