@@ -36,10 +36,10 @@ todos:
     content: Implement token refresh in CredentialInjector
     status: pending
   - id: p2-1
-    content: Implement Enterprise IdP integration (Okta/Entra ID)
+    content: "Implement IdP service: OIDC provider abstraction (OIDCProvider protocol) with KeycloakProvider dev implementation + Keycloak in docker-compose (WS-L1)"
     status: pending
   - id: p2-2
-    content: Implement Keycloak token exchange (RFC 8693)
+    content: "Implement Keycloak token exchange (RFC 8693) - reuses Keycloak instance from WS-L1 (WS-J6)"
     status: pending
   - id: p2-3
     content: Implement result filtering (PII masking)
@@ -86,7 +86,7 @@ The E2E demo (`demos/demo_sarah_journey_e2e.py`) is blocked by **two missing end
 - Use existing `UserSession` model from `app/models/user_session.py`
 - Generate user session token (JWT or simple token)
 - MVP: Basic password validation (hardcoded or config-based)
-- Production: Integrate with IdP
+- Production: Integrate with IdP via OIDCProvider abstraction (WS-L1)
 
 ### P0-2: Add Service Connection Endpoint
 
@@ -209,32 +209,42 @@ Replace mock implementations with real OAuth and backend MCP connections.
 
 ## Phase 2 (P2): Production Hardening
 
-### P2-1: Enterprise IdP Integration (Okta/Entra ID)
+### P2-1: IdP Service — OIDC Abstraction + Keycloak (WS-L1)
+
+**Approach: Option C** — Keycloak as dev-time IdP, generic OIDC abstraction for production swappability (Okta, Entra ID).
 
 **Files:**
 
-- `deeptrail-control/app/services/idp_service.py` (new)
-- `deeptrail-control/app/api/v1/endpoints/sso.py` (new)
+- `deeptrail-control/app/services/idp_service.py` (new) — `OIDCProvider` protocol + factory
+- `deeptrail-control/app/services/providers/__init__.py` (new)
+- `deeptrail-control/app/services/providers/keycloak.py` (new) — `KeycloakProvider` implementation
+- `deeptrail-control/app/services/providers/okta.py` (new) — `OktaProvider` stub (future)
+- `deeptrail-control/app/services/providers/entra.py` (new) — `EntraIDProvider` stub (future)
+- `deeptrail-control/app/core/idp_config.py` (new) — IdP configuration model
+- `docker-compose.yml` (modify) — Add Keycloak service
+- `config/keycloak/deepsecure-realm.json` (new) — Pre-configured realm
 
-**Endpoints:**
+**Endpoints (created in WS-L2, not L1):**
 
-- `GET /api/v1/auth/sso/{idp}/authorize` - Redirect to IdP
+- `GET /api/v1/auth/sso/{idp}/authorize` - Redirect to IdP via Keycloak
 - `GET /api/v1/auth/sso/{idp}/callback` - Handle OIDC callback
 - `POST /api/v1/auth/sso/logout` - SSO logout
 
 **Implementation:**
 
-- OIDC client library integration
-- User provisioning from IdP claims
-- Group-to-role mapping
-- Automatic session invalidation on IdP changes
+- Generic `OIDCProvider` protocol: `get_authorization_url()`, `exchange_code()`, `validate_token()`, `get_user_info()`, `refresh_token()`
+- `KeycloakProvider` as initial/dev implementation
+- Configuration selects provider: `IDP_PROVIDER=keycloak`, `IDP_ISSUER_URL=http://localhost:8080/realms/deepsecure`
+- User provisioning from OIDC claims (sub, email, groups)
+- Keycloak realm with `deepsecure` realm, `gateway` + `control-plane` clients, test users
+- Unit tests mock the `OIDCProvider`; integration tests use Keycloak container
 
-### P2-2: Keycloak Token Exchange (RFC 8693)
+### P2-2: Keycloak Token Exchange — RFC 8693 (WS-J6)
 
 **Files:**
 
 - `deeptrail-gateway/app/security/token_exchange.py` (new)
-- Deploy Keycloak instance
+- Reuses Keycloak instance deployed in WS-L1 (no additional infrastructure)
 
 **Purpose:** Exchange Agent Session JWT for backend-specific OAuth tokens (instead of using stored user tokens directly)
 
@@ -289,7 +299,9 @@ Replace mock implementations with real OAuth and backend MCP connections.
 | `app/services/vault_client.py`          | Enhance              | P1       |
 | `app/api/v1/endpoints/oauth.py`         | Create               | P1       |
 | `app/services/oauth_service.py`         | Create               | P1       |
-| `app/services/idp_service.py`           | Create               | P2       |
+| `app/services/idp_service.py`           | Create               | P2 (WS-L1) |
+| `app/services/providers/keycloak.py`    | Create               | P2 (WS-L1) |
+| `app/core/idp_config.py`               | Create               | P2 (WS-L1) |
 
 
 ### Gateway (`deeptrail-gateway/`) Changes
@@ -326,7 +338,7 @@ After P1 completion:
 
 After P2 completion:
 
-- Enterprise SSO login working
+- Enterprise SSO login working (via Keycloak in dev, swappable to Okta/Entra in prod)
 - PII filtering active
 - Per-task permissions enforced
 

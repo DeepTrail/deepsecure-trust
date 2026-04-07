@@ -63,8 +63,8 @@ docs/workstreams/mvp-production-readiness/
 
 | Workstream | Tasks | Service | Description |
 |------------|-------|---------|-------------|
-| WS-I | 2 | Control | Enterprise IdP (Okta/Entra ID) |
-| WS-J | 3 | Gateway | Security hardening (PII, prompt injection) |
+| WS-L | 2 | Control | IdP Integration (OIDC abstraction + Keycloak dev) |
+| WS-J | 3 | Gateway | Security hardening (PII, prompt injection, Keycloak token exchange) |
 | WS-K | 3 | Control | Task Token system (per-task permissions) |
 
 ---
@@ -98,7 +98,7 @@ docs/workstreams/mvp-production-readiness/
 ```
 P0: A1 → A2 → A3 → C3 → D1 → D2 → [MP1]
 P1: E1 → E2 → H1 → H2 → [MP3]
-P2: I1 → I2 (parallel with J*, K*)
+P2: L1 → L2 (parallel with J*, K*)
 ```
 
 **Estimated Total:** 23-35 hours
@@ -123,7 +123,7 @@ python demos/demo_sarah_journey_interactive.py --auto
 
 ### P2 Complete
 
-- Enterprise SSO login via Okta/Entra ID
+- Enterprise SSO login via Keycloak (dev) / Okta/Entra ID (prod)
 - PII filtering active in responses
 - Per-task permissions enforced
 
@@ -150,6 +150,35 @@ python demos/demo_sarah_journey_interactive.py --auto
 | WS-G2 | [WS-G2-spec.md](./specs/WS-G2-spec.md) | [WS-G2-notion-rest-api-calls.md](./tasks/WS-G2-notion-rest-api-calls.md) | ✅ Complete | [Report](./reports/WS-G2-completion.md) |
 | WS-G3 | [WS-G3-spec.md](./specs/WS-G3-spec.md) | [WS-G3-slack-rest-api-calls.md](./tasks/WS-G3-slack-rest-api-calls.md) | ✅ Complete | [Report](./reports/WS-G3-completion.md) |
 | WS-G4 | [WS-G4-spec.md](./specs/WS-G4-spec.md) | [WS-G4-hubspot-rest-api-calls.md](./tasks/WS-G4-hubspot-rest-api-calls.md) | ✅ Complete | [Report](./reports/WS-G4-completion.md) |
+
+### Batch P1.5-B1 (Integration Bug Fixes) ✅ COMPLETE
+
+| Task ID | Spec | Status |
+|---------|------|--------|
+| WS-J2 | [WS-J2-spec.md](./specs/WS-J2-spec.md) | ✅ Complete |
+| WS-K1 | [WS-K1-spec.md](./specs/WS-K1-spec.md) | ✅ Complete |
+| WS-K2 | [WS-K2-spec.md](./specs/WS-K2-spec.md) | ✅ Complete |
+| WS-K3 | [WS-K3-spec.md](./specs/WS-K3-spec.md) | ✅ Complete |
+| WS-K4 | [WS-K4-spec.md](./specs/WS-K4-spec.md) | ✅ Complete |
+| WS-K5 | [WS-K5-spec.md](./specs/WS-K5-spec.md) | ✅ Complete |
+
+### Batch P2-B1 (Core Security Features) ✅ COMPLETE
+
+| Task ID | Spec | Ticket | Status |
+|---------|------|--------|--------|
+| WS-L1 | [WS-L1-spec.md](./specs/WS-L1-spec.md) | [WS-L1-create-idp-service.md](./tasks/WS-L1-create-idp-service.md) | ✅ Complete | [Report](./reports/WS-L1-completion.md) |
+| WS-J4 | [WS-J4-spec.md](./specs/WS-J4-spec.md) | [WS-J4-implement-result-filtering-pii.md](./tasks/WS-J4-implement-result-filtering-pii.md) | ✅ Complete | [Report](./reports/WS-J4-completion.md) |
+| WS-J5 | [WS-J5-spec.md](./specs/WS-J5-spec.md) | [WS-J5-implement-prompt-injection-detection.md](./tasks/WS-J5-implement-prompt-injection-detection.md) | ✅ Complete | [Report](./reports/WS-J5-completion.md) |
+| WS-K6 | [WS-K6-spec.md](./specs/WS-K6-spec.md) | [WS-K6-create-task-token-model.md](./tasks/WS-K6-create-task-token-model.md) | ✅ Complete | [Report](./reports/WS-K6-completion.md) |
+
+### Batch P2-B2 (Endpoints & Integration) — FINAL
+
+| Task ID | Spec | Ticket | Status |
+|---------|------|--------|--------|
+| WS-L2 | [WS-L2-spec.md](./specs/WS-L2-spec.md) | [WS-L2-create-sso-endpoints.md](./tasks/WS-L2-create-sso-endpoints.md) | ✅ Complete | [Report](./reports/WS-L2-completion.md) |
+| WS-J6 | [WS-J6-spec.md](./specs/WS-J6-spec.md) | [WS-J6-implement-keycloak-token-exchange.md](./tasks/WS-J6-implement-keycloak-token-exchange.md) | ✅ Complete | [Report](./reports/WS-J6-completion.md) |
+| WS-K7 | [WS-K7-spec.md](./specs/WS-K7-spec.md) | [WS-K7-create-task-service.md](./tasks/WS-K7-create-task-service.md) | ✅ Complete | [Report](./reports/WS-K7-completion.md) |
+| WS-K8 | [WS-K8-spec.md](./specs/WS-K8-spec.md) | [WS-K8-create-task-endpoints.md](./tasks/WS-K8-create-task-endpoints.md) | ✅ Complete | [Report](./reports/WS-K8-completion.md) |
 
 ---
 

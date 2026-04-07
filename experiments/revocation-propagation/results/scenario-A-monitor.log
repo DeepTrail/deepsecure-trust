@@ -1,0 +1,44 @@
+═══════════════════════════════════════════════════
+  PARENT TERMINATION MONITOR
+  Started: 09:05:55
+  Monitoring 3 transcripts
+  Kill attempt after: 60s
+═══════════════════════════════════════════════════
+[09:05:55] BASELINE — Alpha: 1L, Beta: 0L, Gamma: 1L
+
+[09:05:55] Phase 1: Monitoring growth for 60s before kill attempt...
+[09:06:10] PRE-KILL +0s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:06:25] PRE-KILL +15s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:06:40] PRE-KILL +30s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:06:55] PRE-KILL +45s — Alpha: 1L, Beta: 0L, Gamma: 1L
+
+═══════════════════════════════════════════════════
+  KILL ATTEMPT at 09:06:55
+═══════════════════════════════════════════════════
+[09:06:55] AT KILL TIME — Alpha: 1L, Beta: 0L, Gamma: 1L
+
+[09:06:55] Attempting to find and kill agent shell processes...
+[09:06:55] Found agent sleep process: PID=29404
+[09:06:55] PID 29404 not running (already completed)
+[09:06:55] Found agent sleep process: PID=40959
+[09:06:55] PID 40959 not running (already completed)
+[09:06:55] No killable agent processes found. Sub-agents may use internal scheduling.
+
+[09:06:55] Phase 2: Monitoring growth for 150s after kill attempt...
+[09:07:10] POST-KILL +0s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:07:25] POST-KILL +15s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:07:40] POST-KILL +30s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:07:55] POST-KILL +45s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:08:10] POST-KILL +60s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:08:25] POST-KILL +75s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:08:40] POST-KILL +90s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:08:55] POST-KILL +105s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:09:10] POST-KILL +120s — Alpha: 1L, Beta: 0L, Gamma: 1L
+[09:09:25] POST-KILL +135s — Alpha: 7L, Beta: 1L, Gamma: 3L
+
+═══════════════════════════════════════════════════
+  MONITORING COMPLETE at 09:09:25
+═══════════════════════════════════════════════════
+[09:09:25] FINAL — Alpha: 7L, Beta: 1L, Gamma: 3L
+
+Results saved to: /Users/imaxxs/repositories/deepsecure-mvp/experiments/revocation-propagation/results/scenario-A-monitor.log

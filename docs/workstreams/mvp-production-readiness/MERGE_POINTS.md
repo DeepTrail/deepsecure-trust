@@ -1483,7 +1483,7 @@ git push origin dev
 ### Purpose
 
 Full production hardening complete:
-- Enterprise IdP integration (Okta/Entra ID)
+- IdP integration via OIDC abstraction (Keycloak dev, Okta/Entra prod)
 - PII masking in responses
 - Prompt injection detection
 - Per-task permissions (Task Tokens)
@@ -1492,7 +1492,7 @@ Full production hardening complete:
 
 ```
 □ MP3.5 reached (P1.5 complete - integration bugs fixed)
-□ I1, I2 complete: Enterprise SSO working
+□ L1, L2 complete: Enterprise SSO working (via Keycloak OIDC)
 □ J4 complete: PII filtering active
 □ J5 complete: Prompt injection detection active
 □ J6 complete: Keycloak token exchange working
@@ -1509,8 +1509,8 @@ All P2 tasks:
 
 | Task | Description | Service | Status |
 |------|-------------|---------|--------|
-| I1 | Okta/Entra ID integration | Control | ⏳ Not Started |
-| I2 | SSO authentication flow | Control | ⏳ Not Started |
+| L1 | IdP service (OIDC abstraction + Keycloak) | Control | ⏳ Not Started |
+| L2 | SSO authentication flow | Control | ⏳ Not Started |
 | J4 | PII masking in responses | Gateway | ⏳ Not Started |
 | J5 | Prompt injection detection | Gateway | ⏳ Not Started |
 | J6 | Keycloak token exchange | Gateway | ⏳ Not Started |
@@ -1521,7 +1521,7 @@ All P2 tasks:
 ### Why It's a Merge Point
 
 MP4 marks the point where:
-1. **Enterprise authentication** works (Okta/Entra ID)
+1. **Enterprise authentication** works (OIDC via Keycloak, swappable to Okta/Entra)
 2. **Security hardening** is complete (PII masking, prompt injection detection)
 3. **Fine-grained permissions** via Task Tokens
 4. **Production deployment** is safe and validated
@@ -2017,20 +2017,22 @@ git push origin mp[N]-reached
 |-------------|-------------|--------|--------------|------------|
 | **MP1** | E2E Flow Verified | ✅ REACHED | Feb 16, 2026 | `demos/demo_sarah_journey_e2e.py` passes |
 | **MP2** | Vault API Ready | ✅ REACHED | Feb 17, 2026 | Token store/retrieve works |
-| **MP3** | P1 Complete | ⏳ NOT REACHED | - | Mocks replaced, real APIs |
+| **MP3** | P1 Complete | ✅ REACHED | Feb 18, 2026 | Mocks replaced, real APIs |
+| **MP3.5** | Integration Bugs Fixed | ✅ REACHED | Feb 23, 2026 | P1.5 bug fixes validated |
 | **MP4** | Production Ready | ⏳ NOT REACHED | - | Security hardening complete |
 
 ### Progress Summary
 
 ```
-Total Merge Points: 4
-Reached: 2 (50%)
-Remaining: 2 (50%)
+Total Merge Points: 5
+Reached: 4 (80%)
+Remaining: 1 (20%)
 
-MP1 ████████████████████ 100% ✅
-MP2 ████████████████████ 100% ✅
-MP3 ░░░░░░░░░░░░░░░░░░░░   0% ⏳
-MP4 ░░░░░░░░░░░░░░░░░░░░   0% ⏳
+MP1   ████████████████████ 100% ✅
+MP2   ████████████████████ 100% ✅
+MP3   ████████████████████ 100% ✅
+MP3.5 ████████████████████ 100% ✅
+MP4   ░░░░░░░░░░░░░░░░░░░░   0% ⏳
 ```
 
 ---
@@ -2044,6 +2046,10 @@ MP4 ░░░░░░░░░░░░░░░░░░░░   0% ⏳
 | Feb 16, 2026 | P1-B1 complete | Foundation tasks (E1, F1, G1) done |
 | Feb 17, 2026 | P1-B2 complete | Integration tasks (E2, E3, F2, F3, G2, G3, G4) done |
 | Feb 17, 2026 | MP2 reached | Vault API ready for credential injection |
+| Feb 18, 2026 | P1-B3 complete | Final P1 tasks (H1, H2, I1, I2) done |
+| Feb 18, 2026 | MP3 reached | P1 complete, mocks replaced with real APIs |
+| Feb 23, 2026 | P1.5-B1 complete | Integration bug fixes (J1, J2, K1-K5) done |
+| Feb 23, 2026 | MP3.5 reached | P1.5 complete, integration bugs fixed |
 
 ---
 

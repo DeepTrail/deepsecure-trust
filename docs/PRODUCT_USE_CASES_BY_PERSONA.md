@@ -1,6 +1,6 @@
 # DeepSecure: End-to-End Product Use Cases by Persona
 
-> **Product Use Cases Guide** | Version 1.0 | February 2026
+> **Product Use Cases Guide** | Version 1.2 | February 2026
 >
 > This document describes how different enterprise personas interact with the DeepSecure platform, from initial setup through daily operations.
 
@@ -9,13 +9,14 @@
 ## Table of Contents
 
 1. [Executive Summary](#1-executive-summary)
-2. [Persona Overview](#2-persona-overview)
-3. [IT Administrator](#3-it-administrator)
-4. [Employee (End User)](#4-employee-end-user)
-5. [Security Team](#5-security-team)
-6. [Engineering Team](#6-engineering-team)
-7. [Cross-Persona Workflows](#7-cross-persona-workflows)
-8. [Appendix: Quick Reference](#8-appendix-quick-reference)
+2. [Top 5 Core Features](#2-top-5-core-features)
+3. [Persona Overview](#3-persona-overview)
+4. [IT Administrator](#4-it-administrator)
+5. [Employee (End User)](#5-employee-end-user)
+6. [Security Team](#6-security-team)
+7. [Engineering Team](#7-engineering-team)
+8. [Cross-Persona Workflows](#8-cross-persona-workflows)
+9. [Appendix: Quick Reference](#9-appendix-quick-reference)
 
 ---
 
@@ -32,9 +33,332 @@ DeepSecure enables enterprises to securely deploy AI agents while maintaining co
 
 ---
 
-## 2. Persona Overview
+## 2. Top 5 Core Features
 
-### 2.1 Persona Definitions
+DeepSecure is built on five core features that work together to enable secure AI agent deployments. Each feature provides value to multiple personas.
+
+### 2.1 Feature 1: Virtual MCP Server (Gateway)
+
+**Single connection to multiple backends with automatic credential injection**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    VIRTUAL MCP SERVER ARCHITECTURE                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   AI Agent                           DeepSecure Gateway                      │
+│  ┌──────────┐                       ┌─────────────────────┐                 │
+│  │          │   ONE Connection      │                     │                 │
+│  │  Agent   │ ────────────────────> │  Virtual MCP Server │                 │
+│  │          │   (MCP Protocol)      │                     │                 │
+│  └──────────┘                       │  • Namespace prefix │                 │
+│                                     │  • Permission filter│                 │
+│                                     │  • Credential inject│                 │
+│                                     └─────────┬───────────┘                 │
+│                                               │                             │
+│                          ┌────────────────────┼────────────────────┐        │
+│                          │                    │                    │        │
+│                          ▼                    ▼                    ▼        │
+│                    ┌──────────┐         ┌──────────┐         ┌──────────┐   │
+│                    │  Notion  │         │  Slack   │         │  HubSpot │   │
+│                    │   MCP    │         │   MCP    │         │   MCP    │   │
+│                    └──────────┘         └──────────┘         └──────────┘   │
+│                                                                              │
+│   RESULT: Agent sees unified tools like notion.search_pages,                │
+│           slack.send_message, hubspot.get_contacts                          │
+│           All with automatic credential injection                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Capabilities:**
+
+| Capability | Description |
+|------------|-------------|
+| **Single Endpoint** | Agents connect to ONE gateway URL, access tools from multiple backends |
+| **Namespace Prefixing** | Tools automatically namespaced (`notion.search_pages`, `slack.send_message`) |
+| **Permission Filtering** | `tools/list` returns ONLY tools the agent has permission to use |
+| **Credential Injection** | User's OAuth tokens injected at runtime - agent never sees them |
+| **Backend Abstraction** | Add new backends without changing agent code |
+
+**Persona Interactions:**
+
+| Persona | How They Interact with This Feature |
+|---------|-------------------------------------|
+| **IT Admin** | Approves which backend MCP servers are available in the registry |
+| **Employee** | Connects their services (Notion, Slack, etc.) via OAuth in the console |
+| **Security** | Monitors tool usage patterns across all backends in unified audit |
+| **Engineering** | Writes agent code that calls ONE endpoint, gets tools from multiple backends |
+
+**Engineering Example:**
+
+```python
+# Agent connects to ONE gateway - sees tools from ALL backends
+async with httpx.AsyncClient() as client:
+    # List tools - returns notion.*, slack.*, hubspot.* (filtered by permissions)
+    tools = await client.post("http://gateway:8002/mcp", json={
+        "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
+    }, headers={"Authorization": f"Bearer {agent_jwt}"})
+    
+    # Call any backend tool - credentials automatically injected
+    result = await client.post("http://gateway:8002/mcp", json={
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": {"name": "notion.search_pages", "arguments": {"query": "Q1 plans"}}
+    }, headers={"Authorization": f"Bearer {agent_jwt}"})
+    # Agent NEVER sees the Notion OAuth token - Gateway injects it
+```
+
+---
+
+### 2.2 Feature 2: Delegation-Based Authorization
+
+**Users delegate scoped, time-bounded permissions to agents**
+
+| Property | Description |
+|----------|-------------|
+| **Macaroon Tokens** | Cryptographically signed delegation tokens with embedded constraints |
+| **Monotonic Attenuation** | Delegations can only narrow permissions, never widen them |
+| **Fine-Grained** | Permissions like `notion:pages:read`, `hubspot:contacts:create` |
+| **Time-Bounded** | Automatic expiration (hours to days) with instant revocation |
+| **Auditable** | Full delegation chain tracked for compliance |
+
+**Permission Hierarchy:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MONOTONIC ATTENUATION                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Role Permissions (defined by IT Admin)                                     │
+│  └── notion:*, slack:*, hubspot:contacts:*, hubspot:deals:read              │
+│      │                                                                       │
+│      │  User can only delegate permissions they have                        │
+│      ▼                                                                       │
+│  User's Connected Scopes (from OAuth consent)                               │
+│  └── notion:pages:*, slack:messages:read, hubspot:contacts:read             │
+│      │                                                                       │
+│      │  User chooses subset to delegate                                     │
+│      ▼                                                                       │
+│  Delegation to Agent                                                         │
+│  └── notion:pages:read, slack:messages:read                                 │
+│      │                                                                       │
+│      │  Each level can ONLY narrow, NEVER widen                             │
+│      ▼                                                                       │
+│  Agent's Effective Permissions                                               │
+│  └── notion:pages:read, slack:messages:read                                 │
+│                                                                              │
+│  ✓ Agent cannot access hubspot:* (user didn't delegate it)                 │
+│  ✓ Agent cannot write to notion (only read delegated)                      │
+│  ✓ Agent cannot exceed user's permissions                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Persona Interactions:**
+
+| Persona | How They Interact with This Feature |
+|---------|-------------------------------------|
+| **IT Admin** | Sets maximum delegable permissions per role |
+| **Employee** | Creates delegations, choosing which permissions to grant agents |
+| **Security** | Audits delegation chains, reviews permission grants |
+| **Engineering** | Agent code receives JWT with embedded permissions |
+
+---
+
+### 2.3 Feature 3: Split-Key Credential Architecture
+
+**Defense-in-depth secret protection using Shamir Secret Sharing**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SPLIT-KEY ARCHITECTURE                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STORAGE (At Rest):                                                         │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  Control Plane (PostgreSQL)         Gateway (Redis)                         │
+│  ┌────────────────────────┐         ┌────────────────────────┐              │
+│  │  Share 1 (encrypted)   │         │  Share 2 (encrypted)   │              │
+│  │  ████████████████████  │         │  ████████████████████  │              │
+│  │                        │         │                        │              │
+│  │  CANNOT reconstruct    │         │  CANNOT reconstruct    │              │
+│  │  secret alone          │         │  secret alone          │              │
+│  └────────────────────────┘         └────────────────────────┘              │
+│                                                                              │
+│  RUNTIME (Just-In-Time Reassembly):                                         │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  1. Agent calls notion.search_pages                                         │
+│  2. Gateway requests Share 1 from Control Plane                             │
+│  3. Gateway retrieves Share 2 from local Redis                              │
+│  4. Shares combined in memory (~2ms)                                        │
+│  5. Secret used for API call                                                │
+│  6. Secret CLEARED from memory immediately                                  │
+│                                                                              │
+│  SECURITY PROPERTIES:                                                       │
+│  ✓ No single component ever holds complete secret                          │
+│  ✓ Compromise of Control Plane alone = no secrets                          │
+│  ✓ Compromise of Gateway alone = no secrets                                │
+│  ✓ Secret exists in memory only during active API call                     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Persona Interactions:**
+
+| Persona | How They Interact with This Feature |
+|---------|-------------------------------------|
+| **IT Admin** | Deploys both Control Plane and Gateway; understands neither alone has secrets |
+| **Employee** | Connects services via OAuth; tokens automatically split and stored securely |
+| **Security** | Audits secret access; verifies defense-in-depth architecture |
+| **Engineering** | No interaction - completely transparent; agent code unchanged |
+
+---
+
+### 2.4 Feature 4: Complete Audit Trail with Human Attribution
+
+**Every action traced to a responsible human**
+
+| Audit Property | Description |
+|----------------|-------------|
+| **Human Attribution** | All actions logged as "agent X on behalf of user Y" |
+| **Delegation Chain** | Full chain: user → delegation → agent → action |
+| **Complete Context** | Tool name, arguments, result, timestamps, session IDs |
+| **Queryable** | Filter by agent, user, time, event type, tool |
+| **Compliance Ready** | SOC2/HIPAA-ready with export capability |
+
+**Audit Event Example:**
+
+```json
+{
+  "timestamp": "2026-02-15T10:15:32Z",
+  "event_type": "tool_call",
+  "agent_id": "agent-sarah-salesassist-001",
+  "on_behalf_of": "sarah@acme.com",
+  "delegation_id": "del-abc123-xyz789",
+  "tool": "notion.search_pages",
+  "arguments": {"query": "competitor analysis", "limit": 5},
+  "result": "success",
+  "result_summary": "3 pages found",
+  "session_id": "asess-001-ghi789",
+  "mcp_session_id": "mcpsess-notion-jkl012"
+}
+```
+
+**Persona Interactions:**
+
+| Persona | How They Interact with This Feature |
+|---------|-------------------------------------|
+| **IT Admin** | Reviews agent activity summaries; responds to unusual patterns |
+| **Employee** | Views their own agent's activity in personal dashboard |
+| **Security** | Queries audit logs for investigations; generates compliance reports |
+| **Engineering** | Debugs agent behavior using audit trail |
+
+---
+
+### 2.5 Feature 5: Fail-Closed Security with Emergency Controls
+
+**Zero-trust enforcement with instant response capability**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FAIL-CLOSED SECURITY MODEL                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  NORMAL OPERATION:                                                          │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  Agent Request → Gateway → Control Plane Health ✓ → Process Request        │
+│                                                                              │
+│  CONTROL PLANE UNREACHABLE:                                                 │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  Agent Request → Gateway → Control Plane Health ✗ → DENY ALL REQUESTS      │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  🔴 FAIL-CLOSED: When in doubt, DENY                              │     │
+│  │                                                                     │     │
+│  │  • Cannot verify permissions? DENY                                 │     │
+│  │  • Cannot reach credential vault? DENY                            │     │
+│  │  • Cannot log audit event? DENY                                   │     │
+│  │                                                                     │     │
+│  │  Security is NEVER bypassed due to system issues                  │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                              │
+│  EMERGENCY CONTROLS:                                                        │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  CONTROL                      │  EFFECT                    │ TIME   │    │
+│  │  ─────────────────────────────┼────────────────────────────┼────────│    │
+│  │  Suspend Single Agent         │  Agent's requests denied   │ <1 sec │    │
+│  │  Revoke Delegation            │  Specific delegation void  │ <1 sec │    │
+│  │  Suspend All Vendor Agents    │  All vendor agents blocked │ <1 sec │    │
+│  │  Global Circuit Breaker       │  ALL agents blocked        │ <1 sec │    │
+│  │  User Offboarding (IdP sync)  │  All user delegations void │ <1 sec │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Emergency Control Commands:**
+
+```bash
+# Suspend a specific agent immediately
+POST /api/v1/admin/agents/{agent_id}/suspend
+{
+  "reason": "Suspected anomalous behavior",
+  "notify_owner": true
+}
+
+# Revoke all delegations for an agent
+POST /api/v1/admin/delegations/revoke-all?agent_id={agent_id}
+
+# Global circuit breaker (organization-wide lockdown)
+POST /api/v1/admin/emergency/lockdown
+{
+  "reason": "Security incident",
+  "duration_minutes": 60
+}
+```
+
+**Persona Interactions:**
+
+| Persona | How They Interact with This Feature |
+|---------|-------------------------------------|
+| **IT Admin** | Executes emergency controls; manages circuit breakers |
+| **Employee** | Can revoke their own delegations instantly |
+| **Security** | Monitors fail-closed events; triggers emergency response |
+| **Engineering** | Handles graceful degradation when requests are denied |
+
+**Automatic Revocation Triggers:**
+
+| Trigger | Effect |
+|---------|--------|
+| Delegation TTL expires | Agent loses access automatically |
+| User deactivated in IdP (Okta/Azure AD) | ALL user's delegations invalidated instantly |
+| User's role changes | Delegations re-evaluated against new permissions |
+| Service OAuth token revoked | Agent can't use that service's tools |
+| IT admin suspends agent | Immediate effect, all sessions terminated |
+
+---
+
+### 2.6 Feature Summary by Persona
+
+| Feature | IT Admin | Employee | Security | Engineering |
+|---------|:--------:|:--------:|:--------:|:-----------:|
+| **1. Virtual MCP Server** | Approves backends | Connects services | Monitors usage | Single integration point |
+| **2. Delegation Auth** | Sets role limits | Creates delegations | Audits chains | Receives JWT permissions |
+| **3. Split-Key Secrets** | Deploys services | OAuth flow (auto) | Verifies architecture | Transparent |
+| **4. Audit Trail** | Reviews summaries | Views own activity | Queries & reports | Debugs behavior |
+| **5. Fail-Closed** | Emergency controls | Revokes delegations | Incident response | Handles denials |
+
+---
+
+## 3. Persona Overview
+
+### 3.1 Persona Definitions
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -65,7 +389,7 @@ DeepSecure enables enterprises to securely deploy AI agents while maintaining co
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Interaction Timeline
+### 3.2 Interaction Timeline
 
 ```
 PHASE 1: INITIAL SETUP (Day 0)
@@ -92,9 +416,9 @@ PHASE 4: OPERATIONS (Ongoing)
 
 ---
 
-## 3. IT Administrator
+## 4. IT Administrator
 
-### 3.1 Role Overview
+### 4.1 Role Overview
 
 | Aspect | Description |
 |--------|-------------|
@@ -102,7 +426,7 @@ PHASE 4: OPERATIONS (Ongoing)
 | **Key Concerns** | Shadow AI, compliance, emergency response, operational overhead |
 | **Access Level** | Organization administrator with full platform control |
 
-### 3.2 Initial Platform Setup
+### 4.2 Initial Platform Setup
 
 #### 3.2.1 Deploy DeepSecure Infrastructure
 
@@ -164,7 +488,7 @@ curl http://localhost:8002/health  # Gateway
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.3 Service and Agent Governance
+### 4.3 Service and Agent Governance
 
 #### 3.3.1 Configure Approved Services Registry
 
@@ -270,9 +594,9 @@ curl http://localhost:8002/health  # Gateway
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.4 Emergency Controls
+### 4.4 Emergency Controls
 
-#### 3.4.1 Agent Suspension
+#### 4.4.1 Agent Suspension
 
 ```bash
 # Suspend a specific agent immediately
@@ -293,7 +617,7 @@ POST /api/v1/admin/agents/{agent_id}/suspend
 }
 ```
 
-#### 3.4.2 Global Circuit Breaker
+#### 4.4.2 Global Circuit Breaker
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -325,7 +649,86 @@ POST /api/v1/admin/agents/{agent_id}/suspend
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.5 IT Admin Daily Operations
+#### 4.4.3 Gateway Operations Dashboard
+
+IT Administrators use the Gateway Operations Dashboard to monitor system health, backend connectivity, and debug issues.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              IT ADMIN: GATEWAY OPERATIONS DASHBOARD                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  System Status: ✅ All Systems Operational        Last Updated: 10:20:01    │
+│                                                                              │
+│  ┌─ Gateway Metrics (Last 24h) ──────────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  Total MCP Requests: 12,458      Success Rate: 99.2%                  │  │
+│  │  Active Sessions: 47             Unique Agents: 23                    │  │
+│  │  Unique Users: 156               Delegations Active: 312              │  │
+│  │                                                                        │  │
+│  │  Request Latency:                                                      │  │
+│  │    initialize:  p50: 45ms  │ p95: 120ms │ p99: 340ms                  │  │
+│  │    tools/list:  p50: 23ms  │ p95:  67ms │ p99: 150ms                  │  │
+│  │    tools/call:  p50: 89ms  │ p95: 234ms │ p99: 890ms                  │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Backend MCP Server Status ───────────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  Backend    │ Status │ Latency │ Errors (24h) │ Active Conns │ Health │  │
+│  │ ────────────├────────├─────────├──────────────├──────────────├─────── │  │
+│  │  notion     │ ✅ UP  │   89ms  │      3       │     12       │  100%  │  │
+│  │  slack      │ ✅ UP  │   45ms  │      0       │      8       │  100%  │  │
+│  │  hubspot    │ ⚠️ SLOW│  850ms  │     12       │      4       │   87%  │  │
+│  │  salesforce │ ❌ DOWN│    -    │     47       │      0       │    0%  │  │
+│  │                                                                        │  │
+│  │  [ Test Connection ] [ Refresh ] [ View Backend Logs ]                │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Recent Errors (Last Hour) ───────────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  Time     │ Agent           │ Error Type           │ Backend │ User   │  │
+│  │ ──────────├─────────────────├──────────────────────├─────────├─────── │  │
+│  │  10:18:45 │ agent-hr-003    │ Vault token expired  │ notion  │ sarah  │  │
+│  │  10:15:22 │ agent-sdr-001   │ Backend timeout      │ hubspot │ mike   │  │
+│  │  10:12:03 │ agent-sales-007 │ Connection refused   │ salesforce│ jane │  │
+│  │  10:08:17 │ agent-hr-003    │ Permission denied    │ slack   │ sarah  │  │
+│  │                                                                        │  │
+│  │  [ View Full Logs ] [ Export ] [ Create Alert Rule ]                  │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Credential Vault Status ─────────────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  Total Stored Tokens: 234      Expiring Soon (7d): 12                 │  │
+│  │  Cache Hit Rate: 94.2%         Last Refresh: 10:15:00                 │  │
+│  │                                                                        │  │
+│  │  Tokens Requiring Attention:                                          │  │
+│  │  • sarah@acme.com - notion - Expires in 2 days                        │  │
+│  │  • mike@acme.com - hubspot - Refresh failed (re-auth needed)          │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Gateway Health Check Commands:**
+
+```bash
+# Check overall gateway health
+curl -s http://localhost:8002/health | jq .
+
+# Check backend connectivity
+curl -s http://localhost:8002/admin/backends/status \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq .
+
+# Get gateway metrics
+curl -s http://localhost:8002/admin/metrics \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq .
+
+# Test specific backend connection
+curl -s -X POST http://localhost:8002/admin/backends/notion/test \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq .
+```
+
+### 4.5 IT Admin Daily Operations
 
 | Task | Frequency | Actions |
 |------|-----------|---------|
@@ -338,9 +741,9 @@ POST /api/v1/admin/agents/{agent_id}/suspend
 
 ---
 
-## 4. Employee (End User)
+## 5. Employee (End User)
 
-### 4.1 Role Overview
+### 5.1 Role Overview
 
 | Aspect | Description |
 |--------|-------------|
@@ -348,9 +751,9 @@ POST /api/v1/admin/agents/{agent_id}/suspend
 | **Key Concerns** | Easy setup, reliable operation, confidence in security |
 | **Access Level** | Self-service within IT-defined guardrails |
 
-### 4.2 Initial Onboarding
+### 5.2 Initial Onboarding
 
-#### 4.2.1 First-Time Login
+#### 5.2.1 First-Time Login
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -405,9 +808,9 @@ POST /api/v1/admin/agents/{agent_id}/suspend
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.3 Connecting Services
+### 5.3 Connecting Services
 
-#### 4.3.1 Connect to External Services via OAuth
+#### 5.3.1 Connect to External Services via OAuth
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -486,7 +889,7 @@ curl -X POST http://localhost:8000/api/v1/users/me/services/connect \
 }
 ```
 
-### 4.4 Registering an Agent
+### 5.4 Registering an Agent
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -528,9 +931,9 @@ curl -X POST http://localhost:8000/api/v1/users/me/services/connect \
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.5 Creating a Delegation
+### 5.5 Creating a Delegation
 
-#### 4.5.1 Delegate Permissions to Agent
+#### 5.5.1 Delegate Permissions to Agent
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -617,7 +1020,7 @@ curl -X POST http://localhost:8000/api/v1/delegations/delegate \
 }
 ```
 
-### 4.6 Monitoring Agent Activity
+### 5.6 Monitoring Agent Activity
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -657,7 +1060,7 @@ curl -X POST http://localhost:8000/api/v1/delegations/delegate \
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.7 Employee Daily Workflow
+### 5.7 Employee Daily Workflow
 
 | Time | Action | Description |
 |------|--------|-------------|
@@ -669,9 +1072,9 @@ curl -X POST http://localhost:8000/api/v1/delegations/delegate \
 
 ---
 
-## 5. Security Team
+## 6. Security Team
 
-### 5.1 Role Overview
+### 6.1 Role Overview
 
 | Aspect | Description |
 |--------|-------------|
@@ -679,9 +1082,9 @@ curl -X POST http://localhost:8000/api/v1/delegations/delegate \
 | **Key Concerns** | Threat detection, policy enforcement, incident response, compliance |
 | **Access Level** | Security administrator with audit and policy access |
 
-### 5.2 Policy Definition
+### 6.2 Policy Definition
 
-#### 5.2.1 Create Security Policies
+#### 6.2.1 Create Security Policies
 
 ```yaml
 # policy-sales-agents.yaml
@@ -726,7 +1129,7 @@ rules:
       - "*:admin:*"
 ```
 
-#### 5.2.2 Apply Policies to Roles
+#### 6.2.2 Apply Policies to Roles
 
 ```bash
 # Apply policy to sales-rep role
@@ -739,9 +1142,9 @@ POST /api/v1/admin/policies/apply
 }
 ```
 
-### 5.3 Threat Monitoring
+### 6.3 Threat Monitoring
 
-#### 5.3.1 Security Dashboard
+#### 6.3.1 Security Dashboard
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -792,7 +1195,7 @@ POST /api/v1/admin/policies/apply
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.3.2 Anomaly Detection Rules
+#### 6.3.2 Anomaly Detection Rules
 
 ```yaml
 # anomaly-rules.yaml
@@ -820,9 +1223,106 @@ anomaly_detection:
     action: "alert_and_log"
 ```
 
-### 5.4 Audit and Compliance
+#### 6.3.3 Tool Call Analytics Dashboard
 
-#### 5.4.1 Audit Queries
+The Tool Call Analytics Dashboard provides visual insights into MCP tool usage patterns, enabling proactive threat detection.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              SECURITY: TOOL CALL ANALYTICS                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  📊 MCP TOOL USAGE ANALYSIS - LAST 7 DAYS                                   │
+│                                                                              │
+│  ┌─ Tool Call Volume by Backend ─────────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  notion     ████████████████████████████████████████  68%  (8,234)   │  │
+│  │  slack      ██████████████████                       28%  (3,412)   │  │
+│  │  hubspot    ████                                      4%    (487)   │  │
+│  │                                                                        │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Top 10 Tools Called ─────────────────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  Rank │ Tool                    │ Calls  │ Success │ Denials │ Users │  │
+│  │ ──────├─────────────────────────├────────├─────────├─────────├────── │  │
+│  │   1   │ notion.search_pages     │  4,521 │  99.8%  │    8    │   89  │  │
+│  │   2   │ slack.list_channels     │  2,103 │ 100.0%  │    0    │   67  │  │
+│  │   3   │ notion.read_page        │  1,892 │  99.9%  │    2    │   54  │  │
+│  │   4   │ slack.search_messages   │  1,309 │ 100.0%  │    0    │   45  │  │
+│  │   5   │ hubspot.get_contacts    │    412 │  98.5%  │    6    │   23  │  │
+│  │   6   │ notion.create_page      │    234 │  95.3%  │   11    │   12  │  │
+│  │   7   │ slack.send_message      │    198 │  91.4%  │   17    │   28  │  │
+│  │   8   │ hubspot.create_contact  │     75 │  89.3%  │    8    │    8  │  │
+│  │                                                                        │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Permission Denial Analysis ──────────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  Total Denials: 52         Denial Rate: 0.43%                         │  │
+│  │                                                                        │  │
+│  │  By Permission Required:                                               │  │
+│  │  • slack:messages:write     (17 denials) - 6 agents, 4 users          │  │
+│  │  • notion:pages:create      (11 denials) - 3 agents, 3 users          │  │
+│  │  • hubspot:contacts:create  ( 8 denials) - 2 agents, 2 users          │  │
+│  │  • notion:pages:delete      ( 6 denials) - 4 agents, 4 users          │  │
+│  │                                                                        │  │
+│  │  💡 Insight: 65% of denials are write operations agents weren't       │  │
+│  │              delegated. Consider reviewing delegation templates.      │  │
+│  │                                                                        │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Delegation Chain Visualization ──────────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  Select Agent: [agent-sdr-001            ▼]                           │  │
+│  │                                                                        │  │
+│  │  sarah@acme.com                                                        │  │
+│  │       │                                                                │  │
+│  │       ├─ Connected Services                                           │  │
+│  │       │   ├─ notion (pages:read, pages:search)                        │  │
+│  │       │   └─ slack  (messages:read, channels:list)                    │  │
+│  │       │                                                                │  │
+│  │       └─ Delegated to: agent-sdr-001                                  │  │
+│  │           ├─ notion:pages:read    ✅ Used 234 times                   │  │
+│  │           ├─ notion:pages:search  ✅ Used 1,021 times                 │  │
+│  │           ├─ slack:messages:read  ✅ Used 89 times                    │  │
+│  │           └─ slack:channels:list  ⚪ Never used                       │  │
+│  │                                                                        │  │
+│  │  📊 Permission Utilization: 75% (3 of 4 permissions used)             │  │
+│  │                                                                        │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  [ Export Report ] [ Schedule Weekly Digest ] [ Create Alert Rule ]         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Tool Call Analytics API:**
+
+```bash
+# Get tool usage summary
+curl -s "http://localhost:8000/api/v1/audit/analytics/tools?period=7d" \
+  -H "Authorization: Bearer $SECURITY_TOKEN" | jq .
+
+# Get permission denial breakdown
+curl -s "http://localhost:8000/api/v1/audit/analytics/denials?group_by=permission" \
+  -H "Authorization: Bearer $SECURITY_TOKEN" | jq .
+
+# Get delegation utilization for a user
+curl -s "http://localhost:8000/api/v1/audit/analytics/delegations?user_id=sarah@acme.com" \
+  -H "Authorization: Bearer $SECURITY_TOKEN" | jq .
+
+# Export compliance report
+curl -s "http://localhost:8000/api/v1/audit/reports/generate" \
+  -H "Authorization: Bearer $SECURITY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"report_type": "soc2", "period": "2026-Q1", "format": "pdf"}' \
+  -o compliance_report_q1.pdf
+```
+
+### 6.4 Audit and Compliance
+
+#### 6.4.1 Audit Queries
 
 ```bash
 # Query all actions by a specific user's agents
@@ -860,7 +1360,7 @@ curl -X GET "http://localhost:8000/api/v1/audit/events?tool_pattern=financial.*&
 }
 ```
 
-#### 5.4.2 Compliance Reports
+#### 6.4.2 Compliance Reports
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -902,9 +1402,9 @@ curl -X GET "http://localhost:8000/api/v1/audit/events?tool_pattern=financial.*&
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.5 Incident Response
+### 6.5 Incident Response
 
-#### 5.5.1 Incident Response Workflow
+#### 6.5.1 Incident Response Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -958,7 +1458,7 @@ curl -X GET "http://localhost:8000/api/v1/audit/events?tool_pattern=financial.*&
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.6 Security Team Daily Operations
+### 6.6 Security Team Daily Operations
 
 | Task | Frequency | Actions |
 |------|-----------|---------|
@@ -971,9 +1471,9 @@ curl -X GET "http://localhost:8000/api/v1/audit/events?tool_pattern=financial.*&
 
 ---
 
-## 6. Engineering Team
+## 7. Engineering Team
 
-### 6.1 Role Overview
+### 7.1 Role Overview
 
 | Aspect | Description |
 |--------|-------------|
@@ -981,9 +1481,9 @@ curl -X GET "http://localhost:8000/api/v1/audit/events?tool_pattern=financial.*&
 | **Key Concerns** | Easy integration, reliable operation, no credential handling |
 | **Access Level** | Developer access with ability to register and test agents |
 
-### 6.2 SDK Integration
+### 7.2 SDK Integration
 
-#### 6.2.1 Install DeepSecure SDK
+#### 7.2.1 Install DeepSecure SDK
 
 ```bash
 # Install the SDK
@@ -993,7 +1493,7 @@ pip install deepsecure
 pip install deepsecure[dev]
 ```
 
-#### 6.2.2 Initialize Client
+#### 7.2.2 Initialize Client
 
 ```python
 import deepsecure
@@ -1010,9 +1510,9 @@ client.configure(
 )
 ```
 
-### 6.3 Agent Development
+### 7.3 Agent Development
 
-#### 6.3.1 Register Agent Programmatically
+#### 7.3.1 Register Agent Programmatically
 
 ```python
 import deepsecure
@@ -1037,7 +1537,7 @@ agent_id = response.agent_id
 print(f"Agent registered: {agent_id}")
 ```
 
-#### 6.3.2 Agent Authentication Flow
+#### 7.3.2 Agent Authentication Flow
 
 ```python
 # Agent authenticates using challenge-response
@@ -1062,7 +1562,7 @@ agent_jwt = session.token
 print(f"Agent authenticated, JWT expires in {session.expires_in}s")
 ```
 
-#### 6.3.3 MCP Tool Calls
+#### 7.3.3 MCP Tool Calls
 
 ```python
 import httpx
@@ -1118,9 +1618,9 @@ async def call_mcp_tool():
         print(f"Tool result: {result.json()}")
 ```
 
-### 6.4 Framework Integrations
+### 7.4 Framework Integrations
 
-#### 6.4.1 LangChain Integration
+#### 7.4.1 LangChain Integration
 
 ```python
 from langchain.agents import AgentExecutor
@@ -1146,7 +1646,7 @@ agent = AgentExecutor.from_agent_and_tools(
 result = agent.run("Find competitor analysis documents in Notion")
 ```
 
-#### 6.4.2 CrewAI Integration
+#### 7.4.2 CrewAI Integration
 
 ```python
 from crewai import Agent, Task, Crew
@@ -1169,9 +1669,9 @@ researcher = Agent(
 # Tools handle authentication and credential injection automatically
 ```
 
-### 6.5 Building Custom MCP Servers
+### 7.5 Building Custom MCP Servers
 
-#### 6.5.1 Create Internal MCP Server
+#### 7.5.1 Create Internal MCP Server
 
 ```python
 # internal_api_mcp_server.py
@@ -1219,7 +1719,7 @@ async def call_tool(name: str, arguments: dict):
         return [TextContent(type="text", text=str(results))]
 ```
 
-#### 6.5.2 Register with DeepSecure Gateway
+#### 7.5.2 Register with DeepSecure Gateway
 
 ```bash
 # Register MCP server with gateway
@@ -1235,9 +1735,9 @@ POST /api/v1/admin/mcp-registry/servers
 }
 ```
 
-### 6.6 Testing and Deployment
+### 7.6 Testing and Deployment
 
-#### 6.6.1 Local Development Testing
+#### 7.6.1 Local Development Testing
 
 ```bash
 # Start local DeepSecure services
@@ -1250,7 +1750,7 @@ pytest tests/integration/ -v
 python scripts/test_mcp_flow.py
 ```
 
-#### 6.6.2 CI/CD Integration
+#### 7.6.2 CI/CD Integration
 
 ```yaml
 # .github/workflows/agent-deploy.yml
@@ -1291,7 +1791,85 @@ jobs:
           echo "Deploying agent..."
 ```
 
-### 6.7 Engineering Team Workflow
+#### 7.6.3 MCP Debug Console
+
+Engineers can use the MCP Debug Console to inspect sessions, trace tool calls, and debug issues.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              ENGINEERING: MCP DEBUG CONSOLE                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Agent: agent-sdr-001                Session: mcpsess-abc123                │
+│  Status: ✅ Connected                 Backends: notion, slack               │
+│  Delegation: del-xyz789              Expires: 2026-02-16 10:00:00           │
+│                                                                              │
+│  ┌─ Session Details ─────────────────────────────────────────────────────┐  │
+│  │  Protocol Version: 2024-11-05                                         │  │
+│  │  Client Info: MySalesAgent v1.0.0                                     │  │
+│  │  Initialized: 2026-02-15 10:15:01                                     │  │
+│  │  Allowed Permissions: notion:pages:read, slack:messages:read          │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ MCP Call Trace ──────────────────────────────────────────────────────┐  │
+│  │  #  │ Method        │ Tool               │ Status │ Latency │ Time   │  │
+│  │ ────├───────────────├────────────────────├────────├─────────├─────── │  │
+│  │  1  │ initialize    │ -                  │ ✅ 200 │   45ms  │ 10:15:01│ │
+│  │  2  │ tools/list    │ -                  │ ✅ 200 │   23ms  │ 10:15:02│ │
+│  │  3  │ tools/call    │ notion.search_pages│ ✅ 200 │  234ms  │ 10:15:05│ │
+│  │  4  │ tools/call    │ slack.send_message │ ❌ 403 │   12ms  │ 10:15:08│ │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─ Call #4 Details (Click to expand) ───────────────────────────────────┐  │
+│  │                                                                        │  │
+│  │  ❌ PERMISSION DENIED                                                  │  │
+│  │                                                                        │  │
+│  │  Required Permission: slack:messages:write                            │  │
+│  │  Agent Has: [slack:messages:read, slack:channels:list]                │  │
+│  │                                                                        │  │
+│  │  Request:                                                              │  │
+│  │  {                                                                     │  │
+│  │    "method": "tools/call",                                             │  │
+│  │    "params": {                                                         │  │
+│  │      "name": "slack.send_message",                                     │  │
+│  │      "arguments": {"channel": "#sales", "text": "Hello"}              │  │
+│  │    }                                                                   │  │
+│  │  }                                                                     │  │
+│  │                                                                        │  │
+│  │  Response:                                                             │  │
+│  │  {                                                                     │  │
+│  │    "error": {                                                          │  │
+│  │      "code": -32001,                                                   │  │
+│  │      "message": "Permission denied: slack:messages:write required"    │  │
+│  │    }                                                                   │  │
+│  │  }                                                                     │  │
+│  │                                                                        │  │
+│  │  💡 Fix: Ask user to add slack:messages:write to delegation           │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  [ Copy cURL ] [ Replay Call ] [ View Audit Log ] [ Export Trace ]          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Debug Console API (for programmatic access):**
+
+```bash
+# Get active sessions for an agent
+curl -s "http://localhost:8002/debug/sessions?agent_id=agent-sdr-001" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq .
+
+# Get call trace for a session
+curl -s "http://localhost:8002/debug/sessions/mcpsess-abc123/trace" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq .
+
+# Replay a specific call (dry-run)
+curl -s "http://localhost:8002/debug/replay/call-id-xyz" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "X-Debug-DryRun: true" | jq .
+```
+
+### 7.7 Engineering Team Workflow
 
 | Phase | Tasks | Tools/Commands |
 |-------|-------|----------------|
@@ -1304,9 +1882,9 @@ jobs:
 
 ---
 
-## 7. Cross-Persona Workflows
+## 8. Cross-Persona Workflows
 
-### 7.1 New Agent Rollout (All Personas)
+### 8.1 New Agent Rollout (All Personas)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1363,7 +1941,7 @@ jobs:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 7.2 Security Incident Response (Security + IT Admin)
+### 8.2 Security Incident Response (Security + IT Admin)
 
 | Step | Security Team | IT Admin |
 |------|---------------|----------|
@@ -1374,7 +1952,7 @@ jobs:
 | **5. Recovery** | Verifies fixes | Re-enables agent if appropriate |
 | **6. Post-Mortem** | Documents findings | Updates procedures |
 
-### 7.3 Employee Offboarding (IT Admin + Security)
+### 8.3 Employee Offboarding (IT Admin + Security)
 
 ```
 OFFBOARDING TRIGGER: Employee deactivated in IdP (Okta/Azure AD)
@@ -1398,9 +1976,9 @@ SECURITY TEAM REVIEW:
 
 ---
 
-## 8. Appendix: Quick Reference
+## 9. Appendix: Quick Reference
 
-### 8.1 Persona Capabilities Matrix
+### 9.1 Persona Capabilities Matrix
 
 | Capability | IT Admin | Employee | Security | Engineering |
 |------------|:--------:|:--------:|:--------:|:-----------:|
@@ -1417,7 +1995,7 @@ SECURITY TEAM REVIEW:
 | Build/deploy agents | ❌ | ❌ | ❌ | ✅ |
 | Register MCP servers | ✅ | ❌ | ❌ | ✅ |
 
-### 8.2 Key API Endpoints by Persona
+### 9.2 Key API Endpoints by Persona
 
 | Persona | Endpoint | Purpose |
 |---------|----------|---------|
@@ -1433,7 +2011,7 @@ SECURITY TEAM REVIEW:
 | **Engineering** | `POST /api/v1/auth/agent/challenge` | Agent auth |
 | **Engineering** | `POST /mcp` | MCP tool calls |
 
-### 8.3 Common Commands
+### 9.3 Common Commands
 
 ```bash
 # IT Admin: Check system health

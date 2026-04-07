@@ -1,5 +1,5 @@
 ---
-description: Store plan files in repository plans/ directory instead of ~/.cursor/plans/
+description: 
 alwaysApply: true
 ---
 

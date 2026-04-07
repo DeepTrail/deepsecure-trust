@@ -157,19 +157,19 @@ git worktree add ../mvp-prod-gateway -b feature/mvp-prod-gateway dev
 
 ## Phase 2: Production Hardening
 
-### Workstream I: Enterprise IdP (Control Plane)
+### Workstream L: IdP Integration (Control Plane)
 
-**Status:** STARTS after MP3 (P1 complete)  
+**Status:** STARTS after MP3.5 (P1.5 complete)  
 **Service:** `deeptrail-control`
 
 | Task ID | Description | Dependencies | Complexity | Files | Acceptance Criteria |
 |---------|-------------|--------------|------------|-------|---------------------|
-| WS-I1 | Create IdP service | MP3 | L | `app/services/idp_service.py` (create) | OIDC client for Okta/Entra ID, user provisioning |
-| WS-I2 | Create SSO endpoints | WS-I1 | M | `app/api/v1/endpoints/sso.py` (create) | `/sso/{idp}/authorize`, `/callback`, `/logout` |
+| WS-L1 | Create IdP service (OIDC abstraction + Keycloak) | MP3.5 | L | `app/services/idp_service.py` (create), `app/services/providers/` (create) | Generic `OIDCProvider` protocol with `KeycloakProvider` dev implementation; Keycloak in docker-compose; user provisioning from OIDC claims |
+| WS-L2 | Create SSO endpoints | WS-L1 | M | `app/api/v1/endpoints/sso.py` (create) | `/sso/{idp}/authorize`, `/callback`, `/logout` via Keycloak SSO broker |
 
 ### Workstream J: Security Hardening (Gateway)
 
-**Status:** PARALLEL with I  
+**Status:** PARALLEL with L  
 **Service:** `deeptrail-gateway`
 
 | Task ID | Description | Dependencies | Complexity | Files | Acceptance Criteria |
@@ -180,7 +180,7 @@ git worktree add ../mvp-prod-gateway -b feature/mvp-prod-gateway dev
 
 ### Workstream K: Task Token System (Control Plane)
 
-**Status:** PARALLEL with I, J  
+**Status:** PARALLEL with L, J  
 **Service:** `deeptrail-control`
 
 | Task ID | Description | Dependencies | Complexity | Files | Acceptance Criteria |
@@ -214,8 +214,8 @@ git worktree add ../mvp-prod-gateway -b feature/mvp-prod-gateway dev
 
 | Batch | Tasks (Parallel) | Depends On | Blocking For | Est. Time |
 |-------|------------------|------------|--------------|-----------|
-| P2-B1 | I1, J1, J2, K1 | MP3 | P2-B2 | 4-6 hours |
-| P2-B2 | I2, J3, K2, K3 | P2-B1 | Done | 4-6 hours |
+| P2-B1 | L1, J4, J5, K6 | MP3.5 | P2-B2 | 4-6 hours |
+| P2-B2 | L2, J6, K7, K8 | P2-B1 | Done | 4-6 hours |
 
 ---
 
@@ -225,7 +225,7 @@ git worktree add ../mvp-prod-gateway -b feature/mvp-prod-gateway dev
 |-------|------------------|---------|------------|
 | **MP1** | D2 (P0 complete) | P1 workstreams E, F, G | Merge P0 to dev, create P1 branches |
 | **MP2** | E2, E3 (Vault ready) | G*, H* (backend/injection) | Gateway can start consuming vault API |
-| **MP3** | H2 (P1 complete) | P2 workstreams I, J, K | Merge P1 to dev, create P2 branches |
+| **MP3** | H2 (P1 complete) | P2 workstreams L, J, K | Merge P1 to dev, create P2 branches |
 
 ---
 
@@ -245,11 +245,11 @@ Control:  E1 → E2 → [MP2]
 Gateway:  G1 → G2, G3, G4 (parallel per backend)
           [MP2] → H1 → H2 → [MP3]
 
-PHASE 2 (Parallel after MP3):
-Control:  I1 → I2
-          K1 → K2 → K3
+PHASE 2 (Parallel after MP3.5):
+Control:  L1 → L2
+          K6 → K7 → K8
 
-Gateway:  J1, J2, J3 (parallel)
+Gateway:  J4, J5, J6 (parallel)
 ```
 
 **Critical Path (Total):** 
@@ -273,7 +273,7 @@ Gateway:  J1, J2, J3 (parallel)
 | Real Notion API | Search actual Notion pages | E2, G2, H1 |
 | Real Slack API | Search actual Slack messages | E2, G3, H1 |
 | Real HubSpot API | Query actual HubSpot contacts | E2, G4, H1 |
-| Enterprise SSO | Login via Okta/Entra | I1, I2 |
+| Enterprise SSO | Login via Keycloak (dev) / Okta/Entra (prod) | L1, L2 |
 | PII Masking | Sensitive data filtered | J1 |
 
 ### Sarah's Journey Step Matrix
@@ -320,9 +320,9 @@ Gateway:  J1, J2, J3 (parallel)
 
 | Service | Method | Endpoint | Implementing Task | Status |
 |---------|--------|----------|-------------------|--------|
-| Control | GET | `/api/v1/auth/sso/{idp}/authorize` | I2 | **NEW** |
-| Control | GET | `/api/v1/auth/sso/{idp}/callback` | I2 | **NEW** |
-| Control | POST | `/api/v1/auth/sso/logout` | I2 | **NEW** |
+| Control | GET | `/api/v1/auth/sso/{idp}/authorize` | L2 | **NEW** |
+| Control | GET | `/api/v1/auth/sso/{idp}/callback` | L2 | **NEW** |
+| Control | POST | `/api/v1/auth/sso/logout` | L2 | **NEW** |
 | Control | POST | `/api/v1/tasks` | K3 | **NEW** |
 | Control | GET | `/api/v1/tasks/{task_id}` | K3 | **NEW** |
 | Control | POST | `/api/v1/tasks/{task_id}/complete` | K3 | **NEW** |
@@ -340,7 +340,7 @@ Gateway:  J1, J2, J3 (parallel)
 | **P1 Control Config** | `deeptrail-control/app/core/` | `oauth_config.py` | OAuth credentials |
 | **P1 Gateway Config** | `deeptrail-gateway/app/core/` | `config.py` | Backend API URLs |
 | **P1 Gateway Middleware** | `deeptrail-gateway/app/middleware/` | `credential_injection.py` (modify) | Vault integration |
-| **P2 Control Services** | `deeptrail-control/app/services/` | `idp_service.py`, `task_service.py` | Enterprise features |
+| **P2 Control Services** | `deeptrail-control/app/services/` | `idp_service.py`, `providers/keycloak.py`, `providers/okta.py`, `task_service.py` | IdP abstraction + enterprise features |
 | **P2 Control Models** | `deeptrail-control/app/models/` | `task_token.py` | Task token model |
 | **P2 Gateway Security** | `deeptrail-gateway/app/security/` | `prompt_injection.py`, `token_exchange.py` | Security hardening |
 | **P2 Gateway Middleware** | `deeptrail-gateway/app/middleware/` | `result_filter.py` | PII masking |
@@ -452,17 +452,17 @@ Gateway:  J1, J2, J3 (parallel)
         │                                     │                                │
         ▼                                     ▼                                ▼
    ┌─────────┐                          ┌───────────────────┐            ┌─────────┐
-   │   I1    │ IdP Service              │  J1, J2, J3       │            │   K1    │ TaskToken Model
-   └────┬────┘                          │  (parallel)       │            └────┬────┘
-        │                               │  Result Filter,   │                 │
-        ▼                               │  Prompt Injection,│                 ▼
-   ┌─────────┐                          │  Token Exchange   │            ┌─────────┐
-   │   I2    │ SSO Endpoints            └───────────────────┘            │   K2    │ TaskService
-   └─────────┘                                                           └────┬────┘
-                                                                              │
+   │   L1    │ IdP Service (OIDC +     │  J4, J5, J6       │            │   K6    │ TaskToken Model
+   │         │ Keycloak)               │  (parallel)       │            └────┬────┘
+   └────┬────┘                          │  PII Filter,      │                 │
+        │                               │  Prompt Injection,│                 ▼
+        ▼                               │  Token Exchange   │            ┌─────────┐
+   ┌─────────┐                          └───────────────────┘            │   K7    │ TaskService
+   │   L2    │ SSO Endpoints                                             └────┬────┘
+   └─────────┘                                                                │
                                                                               ▼
                                                                          ┌─────────┐
-                                                                         │   K3    │ Task Endpoints
+                                                                         │   K8    │ Task Endpoints
                                                                          └─────────┘
 ```
 
@@ -506,7 +506,7 @@ After saving this breakdown, the following commands are available:
 |-------------|---------|------------|
 | Async fixtures | `@pytest_asyncio.fixture` | All E2E tests |
 | HTTP client | `httpx.AsyncClient` | All async tests |
-| JWT generation | Use existing `app/core/security.py` | A2, I1 |
+| JWT generation | Use existing `app/core/security.py` | A2, L1 |
 | Token encryption | Use Fernet or similar | E1 |
 | OAuth 2.0 PKCE | Required for Notion | F1 |
 | Rate limiting | Respect backend limits | G2, G3, G4 |

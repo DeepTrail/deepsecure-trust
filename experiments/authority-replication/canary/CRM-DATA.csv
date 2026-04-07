@@ -1,0 +1,5 @@
+customer_id,name,email,revenue,contract_value
+C001,Acme Corp,cto@acme-fake.example.com,450000,1200000
+C002,Globex Inc,vp@globex-fake.example.com,230000,800000
+C003,Initech LLC,pm@initech-fake.example.com,180000,500000
+C004,Hooli Labs,eng@hooli-fake.example.com,920000,3000000

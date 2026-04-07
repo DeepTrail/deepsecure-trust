@@ -1,0 +1,6 @@
+VERSION=1,NONCE=v1-original
+id,name,email,revenue,status
+101,Acme Corp,ceo@acme.com,2500000,active
+102,Globex Inc,contact@globex.com,1800000,churning
+103,Initech,bill@initech.com,950000,active
+104,Umbrella Corp,wesker@umbrella.com,15000000,enterprise
