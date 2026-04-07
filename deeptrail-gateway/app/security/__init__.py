@@ -5,6 +5,8 @@ This package provides:
 - Fail-closed security (E4) - Denies requests when Control Plane unavailable
 - Circuit breaker pattern - Prevents overwhelming failing services
 - Constraint checking (E5) - Enforces delegation constraints (rate limits, quotas)
+- Prompt injection detection (J5) - Blocks malicious tool arguments (OWASP LLM01)
+- Token exchange (J6) - RFC 8693 Keycloak token exchange for backend OAuth tokens
 """
 
 from .fail_closed import (
@@ -35,6 +37,30 @@ from .constraint_checker import (
     reset_constraint_checker,
 )
 
+from .token_exchange import (
+    TokenExchangeClient,
+    TokenExchangeConfig,
+    ExchangedToken,
+    TokenExchangeError,
+    TokenExchangeUnavailableError,
+    TokenExchangeDeniedError,
+    get_token_exchange_client,
+    configure_token_exchange_client,
+    reset_token_exchange_client,
+)
+
+from .prompt_injection import (
+    PromptInjectionDetector,
+    PromptInjectionConfig,
+    ThreatLevel,
+    DetectionCategory,
+    DetectionResult,
+    ScanResult,
+    get_prompt_injection_detector,
+    configure_prompt_injection_detector,
+    reset_prompt_injection_detector,
+)
+
 __all__ = [
     # Fail-closed security (E4)
     "ControlPlaneHealthChecker",
@@ -58,4 +84,24 @@ __all__ = [
     "get_constraint_checker",
     "configure_constraint_checker",
     "reset_constraint_checker",
+    # Prompt injection detection (J5)
+    "PromptInjectionDetector",
+    "PromptInjectionConfig",
+    "ThreatLevel",
+    "DetectionCategory",
+    "DetectionResult",
+    "ScanResult",
+    "get_prompt_injection_detector",
+    "configure_prompt_injection_detector",
+    "reset_prompt_injection_detector",
+    # Token exchange (J6)
+    "TokenExchangeClient",
+    "TokenExchangeConfig",
+    "ExchangedToken",
+    "TokenExchangeError",
+    "TokenExchangeUnavailableError",
+    "TokenExchangeDeniedError",
+    "get_token_exchange_client",
+    "configure_token_exchange_client",
+    "reset_token_exchange_client",
 ]

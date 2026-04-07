@@ -20,6 +20,7 @@ For Future - Enterprise Grade:
 """
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from typing import Dict, Any
@@ -65,6 +66,9 @@ from .mcp.session_manager import MCPSessionManager
 from .mcp.tool_cache import ToolCache
 from .security.fail_closed import configure_health_checker
 from .middleware.audit import configure_audit_middleware
+from .middleware.result_filter import configure_result_filter
+from .security.prompt_injection import configure_prompt_injection_detector
+from .security.token_exchange import configure_token_exchange_client, TokenExchangeConfig
 from .backends.adapter import create_backend_adapter
 
 # Configure basic logging
@@ -170,6 +174,43 @@ configure_audit_middleware(
     enabled=True,
 )
 logger.info(f"Audit middleware configured: control_plane_url={config.control_plane_url}")
+
+# =============================================================================
+# Result Filter Configuration (J4: PII Masking)
+# =============================================================================
+
+configure_result_filter(enabled=True)
+logger.info("Result filter configured: PII masking enabled")
+
+# =============================================================================
+# Prompt Injection Detection Configuration (J5)
+# =============================================================================
+
+configure_prompt_injection_detector()
+logger.info("Prompt injection detector configured: argument scanning enabled")
+
+# =============================================================================
+# Token Exchange Configuration (J6: Keycloak RFC 8693)
+# =============================================================================
+
+_keycloak_url = os.environ.get("KEYCLOAK_URL", "http://localhost:8080")
+_keycloak_realm = os.environ.get("KEYCLOAK_REALM", "deepsecure")
+_keycloak_client_id = os.environ.get("KEYCLOAK_GATEWAY_CLIENT_ID", "gateway")
+_keycloak_client_secret = os.environ.get("KEYCLOAK_GATEWAY_CLIENT_SECRET", "")
+
+configure_token_exchange_client(
+    TokenExchangeConfig(
+        enabled=bool(_keycloak_client_secret),
+        keycloak_url=_keycloak_url,
+        realm=_keycloak_realm,
+        client_id=_keycloak_client_id,
+        client_secret=_keycloak_client_secret,
+    )
+)
+logger.info(
+    "Token exchange client configured: enabled=%s",
+    bool(_keycloak_client_secret),
+)
 
 # Initialize MCP Session Manager and Tool Cache
 mcp_session_manager = MCPSessionManager()
