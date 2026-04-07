@@ -1,0 +1,179 @@
+{
+  "realm": "deepsecure",
+  "enabled": true,
+  "displayName": "DeepSecure",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Basic user access",
+        "composite": false
+      },
+      {
+        "name": "admin",
+        "description": "Administrative access",
+        "composite": true,
+        "composites": {
+          "realm": ["user"]
+        }
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "acme-org",
+      "path": "/acme-org",
+      "realmRoles": ["user"]
+    }
+  ],
+  "defaultRoles": ["user"],
+  "clients": [
+    {
+      "clientId": "deepsecure-control",
+      "name": "DeepSecure Control Plane",
+      "description": "Control Plane OIDC client for user authentication",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "control-secret",
+      "redirectUris": [
+        "http://localhost:8000/api/v1/auth/sso/*/callback",
+        "http://localhost:8000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8000",
+        "http://localhost:3000"
+      ],
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "group-membership",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "gateway",
+      "name": "DeepSecure Gateway",
+      "description": "Gateway client for token exchange (RFC 8693) — used by WS-J6",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "gateway-secret",
+      "redirectUris": [],
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email"
+      ],
+      "attributes": {
+        "oidc.token.exchange.enabled": "true"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "sarah@acme.com",
+      "email": "sarah@acme.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sarah",
+      "lastName": "Chen",
+      "groups": [
+        "/acme-org"
+      ],
+      "realmRoles": [
+        "user"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "test_password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "admin@acme.com",
+      "email": "admin@acme.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Admin",
+      "lastName": "User",
+      "groups": [
+        "/acme-org"
+      ],
+      "realmRoles": [
+        "user",
+        "admin"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin_password",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "scopeMappings": [
+    {
+      "client": "deepsecure-control",
+      "roles": ["user"]
+    }
+  ],
+  "clientScopeMappings": {
+    "gateway": [
+      {
+        "client": "gateway",
+        "roles": ["user"]
+      }
+    ]
+  }
+}

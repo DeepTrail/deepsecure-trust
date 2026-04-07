@@ -8,6 +8,7 @@ This package provides middleware for:
 - Permission filtering (C5) - Filters tools by delegated permissions
 - Delegation validation (C6) - Validates tool calls against delegations
 - Credential injection (C7) - Injects OAuth tokens into backend requests
+- Result filtering (J4) - PII masking in tool call responses
 - Policy enforcement - Enforces access policies
 - Security - Request sanitization and security filters
 - Logging - Request/response logging
@@ -53,6 +54,16 @@ from .audit import (
     log_tool_call,
     log_permission_denied,
 )
+from .result_filter import (
+    ResultFilter,
+    PIIType,
+    MaskingRule,
+    BackendFilterConfig,
+    FilterResult,
+    get_result_filter,
+    configure_result_filter,
+    reset_result_filter,
+)
 
 __all__ = [
     # JWT Validation (C3)
@@ -90,4 +101,13 @@ __all__ = [
     "reset_audit_middleware",
     "log_tool_call",
     "log_permission_denied",
+    # Result Filter (J4)
+    "ResultFilter",
+    "PIIType",
+    "MaskingRule",
+    "BackendFilterConfig",
+    "FilterResult",
+    "get_result_filter",
+    "configure_result_filter",
+    "reset_result_filter",
 ]
