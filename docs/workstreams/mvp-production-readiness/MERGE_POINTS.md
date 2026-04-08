@@ -1612,11 +1612,16 @@ docker compose exec -T redis redis-cli PING > /dev/null && echo "✅ Redis acces
 ### Container Test Scenarios
 
 ```bash
-# Test 1: Enterprise SSO login
+# Test 1: Enterprise SSO login (Keycloak dev-time IdP)
 echo "Test 1: Enterprise SSO..."
-SSO_URL=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/authorize?provider=okta" | jq -r '.authorize_url')
+SSO_RESP=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/keycloak/authorize")
+SSO_URL=$(echo "$SSO_RESP" | jq -r '.authorization_url')
+SSO_STATE=$(echo "$SSO_RESP" | jq -r '.state')
 echo "SSO URL: $SSO_URL"
-# Manual: Complete SSO flow in browser, then verify callback works
+echo "State: $SSO_STATE"
+# Manual: Open SSO_URL in browser, login with Keycloak test user,
+# then verify callback works at /api/v1/auth/sso/keycloak/callback
+# Note: In production, replace 'keycloak' with 'okta' or 'entra'
 
 # Test 2: PII masking
 echo "Test 2: PII masking..."
