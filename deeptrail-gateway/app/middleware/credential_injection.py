@@ -412,6 +412,13 @@ class CredentialInjector:
         if expires_at:
             # Buffer: consider expired if within 5 minutes of expiration
             buffer = 300  # 5 minutes
+            if isinstance(expires_at, str):
+                from datetime import datetime, timezone
+                try:
+                    dt = datetime.fromisoformat(expires_at)
+                    expires_at = dt.timestamp()
+                except (ValueError, TypeError):
+                    return False
             return time.time() > (expires_at - buffer)
         
         # If no expiration info, assume valid

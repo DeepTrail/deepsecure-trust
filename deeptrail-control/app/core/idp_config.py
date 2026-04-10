@@ -47,6 +47,13 @@ class IdPConfig(BaseSettings):
         default="deepsecure",
         alias="IDP_REALM",
     )
+    browser_url: str | None = Field(
+        default=None,
+        alias="IDP_BROWSER_URL",
+        description="Browser-facing IdP URL. Required when issuer_url uses a Docker-internal "
+        "hostname (e.g. http://keycloak:8080) that browsers cannot resolve. "
+        "Defaults to issuer_url when not set.",
+    )
     redirect_uri: str = Field(
         default="http://localhost:8000/api/v1/auth/sso/callback",
         alias="IDP_REDIRECT_URI",

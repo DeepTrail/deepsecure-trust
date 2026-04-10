@@ -498,6 +498,155 @@ class TestJWTValidationLegacy:
 
 
 # =============================================================================
+# JWT Validation Tests - Task Token (Layer 4)
+# =============================================================================
+
+
+class TestJWTValidationTaskToken:
+    """Tests for Layer 4 Task Token JWT validation."""
+
+    @pytest.fixture
+    def task_token_payload(self):
+        """Create a valid Task Token JWT (Layer 4) payload."""
+        now = datetime.now(timezone.utc)
+        return {
+            "task_id": "task-abc123-def456",
+            "agent_id": "sdr-assistant-001",
+            "scoped_permissions": [
+                {"urn": "notion:pages:search", "constraints": {}},
+                {"urn": "notion:pages:read", "constraints": {"max_usage": 10}},
+            ],
+            "token_type": "task_token",
+            "deadline": None,
+            "auto_revoke_on_complete": True,
+            "iss": "deeptrail-control",
+            "aud": "deeptrail-gateway",
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(hours=1)).timestamp()),
+        }
+
+    @pytest.fixture
+    def task_token(self, task_token_payload):
+        return jose_jwt.encode(task_token_payload, TEST_SECRET, algorithm=TEST_ALGORITHM)
+
+    def test_task_token_decoded_via_primary_path(self, client, task_token):
+        """Task token with correct iss/aud is decoded via the primary path."""
+        response = client.get(
+            "/mcp/tools", headers={"Authorization": f"Bearer {task_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["agent_id"] == "sdr-assistant-001"
+
+    def test_task_token_agent_context_fields(self, client, task_token):
+        """AgentContext is populated correctly from task token claims."""
+        response = client.get(
+            "/mcp/context", headers={"Authorization": f"Bearer {task_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["agent_id"] == "sdr-assistant-001"
+        assert data["owner"] == ""
+        assert data["delegation_id"] == ""
+        assert data["permissions_count"] == 2
+
+    def test_task_token_session_id_is_task_id(self, task_token_payload):
+        """session_id should be set to task_id for task tokens."""
+        ctx = AgentContext.from_jwt_payload(task_token_payload)
+        assert ctx.session_id == "task-abc123-def456"
+        assert ctx.session_id == ctx.task_id
+
+    def test_task_token_scoped_permissions_mapped(self, task_token_payload):
+        """scoped_permissions[].urn should map to delegated_permissions[]."""
+        ctx = AgentContext.from_jwt_payload(task_token_payload)
+        assert ctx.delegated_permissions == [
+            "notion:pages:search",
+            "notion:pages:read",
+        ]
+        assert ctx.scoped_permissions is not None
+        assert len(ctx.scoped_permissions) == 2
+        assert ctx.token_type == "task_token"
+
+    def test_task_token_missing_required_claims(self, client, task_token_payload):
+        """Task token without agent_id should be rejected with 401."""
+        del task_token_payload["agent_id"]
+        bad_token = jose_jwt.encode(
+            task_token_payload, TEST_SECRET, algorithm=TEST_ALGORITHM
+        )
+        response = client.get(
+            "/mcp/tools", headers={"Authorization": f"Bearer {bad_token}"}
+        )
+        assert response.status_code == 401
+        assert response.json()["error"] == "missing_claims"
+
+    def test_task_token_missing_task_id(self, client, task_token_payload):
+        """Task token without task_id should be rejected with 401."""
+        del task_token_payload["task_id"]
+        bad_token = jose_jwt.encode(
+            task_token_payload, TEST_SECRET, algorithm=TEST_ALGORITHM
+        )
+        response = client.get(
+            "/mcp/tools", headers={"Authorization": f"Bearer {bad_token}"}
+        )
+        assert response.status_code == 401
+        assert response.json()["error"] == "missing_claims"
+
+    def test_agent_jwt_unchanged(self, client, valid_layer3_token):
+        """Existing Layer 3 agent JWT flow is completely unaffected."""
+        response = client.get(
+            "/mcp/context", headers={"Authorization": f"Bearer {valid_layer3_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["agent_id"] == "agent-sdr-001"
+        assert data["owner"] == "sarah@acme.com"
+        assert data["session_id"] == "asess-sdr-001-abc123"
+
+    def test_task_token_expired(self, client, task_token_payload):
+        """Expired task tokens are rejected with 401."""
+        task_token_payload["exp"] = int(
+            (datetime.now(timezone.utc) - timedelta(hours=1)).timestamp()
+        )
+        expired = jose_jwt.encode(
+            task_token_payload, TEST_SECRET, algorithm=TEST_ALGORITHM
+        )
+        response = client.get(
+            "/mcp/tools", headers={"Authorization": f"Bearer {expired}"}
+        )
+        assert response.status_code == 401
+        assert response.json()["error"] == "token_expired"
+
+    def test_task_token_invalid_signature(self, client, task_token_payload):
+        """Invalid task token signatures are rejected."""
+        bad = jose_jwt.encode(
+            task_token_payload, "wrong-secret", algorithm=TEST_ALGORITHM
+        )
+        response = client.get(
+            "/mcp/tools", headers={"Authorization": f"Bearer {bad}"}
+        )
+        assert response.status_code == 401
+        assert response.json()["error"] == "invalid_signature"
+
+    def test_task_token_with_empty_scoped_permissions(self, task_token_payload):
+        """Task token with empty scoped_permissions gets empty delegated_permissions."""
+        task_token_payload["scoped_permissions"] = []
+        ctx = AgentContext.from_jwt_payload(task_token_payload)
+        assert ctx.delegated_permissions == []
+        assert ctx.token_type == "task_token"
+
+    def test_task_token_malformed_scoped_permissions(self, task_token_payload):
+        """Malformed scoped_permissions entries are skipped gracefully."""
+        task_token_payload["scoped_permissions"] = [
+            {"urn": "valid:perm:one"},
+            "not-a-dict",
+            {"no_urn_key": True},
+            {"urn": "valid:perm:two"},
+        ]
+        ctx = AgentContext.from_jwt_payload(task_token_payload)
+        assert ctx.delegated_permissions == ["valid:perm:one", "valid:perm:two"]
+
+
+# =============================================================================
 # Authorization Header Tests
 # =============================================================================
 

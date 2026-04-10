@@ -29,7 +29,7 @@ docs/
 |--------|-------|----------|--------|-----------------|
 | [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Phase 4: Complete | 100% (43/43) | ✅ Complete | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
 | [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | ✅ Phase 4: Complete | 100% (9/9) | ✅ Complete | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
-| [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | Phase 3: Execution | **P2 100%** (WS-L1 ✅, WS-J4 ✅, WS-J5 ✅, WS-K6 ✅, WS-L2 ✅, WS-J6 ✅, WS-K7 ✅, WS-K8 ✅) | ✅ P2 Complete | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
+| [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | Phase 3: Execution | **P2 100%** (WS-L1 ✅, WS-J4 ✅, WS-J5 ✅, WS-K6 ✅, WS-L2 ✅, WS-J6 ✅, WS-K7 ✅, WS-K8 ✅, WS-K9 ✅) | ✅ P2 Complete | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
 
 
 ---

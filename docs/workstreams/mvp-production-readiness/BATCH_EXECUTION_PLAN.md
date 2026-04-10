@@ -4,9 +4,9 @@
 >
 > **Source Plan:** [mvp_production_readiness.plan.md](../../../.cursor/plans/mvp_production_readiness.plan.md)
 >
-> **Last Updated:** February 23, 2026
+> **Last Updated:** April 9, 2026
 >
-> **Latest Change:** Worktree sync - P1.5-B1 complete (6/6 tasks), MP3.5 reached, Phase 2 unblocked
+> **Latest Change:** P2-B3 complete (WS-K9 — Gateway task token JWT support); all 38 tasks done
 
 ---
 
@@ -24,8 +24,9 @@
 | **P1.5-B1** | 6 | 6 ✅ | 2 | ✅ Complete (MP3.5!) | mvp-prod-control, mvp-prod-gateway |
 | P2-B1 | 4 | 4 ✅ | 1 | ✅ Complete | mvp-prod-control, mvp-prod-gateway |
 | P2-B2 | 4 | 4 ✅ | 2 | ✅ Complete (MP4!) | mvp-prod-control, mvp-prod-gateway |
+| P2-B3 | 1 | 1 ✅ | 1 | ✅ Complete | mvp-prod-gateway (+ control fix) |
 
-**Total Tasks:** 37 | **Completed:** 37 ✅ (ALL PHASES COMPLETE) | **Remaining:** 0
+**Total Tasks:** 38 | **Completed:** 38 ✅ | **Remaining:** 0
 
 ---
 
@@ -1847,7 +1848,7 @@ docker compose up -d
 
 | Metric | Value |
 |--------|-------|
-| **Status** | ⏳ Pending |
+| **Status** | ✅ Complete |
 | **Tasks** | 6 |
 | **Waves** | 2 |
 | **Parallelism** | 50% (3 tasks per wave) |
@@ -2102,7 +2103,7 @@ curl -sf http://localhost:8002/health && echo "✅ Gateway healthy"
 curl -sf http://localhost:8080/health/ready && echo "✅ Keycloak healthy"
 
 # 3. Test SSO login (get redirect URL via Keycloak)
-SSO_REDIRECT=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/keycloak/authorize" | jq -r '.authorize_url')
+SSO_REDIRECT=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/keycloak/authorize" | jq -r '.authorization_url')
 echo "SSO URL: $SSO_REDIRECT"
 # Note: In production, replace 'keycloak' with 'okta' or 'entra'
 # Manual: Complete SSO in browser, capture callback token
@@ -2173,7 +2174,84 @@ echo "✅ P2 Validation Complete - Production Ready"
 | **Waves** | 2 |
 | **Bottleneck** | K7 → K8 dependency |
 | **Merge Point** | **Production Ready** 🎉 |
-| **Unblocks** | Production deployment |
+| **Unblocks** | P2-B3 (Gateway task token integration) |
+
+---
+
+### Batch P2-B3: Gateway Integration & Hardening (1 task)
+
+### Dependencies
+
+| Task | Description | Dependencies | Worktree | Status |
+|------|-------------|--------------|----------|--------|
+| K9 | Gateway task token JWT support | K6, K7, K8 | mvp-prod-gateway (+ control fix) | ✅ Complete |
+
+> **Context:** Discovered during MP4 Container Test Scenario 5. Task tokens issued
+> by the Control Plane (WS-K8) use a different JWT claim structure than Agent Session
+> JWTs. The Gateway's JWT middleware and MCP session management need to be updated to
+> handle task token JWTs for scoped tool execution.
+
+### Root Causes (from spec)
+
+| # | Issue | Where |
+|---|-------|-------|
+| 1 | Issuer/audience mismatch (`deepsecure-*` vs `deeptrail-*`) | `task_service.py` |
+| 2 | Missing standard claims (`agent_id` vs `sub`, `scoped_permissions` vs `delegated_permissions`) | `jwt_validation.py` |
+| 3 | Empty session key (no `session_id` in task tokens) | `main.py` → `initialize.py` |
+
+### Wave Analysis
+
+| Wave | Control Plane (mvp-prod-control) | Gateway (mvp-prod-gateway) |
+|------|----------------------------------|----------------------------|
+| **1** | Fix `iss`/`aud` in task_service.py | Update jwt_validation.py, tools_call.py |
+
+### Commands
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# BATCH P2-B3 - WAVE 1 (Single task, cross-service)
+# ═══════════════════════════════════════════════════════════════
+
+# --- Create Task Ticket (from main repo) ---
+cd /Users/imaxxs/repositories/deepsecure-mvp
+/create-task-ticket WS-K9 mvp-production-readiness
+
+# --- Execute (primary work in Gateway, small fix in Control) ---
+# Terminal 1: mvp-prod-gateway (primary)
+cd /Users/imaxxs/repositories/mvp-prod-gateway
+/execute-task WS-K9 mvp-production-readiness
+/complete-task WS-K9 mvp-production-readiness
+
+# --- Sync Status ---
+cd /Users/imaxxs/repositories/deepsecure-mvp
+/sync-worktree-status mvp-production-readiness
+```
+
+### Validation
+
+```bash
+# Gateway: Test task token JWT handling
+cd /Users/imaxxs/repositories/mvp-prod-gateway/deeptrail-gateway
+pytest tests/middleware/test_jwt_validation.py -v -k "task_token"
+pytest tests/mcp/handlers/test_tools_call.py -v -k "task_token"
+
+# Control: Test iss/aud fix
+cd /Users/imaxxs/repositories/mvp-prod-control/deeptrail-control
+pytest tests/services/test_task_service.py -v -k "iss"
+
+# Container integration: Full task token flow
+# (see WS-K9-spec.md Container Integration Test section)
+```
+
+### Summary
+
+| Metric | Value |
+|--------|-------|
+| **Parallelism** | N/A (single task) |
+| **Waves** | 1 |
+| **Bottleneck** | None |
+| **Merge Point** | None (MP4 already reached; this completes a known gap) |
+| **Unblocks** | Full task-token-scoped MCP calls through Gateway |
 
 ---
 
@@ -2193,6 +2271,7 @@ echo "✅ P2 Validation Complete - Production Ready"
 | **P1.5-B1** | 6 | 2 | 50% | ✅ Yes | ✅ Complete (MP3.5) |
 | P2-B1 | 4 | 1 | 100% | ✅ Yes | ✅ Complete |
 | P2-B2 | 4 | 2 | 75% | ✅ Yes | ✅ Complete (MP4!) |
+| P2-B3 | 1 | 1 | N/A | ✅ Yes | ✅ Complete |
 
 ### Merge Points Summary
 
