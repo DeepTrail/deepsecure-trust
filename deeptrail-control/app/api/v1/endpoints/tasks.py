@@ -50,7 +50,10 @@ def _get_caller_identity(
         )
     try:
         payload = pyjwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"verify_aud": False},
         )
     except pyjwt.InvalidTokenError:
         raise HTTPException(
