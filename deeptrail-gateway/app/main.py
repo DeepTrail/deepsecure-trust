@@ -70,6 +70,9 @@ from .middleware.result_filter import configure_result_filter
 from .security.prompt_injection import configure_prompt_injection_detector
 from .security.token_exchange import configure_token_exchange_client, TokenExchangeConfig
 from .middleware.credential_injection import get_credential_injector, configure_credential_injector
+from .middleware.result_filter import configure_result_filter
+from .security.prompt_injection import configure_prompt_injection_detector
+from .security.token_exchange import configure_token_exchange_client, TokenExchangeConfig
 from .backends.adapter import create_backend_adapter
 from .services.cache_subscriber import start_cache_subscriber, stop_cache_subscriber
 

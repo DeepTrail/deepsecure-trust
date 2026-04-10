@@ -40,18 +40,27 @@ class KeycloakProvider:
         client_id: str,
         client_secret: str | None = None,
         realm: str = "deepsecure",
+        browser_url: str | None = None,
     ):
         self._issuer_url = issuer_url.rstrip("/")
         self._client_id = client_id
         self._client_secret = client_secret
         self._realm = realm
 
-        base = self._issuer_url
-        self._auth_endpoint = f"{base}/protocol/openid-connect/auth"
-        self._token_endpoint = f"{base}/protocol/openid-connect/token"
-        self._userinfo_endpoint = f"{base}/protocol/openid-connect/userinfo"
-        self._jwks_uri = f"{base}/protocol/openid-connect/certs"
-        self._logout_endpoint = f"{base}/protocol/openid-connect/logout"
+        # Browser-facing base (for auth redirects the user's browser follows).
+        # Falls back to issuer_url when not set (non-Docker environments).
+        browser_base = (browser_url or issuer_url).rstrip("/")
+        self._browser_issuer = browser_base
+
+        # Backend endpoints (container-to-container in Docker)
+        backend_base = self._issuer_url
+        self._token_endpoint = f"{backend_base}/protocol/openid-connect/token"
+        self._userinfo_endpoint = f"{backend_base}/protocol/openid-connect/userinfo"
+        self._jwks_uri = f"{backend_base}/protocol/openid-connect/certs"
+
+        # Browser-facing endpoints (must be resolvable by the user's browser)
+        self._auth_endpoint = f"{browser_base}/protocol/openid-connect/auth"
+        self._logout_endpoint = f"{browser_base}/protocol/openid-connect/logout"
 
         self._jwks_cache: dict | None = None
 
@@ -60,6 +69,8 @@ class KeycloakProvider:
         state: str,
         redirect_uri: str,
         scopes: list[str] | None = None,
+        code_challenge: str | None = None,
+        code_challenge_method: str | None = None,
     ) -> str:
         scopes = scopes or ["openid", "profile", "email"]
         params = {
@@ -69,9 +80,14 @@ class KeycloakProvider:
             "scope": " ".join(scopes),
             "state": state,
         }
+        if code_challenge:
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = code_challenge_method or "S256"
         return f"{self._auth_endpoint}?{urlencode(params)}"
 
-    async def exchange_code(self, code: str, redirect_uri: str) -> OIDCTokens:
+    async def exchange_code(
+        self, code: str, redirect_uri: str, code_verifier: str | None = None
+    ) -> OIDCTokens:
         data: dict[str, str] = {
             "grant_type": "authorization_code",
             "code": code,
@@ -80,6 +96,8 @@ class KeycloakProvider:
         }
         if self._client_secret:
             data["client_secret"] = self._client_secret
+        if code_verifier:
+            data["code_verifier"] = code_verifier
 
         try:
             async with httpx.AsyncClient() as client:
@@ -113,22 +131,39 @@ class KeycloakProvider:
             token_type=token_data.get("token_type", "Bearer"),
         )
 
-    async def validate_token(self, id_token: str) -> OIDCClaims:
+    async def validate_token(
+        self, id_token: str, access_token: str | None = None
+    ) -> OIDCClaims:
         jwks = await self._get_jwks()
 
-        try:
-            claims = jwt.decode(
-                id_token,
-                jwks,
-                algorithms=["RS256"],
-                audience=self._client_id,
-                issuer=self._issuer_url,
-            )
-        except JWTError as exc:
+        # Accept tokens issued under either the backend (Docker-internal) or
+        # browser-facing issuer URL.  Keycloak sets `iss` based on the request
+        # hostname, which may differ between the two.
+        valid_issuers = [self._issuer_url]
+        if self._browser_issuer != self._issuer_url:
+            valid_issuers.append(self._browser_issuer)
+
+        last_exc: JWTError | None = None
+        claims: dict | None = None
+        for issuer in valid_issuers:
+            try:
+                claims = jwt.decode(
+                    id_token,
+                    jwks,
+                    algorithms=["RS256"],
+                    audience=self._client_id,
+                    issuer=issuer,
+                    access_token=access_token,
+                )
+                break
+            except JWTError as exc:
+                last_exc = exc
+
+        if claims is None:
             raise OIDCTokenInvalidError(
-                f"ID token validation failed: {exc}",
+                f"ID token validation failed: {last_exc}",
                 error_code="token_invalid",
-            ) from exc
+            ) from last_exc
 
         return OIDCClaims(
             sub=claims["sub"],

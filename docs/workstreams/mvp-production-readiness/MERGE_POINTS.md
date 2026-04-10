@@ -1619,6 +1619,7 @@ SSO_URL=$(echo "$SSO_RESP" | jq -r '.authorization_url')
 SSO_STATE=$(echo "$SSO_RESP" | jq -r '.state')
 echo "SSO URL: $SSO_URL"
 echo "State: $SSO_STATE"
+
 # Manual: Open SSO_URL in browser, login with Keycloak test user (sarah@acme.com / test_password),
 # then verify callback works at /api/v1/auth/sso/keycloak/callback
 # Note: In production, replace 'keycloak' with 'okta' or 'entra'

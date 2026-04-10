@@ -121,6 +121,8 @@ class OIDCProvider(Protocol):
         state: str,
         redirect_uri: str,
         scopes: list[str] | None = None,
+        code_challenge: str | None = None,
+        code_challenge_method: str | None = None,
     ) -> str:
         """Generate the IdP authorization URL for the OIDC Authorization Code flow.
 
@@ -128,6 +130,8 @@ class OIDCProvider(Protocol):
             state: CSRF protection state parameter (opaque, caller-generated).
             redirect_uri: Where the IdP should redirect after authentication.
             scopes: OIDC scopes to request. Defaults to ["openid", "profile", "email"].
+            code_challenge: PKCE code challenge (S256 hash of code_verifier).
+            code_challenge_method: PKCE method, typically "S256".
 
         Returns:
             Full authorization URL to redirect the user to.
@@ -138,12 +142,14 @@ class OIDCProvider(Protocol):
         self,
         code: str,
         redirect_uri: str,
+        code_verifier: str | None = None,
     ) -> OIDCTokens:
         """Exchange an authorization code for tokens.
 
         Args:
             code: The authorization code from the IdP callback.
             redirect_uri: Must match the redirect_uri used in get_authorization_url.
+            code_verifier: PKCE code verifier (must match the code_challenge sent in authorize).
 
         Returns:
             OIDCTokens with id_token, access_token, and optional refresh_token.
@@ -153,7 +159,9 @@ class OIDCProvider(Protocol):
         """
         ...
 
-    async def validate_token(self, id_token: str) -> OIDCClaims:
+    async def validate_token(
+        self, id_token: str, access_token: str | None = None
+    ) -> OIDCClaims:
         """Validate an OIDC ID token and extract claims.
 
         Validates signature (JWKS), issuer, audience, and expiration.
@@ -240,8 +248,9 @@ def create_oidc_provider(config: IdPConfig | None = None) -> OIDCProvider:
         from app.services.providers.keycloak import KeycloakProvider
 
         logger.info(
-            "Creating KeycloakProvider: issuer=%s, realm=%s",
+            "Creating KeycloakProvider: issuer=%s, browser=%s, realm=%s",
             config.issuer_url,
+            config.browser_url or "(same as issuer)",
             config.realm,
         )
         return KeycloakProvider(
@@ -249,6 +258,7 @@ def create_oidc_provider(config: IdPConfig | None = None) -> OIDCProvider:
             client_id=config.client_id,
             client_secret=config.client_secret,
             realm=config.realm,
+            browser_url=config.browser_url,
         )
     elif config.provider == IdPProviderType.OKTA:
         raise NotImplementedError(

@@ -6,6 +6,8 @@ Implements the Authorization Code flow:
   3. /logout     — Invalidate session, return IdP logout URL
 """
 
+import base64
+import hashlib
 import logging
 import secrets
 import uuid
@@ -77,6 +79,14 @@ def _cleanup_expired() -> None:
     expired = [k for k, v in _pending_sso.items() if v.is_expired]
     for k in expired:
         del _pending_sso[k]
+
+
+def _generate_pkce_pair() -> tuple[str, str]:
+    """Generate a PKCE code_verifier and code_challenge (S256)."""
+    code_verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return code_verifier, code_challenge
 
 
 # ============================================================================
@@ -152,12 +162,27 @@ async def sso_authorize(
         )
 
     state = secrets.token_urlsafe(32)
-    effective_redirect = redirect_uri or idp_config.redirect_uri
+
+    # Build the callback redirect_uri with the {idp} segment so it matches
+    # the /{idp}/callback route.  Fall back to the configured base only when
+    # an explicit redirect_uri is supplied by the caller.
+    if redirect_uri:
+        effective_redirect = redirect_uri
+    else:
+        base = idp_config.redirect_uri.rstrip("/")
+        if not base.endswith(f"/{idp}/callback"):
+            base = base.rsplit("/callback", 1)[0]
+            effective_redirect = f"{base}/{idp}/callback"
+        else:
+            effective_redirect = idp_config.redirect_uri
+
+    code_verifier, code_challenge = _generate_pkce_pair()
 
     pending = PendingSSO(
         state=state,
         idp=idp,
         redirect_uri=effective_redirect,
+        code_verifier=code_verifier,
     )
     _pending_sso[state] = pending
     _cleanup_expired()
@@ -167,6 +192,8 @@ async def sso_authorize(
             state=state,
             redirect_uri=effective_redirect,
             scopes=["openid", "profile", "email"],
+            code_challenge=code_challenge,
+            code_challenge_method="S256",
         )
     except OIDCProviderUnavailableError:
         del _pending_sso[state]
@@ -255,11 +282,12 @@ async def sso_callback(
             detail="Failed to initialize IdP provider",
         )
 
-    # Exchange code → tokens
+    # Exchange code → tokens (include PKCE code_verifier when available)
     try:
         tokens = await provider.exchange_code(
             code=code,
             redirect_uri=pending.redirect_uri,
+            code_verifier=pending.code_verifier,
         )
     except OIDCError as exc:
         logger.warning("Code exchange failed for %s: %s", idp, exc)
@@ -268,9 +296,9 @@ async def sso_callback(
             detail="Failed to exchange authorization code",
         )
 
-    # Validate ID token → claims
+    # Validate ID token → claims (pass access_token for at_hash verification)
     try:
-        claims = await provider.validate_token(tokens.id_token)
+        claims = await provider.validate_token(tokens.id_token, tokens.access_token)
     except OIDCTokenInvalidError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

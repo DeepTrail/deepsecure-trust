@@ -2103,7 +2103,7 @@ curl -sf http://localhost:8002/health && echo "✅ Gateway healthy"
 curl -sf http://localhost:8080/health/ready && echo "✅ Keycloak healthy"
 
 # 3. Test SSO login (get redirect URL via Keycloak)
-SSO_REDIRECT=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/keycloak/authorize" | jq -r '.authorize_url')
+SSO_REDIRECT=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/keycloak/authorize" | jq -r '.authorization_url')
 echo "SSO URL: $SSO_REDIRECT"
 # Note: In production, replace 'keycloak' with 'okta' or 'entra'
 # Manual: Complete SSO in browser, capture callback token
