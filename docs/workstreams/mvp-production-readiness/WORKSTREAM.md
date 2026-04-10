@@ -180,6 +180,12 @@ python demos/demo_sarah_journey_interactive.py --auto
 | WS-K7 | [WS-K7-spec.md](./specs/WS-K7-spec.md) | [WS-K7-create-task-service.md](./tasks/WS-K7-create-task-service.md) | ✅ Complete | [Report](./reports/WS-K7-completion.md) |
 | WS-K8 | [WS-K8-spec.md](./specs/WS-K8-spec.md) | [WS-K8-create-task-endpoints.md](./tasks/WS-K8-create-task-endpoints.md) | ✅ Complete | [Report](./reports/WS-K8-completion.md) |
 
+### Batch P2-B3 (Gateway Integration & Hardening)
+
+| Task ID | Spec | Ticket | Status |
+|---------|------|--------|--------|
+| WS-K9 | [WS-K9-spec.md](./specs/WS-K9-spec.md) | [WS-K9-gateway-task-token-jwt-support.md](./tasks/WS-K9-gateway-task-token-jwt-support.md) | ✅ Complete | [Report](./reports/WS-K9-completion.md) |
+
 ---
 
 ## Related Documents
