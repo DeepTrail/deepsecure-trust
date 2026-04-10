@@ -917,3 +917,62 @@ class TestErrorCodes:
         ]
         for code in codes:
             assert -32099 <= code <= -32000
+
+
+# =============================================================================
+# Test: Task Token Owner Resolution (WS-K9)
+# =============================================================================
+
+
+class TestTaskTokenOwnerResolution:
+    """Tests for _resolve_owner with task tokens."""
+
+    def test_owner_present_returns_directly(self):
+        from app.middleware.jwt_validation import AgentContext
+        from app.mcp.handlers.tools_call import _resolve_owner
+
+        ctx = AgentContext(
+            agent_id="agent-001",
+            owner="sarah@acme.com",
+            delegation_id="del-001",
+            session_id="sess-001",
+        )
+        sm = MCPSessionManager()
+        assert _resolve_owner(ctx, sm) == "sarah@acme.com"
+
+    def test_task_token_resolves_from_existing_session(self):
+        from app.middleware.jwt_validation import AgentContext
+        from app.mcp.handlers.tools_call import _resolve_owner
+
+        sm = MCPSessionManager()
+        sm.create_agent_session(
+            agent_session_id="agent-sdr-001",
+            delegator="sarah@acme.com",
+            delegated_permissions=["notion:pages:search"],
+            connected_services=[],
+        )
+
+        ctx = AgentContext(
+            agent_id="sdr-assistant-001",
+            owner="",
+            delegation_id="",
+            session_id="task-abc123",
+            token_type="task_token",
+            task_id="task-abc123",
+        )
+        assert _resolve_owner(ctx, sm) == "sarah@acme.com"
+
+    def test_task_token_empty_when_no_sessions(self):
+        from app.middleware.jwt_validation import AgentContext
+        from app.mcp.handlers.tools_call import _resolve_owner
+
+        sm = MCPSessionManager()
+        ctx = AgentContext(
+            agent_id="sdr-assistant-001",
+            owner="",
+            delegation_id="",
+            session_id="task-abc123",
+            token_type="task_token",
+            task_id="task-abc123",
+        )
+        assert _resolve_owner(ctx, sm) == ""

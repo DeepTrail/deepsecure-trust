@@ -686,7 +686,7 @@ async def _forward_to_backend(
         credential_ref=cred_ref,
         backend_id=backend_id,
         agent_jwt_token=agent_jwt_token,
-        user_id=agent_context.owner if agent_context else None,
+        user_id=_resolve_owner(agent_context, get_session_manager()) if agent_context else None,
     )
     
     if not injection_result.success:
@@ -749,6 +749,28 @@ async def _forward_to_backend(
         ],
         "isError": False
     }
+
+
+def _resolve_owner(
+    agent_context: AgentContext,
+    session_manager: MCPSessionManager,
+) -> str:
+    """Resolve the owner for credential injection.
+
+    Task tokens don't carry an ``owner`` claim. When one is missing, look up
+    the delegator from an existing agent session that shares the same agent_id.
+    """
+    if agent_context.owner:
+        return agent_context.owner
+
+    if agent_context.token_type != "task_token":
+        return ""
+
+    for sess in session_manager._sessions.values():
+        if sess.delegator and sess.agent_session_id != agent_context.session_id:
+            return sess.delegator
+
+    return ""
 
 
 def _generate_mock_response(
