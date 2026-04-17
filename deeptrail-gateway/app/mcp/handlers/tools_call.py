@@ -76,8 +76,10 @@ from ...middleware.audit import get_audit_middleware
 from ...middleware.credential_injection import get_credential_injector
 from ...middleware.delegation_validator import get_delegation_validator
 from ...middleware.jwt_validation import AgentContext
+from ...middleware.result_filter import get_result_filter
 from ...security.fail_closed import FailClosedError, enforce_fail_closed
 from ...security.constraint_checker import get_constraint_checker
+from ...security.prompt_injection import get_prompt_injection_detector
 
 logger = logging.getLogger(__name__)
 
@@ -466,6 +468,43 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             }
         )
     
+    # Step 3.5: Scan arguments for prompt injection (J5)
+    injection_detector = get_prompt_injection_detector()
+    if injection_detector:
+        scan_result = injection_detector.scan_arguments(
+            arguments=arguments,
+            tool_name=tool_name,
+        )
+        if scan_result.is_blocked:
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.warning(
+                "Prompt injection blocked",
+                extra={
+                    "tool": tool_name,
+                    "threat_level": scan_result.threat_level.value,
+                    "detections": scan_result.detection_count,
+                    "categories": [
+                        d.category.value for d in scan_result.detections if d.category
+                    ],
+                },
+            )
+            if agent_context:
+                await audit_middleware.log_tool_call(
+                    agent_context=agent_context,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    error=f"Prompt injection blocked: threat_level={scan_result.threat_level.value}",
+                    duration_ms=duration_ms,
+                )
+            raise MCPError(
+                JsonRpcErrorCode.INVALID_PARAMS,
+                "Request blocked: potentially malicious content detected in arguments",
+                data={
+                    "threat_level": scan_result.threat_level.value,
+                    "blocked_fields": scan_result.scanned_fields,
+                },
+            )
+
     # Step 4: Get backend session and credentials
     backend_session = session_manager.get_backend_session(agent_session_id, backend_id)
     
@@ -527,6 +566,26 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             f"Tool execution failed: {e}"
         )
     
+    # Step 5.5: Apply PII result filter (J4) before audit/return
+    result_filter = get_result_filter()
+    if result_filter and result_filter.enabled:
+        filter_result = result_filter.filter_response(
+            content=result,
+            backend_id=backend_id,
+            tool_name=tool_name,
+        )
+        result = filter_result.filtered_content
+        if filter_result.masks_applied > 0:
+            logger.info(
+                "PII masked in response",
+                extra={
+                    "tool": tool_name,
+                    "backend": backend_id,
+                    "masks_applied": filter_result.masks_applied,
+                    "pii_types": [t.value for t in filter_result.pii_types_found],
+                },
+            )
+
     # Step 6: Log successful call using E3 AuditMiddleware
     duration_ms = int((time.perf_counter() - start_time) * 1000)
     if agent_context:
@@ -627,7 +686,7 @@ async def _forward_to_backend(
         credential_ref=cred_ref,
         backend_id=backend_id,
         agent_jwt_token=agent_jwt_token,
-        user_id=agent_context.owner if agent_context else None,
+        user_id=_resolve_owner(agent_context, get_session_manager()) if agent_context else None,
     )
     
     if not injection_result.success:
@@ -690,6 +749,28 @@ async def _forward_to_backend(
         ],
         "isError": False
     }
+
+
+def _resolve_owner(
+    agent_context: AgentContext,
+    session_manager: MCPSessionManager,
+) -> str:
+    """Resolve the owner for credential injection.
+
+    Task tokens don't carry an ``owner`` claim. When one is missing, look up
+    the delegator from an existing agent session that shares the same agent_id.
+    """
+    if agent_context.owner:
+        return agent_context.owner
+
+    if agent_context.token_type != "task_token":
+        return ""
+
+    for sess in session_manager._sessions.values():
+        if sess.delegator and sess.agent_session_id != agent_context.session_id:
+            return sess.delegator
+
+    return ""
 
 
 def _generate_mock_response(

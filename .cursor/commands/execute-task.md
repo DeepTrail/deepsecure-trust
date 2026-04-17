@@ -6,149 +6,6 @@ Automatically implement a task by reading its ticket and executing the implement
 
 When given a task ID and feature name, execute the following steps:
 
-### 0. Verify Ticket Exists and Is Synced (CRITICAL)
-
-**Before doing anything else, verify the ticket is available in the current worktree.**
-
-#### Step 0a: Detect Current Context
-
-```bash
-# Determine if we're in main repo or a worktree
-CURRENT_DIR=$(pwd)
-WORKTREE_INFO=$(git worktree list | grep "^$CURRENT_DIR ")
-MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
-
-# Check if current dir is a worktree
-if [[ "$CURRENT_DIR" == "$MAIN_REPO" ]]; then
-  echo "Running in MAIN REPO"
-  WORKTREE_TYPE="main"
-else
-  echo "Running in WORKTREE: $CURRENT_DIR"
-  WORKTREE_TYPE=$(echo "$CURRENT_DIR" | grep -oE '(control|gateway)' || echo "unknown")
-fi
-```
-
-#### Step 0b: Determine Expected Worktree
-
-Based on task ID prefix, determine which worktree should have this ticket:
-
-| Task ID Pattern | Expected Worktree | Worktree Pattern |
-|-----------------|-------------------|------------------|
-| WS-A*, WS-C*, WS-E*, WS-F*, WS-K* | Control Plane | `*-control` |
-| WS-B*, WS-D*, WS-G*, WS-H*, WS-I*, WS-J* | Gateway | `*-gateway` |
-| WS-K2 (special case) | BOTH | Both worktrees |
-
-**Cross-service tasks (require BOTH worktrees):** WS-E*, WS-F*, WS-K2
-
-#### Step 0c: Verify Ticket Exists Locally
-
-```bash
-# Check if ticket exists in current directory
-FEATURE="[feature-name]"  # e.g., mvp-production-readiness
-TASK_ID="[WS-ID]"         # e.g., WS-K1
-
-TICKET_PATH="docs/workstreams/$FEATURE/tasks/$TASK_ID-*.md"
-
-if ls $TICKET_PATH 1>/dev/null 2>&1; then
-  echo "✅ Ticket found locally: $(ls $TICKET_PATH)"
-else
-  echo "❌ TICKET NOT FOUND LOCALLY"
-  echo "   Expected at: $TICKET_PATH"
-fi
-```
-
-#### Step 0d: If Ticket Missing - Auto-Sync from Main Repo
-
-**If ticket is not found locally, attempt to sync it:**
-
-```bash
-# Get main repo path
-MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
-MAIN_TICKET=$(ls $MAIN_REPO/docs/workstreams/$FEATURE/tasks/$TASK_ID-*.md 2>/dev/null)
-
-if [[ -n "$MAIN_TICKET" ]]; then
-  echo "Found ticket in main repo: $MAIN_TICKET"
-  
-  # Create directory if needed
-  mkdir -p docs/workstreams/$FEATURE/tasks
-  
-  # Copy ticket
-  cp "$MAIN_TICKET" docs/workstreams/$FEATURE/tasks/
-  
-  echo "✅ Ticket synced to worktree"
-else
-  echo "❌ TICKET NOT FOUND IN MAIN REPO EITHER"
-  echo "   Run /create-task-ticket $TASK_ID $FEATURE first"
-  # STOP EXECUTION
-fi
-```
-
-#### Step 0e: Verify Correct Worktree
-
-**If running in a worktree, verify it's the correct one for this task:**
-
-```bash
-# Extract task letter (e.g., WS-K1 → K)
-TASK_LETTER=$(echo "$TASK_ID" | sed 's/WS-\([A-Z]\).*/\1/')
-
-# Determine expected worktree
-case $TASK_LETTER in
-  A|C|K) EXPECTED="control" ;;      # Control Plane tasks
-  B|D|G|H|I|J) EXPECTED="gateway" ;; # Gateway tasks
-  E|F) EXPECTED="both" ;;            # Cross-service tasks
-  *) EXPECTED="unknown" ;;
-esac
-
-# Check current worktree type
-CURRENT_WT=$(pwd | grep -oE '(control|gateway)' || echo "main")
-
-if [[ "$EXPECTED" == "both" ]]; then
-  echo "ℹ️  Cross-service task - can run in either worktree"
-elif [[ "$EXPECTED" == "$CURRENT_WT" ]] || [[ "$CURRENT_WT" == "main" ]]; then
-  echo "✅ Correct worktree for task $TASK_ID"
-else
-  echo "⚠️  WARNING: Task $TASK_ID should run in $EXPECTED worktree, currently in $CURRENT_WT"
-  echo "   Consider switching to the correct worktree"
-fi
-```
-
-#### Step 0f: Verification Summary
-
-```markdown
-## Ticket Verification: [WS-ID]
-
-| Check | Status |
-|-------|--------|
-| Ticket exists locally | ✅ / ❌ |
-| Ticket synced from main repo | ✅ / ❌ / N/A |
-| Correct worktree | ✅ / ⚠️ Wrong worktree |
-| Ready to execute | ✅ / 🚫 BLOCKED |
-```
-
-**If verification fails:**
-
-```markdown
-## 🚫 Cannot Execute: Ticket Not Available
-
-**Task:** [WS-ID]
-**Feature:** [feature-name]
-
-**Issue:** Ticket not found in current worktree
-
-**Resolution:**
-1. Run from main repo: `/create-task-ticket [WS-ID] [feature-name]`
-2. Or manually sync: 
-   ```bash
-   MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
-   cp $MAIN_REPO/docs/workstreams/[feature]/tasks/[WS-ID]-*.md docs/workstreams/[feature]/tasks/
-   ```
-3. Then retry: `/execute-task [WS-ID] [feature-name]`
-```
-
-**STOP and do not proceed to Step 1 until ticket is verified.**
-
----
-
 ### 1. Read and Analyze Task Ticket
 
 ```
@@ -384,18 +241,76 @@ Update the task ticket's Execution Log:
 | [today] | Ready for completion |
 ```
 
-### 8. AUTOMATICALLY Run /complete-task (MANDATORY)
+### 8. COMPLETE THE TASK (MANDATORY — INLINE, NOT SEPARATE)
 
-> **CRITICAL:** DO NOT end the task execution without running `/complete-task`.
-> This step is NOT optional. The task is incomplete until `/complete-task` has run.
+> **CRITICAL:** The steps below MUST execute as part of THIS `/execute-task` run.
+> Do NOT end the conversation, do NOT tell the user to run `/complete-task` separately.
+> The task is incomplete until ALL sub-steps below have run.
 
-**If all acceptance criteria are met, IMMEDIATELY execute:**
+**If all acceptance criteria are met, execute these steps IN ORDER:**
 
-Follow the instructions in `/complete-task [WS-ID] [feature-name]` to:
-- Generate the completion report
-- Update STATUS.md, WORKSTREAM.md, and EXECUTION_STATUS.md
-- Mark the task as complete
-- Unblock dependent tasks
+#### 8a. Determine repo paths
+
+```bash
+MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+LOCAL_REPO=$(pwd)
+```
+
+#### 8b. Create completion report (LOCAL)
+
+1. Read the template at `docs/workstreams/COMPLETION_REPORT_TEMPLATE.md`
+2. Fill it in with actual execution data (files changed, test results, acceptance criteria)
+3. **Write** the report to: `docs/workstreams/[feature]/reports/[WS-ID]-completion.md`
+
+#### 8c. Copy completion report to MAIN REPO
+
+**Write** the same report to: `$MAIN_REPO/docs/workstreams/[feature]/reports/[WS-ID]-completion.md`
+
+(Create the `reports/` directory first with `mkdir -p` if it doesn't exist.)
+
+#### 8d. Update task ticket status
+
+**StrReplace** the task ticket's status field from `ready` / `in progress` to `completed` ✅.
+
+Also copy the updated ticket to `$MAIN_REPO` if in a worktree.
+
+#### 8e. Update MAIN REPO STATUS.md
+
+Use **StrReplace** on `$MAIN_REPO/docs/workstreams/[feature]/STATUS.md`:
+
+- Update "Last Updated" timestamp
+- Update overall progress metrics (increment completed count, update percentage)
+- Update phase progress row (e.g., P2: 0% → 13%)
+- Add a P2 batch section if this is the first P2 task completed
+- Add the task row to the completed batch table with report link
+- Add changelog entry at the top of the Change Log table
+
+#### 8f. Update MAIN REPO WORKSTREAM.md
+
+Use **StrReplace** on `$MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md`:
+
+- Change the task's status from `⏳ Ready` to `✅ Complete` in the batch table
+- Add report link column
+- Check if batch is fully complete; if so, update batch status
+
+#### 8g. Update MAIN REPO EXECUTION_STATUS.md
+
+Use **StrReplace** on `$MAIN_REPO/docs/EXECUTION_STATUS.md`:
+
+- Update progress for this design in the "Active Designs" table
+
+#### 8h. Sync local STATUS.md from main repo (if in worktree)
+
+```bash
+cp $MAIN_REPO/docs/workstreams/[feature]/STATUS.md docs/workstreams/[feature]/STATUS.md
+```
+
+#### 8i. Identify newly unblocked tasks
+
+Check if any tasks list `[WS-ID]` as a dependency. If all their dependencies
+are now satisfied, note them as newly ready.
+
+---
 
 **If issues remain that prevent completion:**
 
@@ -411,11 +326,14 @@ Follow the instructions in `/complete-task [WS-ID] [feature-name]` to:
 **Blockers:**
 - [any blockers encountered]
 
+**Why completion steps 8a-8i cannot run:**
+- [specific reason — e.g., "2/5 acceptance criteria not met because..."]
+
 **Resume Command:**
 `/execute-task [WS-ID] [feature-name]`
 ```
 
-> **Note:** Even if blocked, you must explicitly state why `/complete-task` cannot run.
+> **Note:** Even if blocked, you must explicitly state which of steps 8a-8i cannot run and why.
 
 ---
 
@@ -444,8 +362,13 @@ Follow the instructions in `/complete-task [WS-ID] [feature-name]` to:
 - Type Check: ✅ Pass
 - Tests: ✅ 5 passed
 
-### Automatic Completion
-Now executing `/complete-task [WS-ID] [feature-name]`...
+### Completion (inline)
+- Report: `docs/workstreams/[feature]/reports/[WS-ID]-completion.md` ✅
+- Task ticket: updated to `completed` ✅
+- Main repo STATUS.md: updated ✅
+- Main repo WORKSTREAM.md: updated ✅
+- Main repo EXECUTION_STATUS.md: updated ✅
+- Newly unblocked: [WS-XX, WS-YY] or "None"
 ```
 
 ### Blocked Path
@@ -482,7 +405,12 @@ Once resolved, run:
 6. Create `deeptrail-control/tests/models/test_user_session.py`
 7. Run tests and quality checks
 8. Verify all acceptance criteria
-9. Run `/complete-task WS-A1 virtual-mcp-server-mvp`
+9. **Inline completion (Steps 8a-8i):**
+   - Create completion report (local + main repo)
+   - Update task ticket → `completed`
+   - Update main repo STATUS.md, WORKSTREAM.md, EXECUTION_STATUS.md
+   - Sync local STATUS.md
+   - Report newly unblocked tasks
 
 ---
 
@@ -523,9 +451,14 @@ MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 
 | When | File | Updates |
 |------|------|---------|
-| Task starts | `$MAIN_REPO/docs/workstreams/[feature]/STATUS.md` | Task → In Progress, metrics |
-| Task starts | `$MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md` | All Tasks table, Progress section |
-| Task completes | Trigger `/complete-task` which updates all status files |
+| Task starts (Step 2) | `$MAIN_REPO/docs/workstreams/[feature]/STATUS.md` | Task → In Progress, metrics |
+| Task starts (Step 2) | `$MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md` | All Tasks table, Progress section |
+| Task completes (Step 8b) | `docs/workstreams/[feature]/reports/[WS-ID]-completion.md` | Create completion report locally |
+| Task completes (Step 8c) | `$MAIN_REPO/docs/.../reports/[WS-ID]-completion.md` | Copy report to main repo |
+| Task completes (Step 8d) | `docs/workstreams/[feature]/tasks/[WS-ID]-*.md` | Task ticket → `completed` |
+| Task completes (Step 8e) | `$MAIN_REPO/docs/workstreams/[feature]/STATUS.md` | Metrics, phase progress, changelog |
+| Task completes (Step 8f) | `$MAIN_REPO/docs/workstreams/[feature]/WORKSTREAM.md` | Batch table → ✅ Complete |
+| Task completes (Step 8g) | `$MAIN_REPO/docs/EXECUTION_STATUS.md` | Global design progress % |
 
 ---
 

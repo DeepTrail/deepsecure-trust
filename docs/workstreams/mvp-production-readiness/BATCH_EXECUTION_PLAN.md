@@ -4,9 +4,9 @@
 >
 > **Source Plan:** [mvp_production_readiness.plan.md](../../../.cursor/plans/mvp_production_readiness.plan.md)
 >
-> **Last Updated:** February 23, 2026
+> **Last Updated:** April 9, 2026
 >
-> **Latest Change:** Worktree sync - P1.5-B1 complete (6/6 tasks), MP3.5 reached, Phase 2 unblocked
+> **Latest Change:** P2-B3 complete (WS-K9 — Gateway task token JWT support); all 38 tasks done
 
 ---
 
@@ -22,10 +22,11 @@
 | P1-B2 | 7 | 7 ✅ | 1 | ✅ Complete (MP2!) | mvp-prod-control, mvp-prod-gateway |
 | P1-B3 | 2 | 2 ✅ | 2 | ✅ Complete (MP3!) | mvp-prod-gateway |
 | **P1.5-B1** | 6 | 6 ✅ | 2 | ✅ Complete (MP3.5!) | mvp-prod-control, mvp-prod-gateway |
-| P2-B1 | 4 | 0 | 1 | ⏳ Pending | mvp-prod-control, mvp-prod-gateway |
-| P2-B2 | 4 | 0 | 2 | ⏳ Pending | mvp-prod-control, mvp-prod-gateway |
+| P2-B1 | 4 | 4 ✅ | 1 | ✅ Complete | mvp-prod-control, mvp-prod-gateway |
+| P2-B2 | 4 | 4 ✅ | 2 | ✅ Complete (MP4!) | mvp-prod-control, mvp-prod-gateway |
+| P2-B3 | 1 | 1 ✅ | 1 | ✅ Complete | mvp-prod-gateway (+ control fix) |
 
-**Total Tasks:** 37 | **Completed:** 29 (P0 + P1 + P1.5) | **Remaining:** 8 (P2)
+**Total Tasks:** 38 | **Completed:** 38 ✅ | **Remaining:** 0
 
 ---
 
@@ -62,7 +63,7 @@ cp -r .cursor ../mvp-prod-gateway/
 │  PHASE 0 (E2E)      PHASE 1 (Integration)     P1.5 (Bug Fixes)    PHASE 2 (Harden)           │
 │  ──────────────     ─────────────────────     ────────────────    ────────────────           │
 │  P0-B1 │...│ P0-B4 │ P1-B1 │ P1-B2 │ P1-B3 │    P1.5-B1       │ P2-B1 │ P2-B2 │            │
-│   ✅   │ ✅ │  ✅   │  ✅   │  ✅   │  ✅   │      ✅          │  ⏳   │  ⏳   │            │
+│   ✅   │ ✅ │  ✅   │  ✅   │  ✅   │  ✅   │      ✅          │  ✅   │  ✅   │            │
 │                    [MP1]         [MP2]  [MP3]                 [MP3.5]                        │
 │                                                                                               │
 │  Phase 1.5 addresses bugs found during Integration Validation Guide testing (Steps 1-18)     │
@@ -1847,7 +1848,7 @@ docker compose up -d
 
 | Metric | Value |
 |--------|-------|
-| **Status** | ⏳ Pending |
+| **Status** | ✅ Complete |
 | **Tasks** | 6 |
 | **Waves** | 2 |
 | **Parallelism** | 50% (3 tasks per wave) |
@@ -1870,18 +1871,18 @@ docker compose up -d
 
 | Task | Description | Dependencies | Worktree | Status |
 |------|-------------|--------------|----------|--------|
-| I1 | Create IdP service | MP3.5 | mvp-prod-control | ⏳ |
-| J4 | Implement result filtering (PII) | MP3.5 | mvp-prod-gateway | ⏳ |
-| J5 | Implement prompt injection detection | MP3.5 | mvp-prod-gateway | ⏳ |
-| K6 | Create TaskToken model | MP3.5 | mvp-prod-control | ⏳ |
+| L1 | Create IdP service (OIDC abstraction + Keycloak) | MP3.5 | mvp-prod-control | ✅ |
+| J4 | Implement result filtering (PII) | MP3.5 | mvp-prod-gateway | ✅ |
+| J5 | Implement prompt injection detection | MP3.5 | mvp-prod-gateway | ✅ |
+| K6 | Create TaskToken model | MP3.5 | mvp-prod-control | ✅ |
 
-> **Note:** Task IDs J4, J5, K6 avoid conflict with P1.5 bug fix tasks (WS-J2, WS-K1-K5)
+> **Note:** Task IDs L1, J4, J5, K6 avoid conflict with P1/P1.5 tasks (WS-I1, WS-I2, WS-J2, WS-K1-K5)
 
 ### Wave Analysis
 
 | Wave | Control Plane (mvp-prod-control) | Gateway (mvp-prod-gateway) |
 |------|----------------------------------|----------------------------|
-| **1** | I1, K6 | J4, J5 |
+| **1** | L1, K6 | J4, J5 |
 
 ### Visual Dependency Graph
 
@@ -1892,7 +1893,7 @@ CONTROL (mvp-prod-control)             GATEWAY (mvp-prod-gateway)
 [MP3.5] ───┬───────────────────────────┬────────────────────────
 (P1.5 Done)│                           │
            ▼                           ▼
-    I1 (IdP)    K6 (TaskToken)        J4 (PII)    J5 (Prompt)
+    L1 (IdP)    K6 (TaskToken)        J4 (PII)    J5 (Prompt)
     │           │                      │           │
     └─────┬─────┘                      └─────┬─────┘
           │                                  │
@@ -1907,7 +1908,7 @@ CONTROL (mvp-prod-control)             GATEWAY (mvp-prod-gateway)
 ### Execution Strategy
 
 All 4 tasks run in parallel across 2 worktrees:
-- Control: I1, K6 (2 tasks)
+- Control: L1, K6 (2 tasks)
 - Gateway: J4, J5 (2 tasks)
 
 ### Commands
@@ -1923,19 +1924,19 @@ cd /Users/imaxxs/repositories/deepsecure-mvp
 /create-task-spec P2-B1 mvp-production-readiness
 
 # --- Create Task Tickets (from main repo) ---
-/create-task-ticket WS-I1 mvp-production-readiness
+/create-task-ticket WS-L1 mvp-production-readiness
 /create-task-ticket WS-J4 mvp-production-readiness
 /create-task-ticket WS-J5 mvp-production-readiness
 /create-task-ticket WS-K6 mvp-production-readiness
 
 # ───────────────────────────────────────────────────────────────
-# WAVE 1: Control (I1, K6) + Gateway (J4, J5)
+# WAVE 1: Control (L1, K6) + Gateway (J4, J5)
 # ───────────────────────────────────────────────────────────────
 
 # Terminal 1: mvp-prod-control
 cd /Users/imaxxs/repositories/mvp-prod-control
-/execute-task WS-I1 mvp-production-readiness
-/complete-task WS-I1 mvp-production-readiness
+/execute-task WS-L1 mvp-production-readiness
+/complete-task WS-L1 mvp-production-readiness
 /execute-task WS-K6 mvp-production-readiness
 /complete-task WS-K6 mvp-production-readiness
 
@@ -1954,9 +1955,10 @@ cd /Users/imaxxs/repositories/deepsecure-mvp
 ### Validation
 
 ```bash
-# Control: Test IdP service
+# Control: Test IdP service (OIDC abstraction + Keycloak provider)
 cd /Users/imaxxs/repositories/mvp-prod-control/deeptrail-control
 pytest tests/services/test_idp_service.py -v
+pytest tests/services/providers/test_keycloak.py -v
 
 # Control: Test TaskToken model
 pytest tests/models/test_task_token.py -v
@@ -1977,7 +1979,7 @@ pytest tests/security/test_prompt_injection.py -v
 | **Waves** | 1 |
 | **Bottleneck** | None |
 | **Merge Point** | None |
-| **Unblocks** | Batch P2-B2 (I2, J6, K7, K8) |
+| **Unblocks** | Batch P2-B2 (L2, J6, K7, K8) |
 
 ---
 
@@ -1987,10 +1989,10 @@ pytest tests/security/test_prompt_injection.py -v
 
 | Task | Description | Dependencies | Worktree | Status |
 |------|-------------|--------------|----------|--------|
-| I2 | Create SSO endpoints | I1 | mvp-prod-control | ⏳ |
-| J6 | Implement Keycloak token exchange | J4, J5 | mvp-prod-gateway | ⏳ |
-| K7 | Create TaskService | K6 | mvp-prod-control | ⏳ |
-| K8 | Create task endpoints | K7 | mvp-prod-control | ⏳ |
+| L2 | Create SSO endpoints | L1 | mvp-prod-control | ✅ |
+| J6 | Implement Keycloak token exchange | J4, J5 | mvp-prod-gateway | ✅ |
+| K7 | Create TaskService | K6 | mvp-prod-control | ✅ |
+| K8 | Create task endpoints | K7 | mvp-prod-control | ✅ |
 
 > **Note:** Task IDs J6, K7, K8 avoid conflict with P1.5 bug fix tasks (WS-K1-K5)
 
@@ -1998,7 +2000,7 @@ pytest tests/security/test_prompt_injection.py -v
 
 | Wave | Control Plane (mvp-prod-control) | Gateway (mvp-prod-gateway) |
 |------|----------------------------------|----------------------------|
-| **1** | I2, K7 | J6 |
+| **1** | L2, K7 | J6 |
 | **2** | K8 | (none) |
 
 ### Visual Dependency Graph
@@ -2007,7 +2009,7 @@ pytest tests/security/test_prompt_injection.py -v
 CONTROL (mvp-prod-control)             GATEWAY (mvp-prod-gateway)
 ──────────────────────────             ─────────────────────────
 
-I1 ──▶ I2 (SSO)                        J4, J5 ──▶ J6 (Keycloak)
+L1 ──▶ L2 (SSO)                        J4, J5 ──▶ J6 (Keycloak)
            │                                       │
 K6 ──▶ K7 (TaskSvc)                                │
            │                                       │
@@ -2024,7 +2026,7 @@ K6 ──▶ K7 (TaskSvc)                                │
 
 ### Execution Strategy
 
-Wave 1: I2, K7, J6 run in parallel.
+Wave 1: L2, K7, J6 run in parallel.
 Wave 2: K8 runs after K7 completes.
 
 ### Commands
@@ -2040,19 +2042,19 @@ cd /Users/imaxxs/repositories/deepsecure-mvp
 /create-task-spec P2-B2 mvp-production-readiness
 
 # --- Create Task Tickets (from main repo) ---
-/create-task-ticket WS-I2 mvp-production-readiness
+/create-task-ticket WS-L2 mvp-production-readiness
 /create-task-ticket WS-J6 mvp-production-readiness
 /create-task-ticket WS-K7 mvp-production-readiness
 /create-task-ticket WS-K8 mvp-production-readiness
 
 # ───────────────────────────────────────────────────────────────
-# WAVE 1: I2, K7 (Control) + J6 (Gateway)
+# WAVE 1: L2, K7 (Control) + J6 (Gateway)
 # ───────────────────────────────────────────────────────────────
 
 # Terminal 1: mvp-prod-control
 cd /Users/imaxxs/repositories/mvp-prod-control
-/execute-task WS-I2 mvp-production-readiness
-/complete-task WS-I2 mvp-production-readiness
+/execute-task WS-L2 mvp-production-readiness
+/complete-task WS-L2 mvp-production-readiness
 /execute-task WS-K7 mvp-production-readiness
 /complete-task WS-K7 mvp-production-readiness
 
@@ -2100,9 +2102,10 @@ curl -sf http://localhost:8000/health && echo "✅ Control Plane healthy"
 curl -sf http://localhost:8002/health && echo "✅ Gateway healthy"
 curl -sf http://localhost:8080/health/ready && echo "✅ Keycloak healthy"
 
-# 3. Test SSO login (get redirect URL)
-SSO_REDIRECT=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/okta/authorize" | jq -r '.authorize_url')
+# 3. Test SSO login (get redirect URL via Keycloak)
+SSO_REDIRECT=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/keycloak/authorize" | jq -r '.authorization_url')
 echo "SSO URL: $SSO_REDIRECT"
+# Note: In production, replace 'keycloak' with 'okta' or 'entra'
 # Manual: Complete SSO in browser, capture callback token
 
 # 4. Get user token via standard login (fallback)
@@ -2171,7 +2174,84 @@ echo "✅ P2 Validation Complete - Production Ready"
 | **Waves** | 2 |
 | **Bottleneck** | K7 → K8 dependency |
 | **Merge Point** | **Production Ready** 🎉 |
-| **Unblocks** | Production deployment |
+| **Unblocks** | P2-B3 (Gateway task token integration) |
+
+---
+
+### Batch P2-B3: Gateway Integration & Hardening (1 task)
+
+### Dependencies
+
+| Task | Description | Dependencies | Worktree | Status |
+|------|-------------|--------------|----------|--------|
+| K9 | Gateway task token JWT support | K6, K7, K8 | mvp-prod-gateway (+ control fix) | ✅ Complete |
+
+> **Context:** Discovered during MP4 Container Test Scenario 5. Task tokens issued
+> by the Control Plane (WS-K8) use a different JWT claim structure than Agent Session
+> JWTs. The Gateway's JWT middleware and MCP session management need to be updated to
+> handle task token JWTs for scoped tool execution.
+
+### Root Causes (from spec)
+
+| # | Issue | Where |
+|---|-------|-------|
+| 1 | Issuer/audience mismatch (`deepsecure-*` vs `deeptrail-*`) | `task_service.py` |
+| 2 | Missing standard claims (`agent_id` vs `sub`, `scoped_permissions` vs `delegated_permissions`) | `jwt_validation.py` |
+| 3 | Empty session key (no `session_id` in task tokens) | `main.py` → `initialize.py` |
+
+### Wave Analysis
+
+| Wave | Control Plane (mvp-prod-control) | Gateway (mvp-prod-gateway) |
+|------|----------------------------------|----------------------------|
+| **1** | Fix `iss`/`aud` in task_service.py | Update jwt_validation.py, tools_call.py |
+
+### Commands
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# BATCH P2-B3 - WAVE 1 (Single task, cross-service)
+# ═══════════════════════════════════════════════════════════════
+
+# --- Create Task Ticket (from main repo) ---
+cd /Users/imaxxs/repositories/deepsecure-mvp
+/create-task-ticket WS-K9 mvp-production-readiness
+
+# --- Execute (primary work in Gateway, small fix in Control) ---
+# Terminal 1: mvp-prod-gateway (primary)
+cd /Users/imaxxs/repositories/mvp-prod-gateway
+/execute-task WS-K9 mvp-production-readiness
+/complete-task WS-K9 mvp-production-readiness
+
+# --- Sync Status ---
+cd /Users/imaxxs/repositories/deepsecure-mvp
+/sync-worktree-status mvp-production-readiness
+```
+
+### Validation
+
+```bash
+# Gateway: Test task token JWT handling
+cd /Users/imaxxs/repositories/mvp-prod-gateway/deeptrail-gateway
+pytest tests/middleware/test_jwt_validation.py -v -k "task_token"
+pytest tests/mcp/handlers/test_tools_call.py -v -k "task_token"
+
+# Control: Test iss/aud fix
+cd /Users/imaxxs/repositories/mvp-prod-control/deeptrail-control
+pytest tests/services/test_task_service.py -v -k "iss"
+
+# Container integration: Full task token flow
+# (see WS-K9-spec.md Container Integration Test section)
+```
+
+### Summary
+
+| Metric | Value |
+|--------|-------|
+| **Parallelism** | N/A (single task) |
+| **Waves** | 1 |
+| **Bottleneck** | None |
+| **Merge Point** | None (MP4 already reached; this completes a known gap) |
+| **Unblocks** | Full task-token-scoped MCP calls through Gateway |
 
 ---
 
@@ -2189,8 +2269,9 @@ echo "✅ P2 Validation Complete - Production Ready"
 | P1-B2 | 7 | 1 | 100% | ✅ Yes | ✅ Complete (MP2) |
 | P1-B3 | 2 | 2 | 0% | No (gateway only) | ✅ Complete (MP3) |
 | **P1.5-B1** | 6 | 2 | 50% | ✅ Yes | ✅ Complete (MP3.5) |
-| P2-B1 | 4 | 1 | 100% | ✅ Yes | ⏳ Pending |
-| P2-B2 | 4 | 2 | 75% | ✅ Yes | ⏳ Pending |
+| P2-B1 | 4 | 1 | 100% | ✅ Yes | ✅ Complete |
+| P2-B2 | 4 | 2 | 75% | ✅ Yes | ✅ Complete (MP4!) |
+| P2-B3 | 1 | 1 | N/A | ✅ Yes | ✅ Complete |
 
 ### Merge Points Summary
 
@@ -2200,7 +2281,7 @@ echo "✅ P2 Validation Complete - Production Ready"
 | MP2 | P1-B2 | E2 + E3 | Vault API ready | ✅ Reached |
 | MP3 | P1-B3 | H1 + H2 | Verify credential injection works | ✅ Reached |
 | **MP3.5** | P1.5-B1 | WS-J2 + WS-K1-K5 | Integration bugs fixed, re-test Steps 1-18 | ✅ Reached |
-| MP4 | P2-B2 | All P2 | Final merge to dev, production deployment | ⏳ Pending |
+| MP4 | P2-B2 | All P2 | Final merge to dev, production deployment | ✅ Reached |
 
 ### Total Commands Needed
 
@@ -2220,7 +2301,7 @@ echo "✅ P2 Validation Complete - Production Ready"
 P0: A1 → A2 → A3 → C3 → D1 → D2 → [MP1] ✅
 P1: E1 → E2 → H1 → H2 → [MP3] ✅
 P1.5: WS-K1 → WS-K2 → [MP3.5]  ← Integration bug fixes
-P2: I1 → I2 + K6 → K7 → K8 → [Production Ready]
+P2: L1 → L2 + K6 → K7 → K8 → [Production Ready]
 ```
 
 ### Worktree Distribution
@@ -2228,7 +2309,7 @@ P2: I1 → I2 + K6 → K7 → K8 → [Production Ready]
 | Worktree | Tasks | Phase |
 |----------|-------|-------|
 | **main** | A1-A3, B1-B3, C1-C3, D1-D2 (11 tasks) | P0 ✅ |
-| **mvp-prod-control** | E1-E3, F1-F3, WS-K1-K5, I1-I2, K6-K8 (16 tasks) | P1, P1.5, P2 |
+| **mvp-prod-control** | E1-E3, F1-F3, WS-K1-K5, L1-L2, K6-K8 (16 tasks) | P1, P1.5, P2 |
 | **mvp-prod-gateway** | G1-G4, H1-H2, WS-J2, WS-K2 (sub), J4-J6 (10 tasks) | P1, P1.5, P2 |
 
 ### Parallelism Summary
@@ -2259,7 +2340,7 @@ P2: I1 → I2 + K6 → K7 → K8 → [Production Ready]
 - Complete MP3.5 before proceeding to P2
 
 **P2:** Two developers (or two Claude instances)
-- Developer 1: Control Plane (I1, I2, K6, K7, K8)
+- Developer 1: Control Plane (L1, L2, K6, K7, K8)
 - Developer 2: Gateway (J4, J5, J6)
 - Final merge to dev at completion
 
@@ -2353,10 +2434,10 @@ docker compose up -d
 
 # 2. Continue in existing worktrees (no new setup needed)
 cd ../mvp-prod-control
-/execute-task WS-I1 mvp-production-readiness
+/execute-task WS-L1 mvp-production-readiness
 
 cd ../mvp-prod-gateway
-/execute-task WS-J1 mvp-production-readiness
+/execute-task WS-J4 mvp-production-readiness
 
 # 3. After P2 complete, merge to dev
 cd /Users/imaxxs/repositories/deepsecure-mvp

@@ -13,7 +13,6 @@ assets/.DS_Store*
 cursor/*
 .DS_Store*
 .coverage
-.cursor/
 .cursorindexingignore
 .mintlifyignore
 .specstory/

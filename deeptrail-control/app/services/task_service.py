@@ -273,6 +273,7 @@ class TaskService:
         claims["exp"] = int(expires_at.timestamp())
         claims["iss"] = "deeptrail-control"
         claims["aud"] = "deeptrail-gateway"
+
         claims["token_type"] = "task_token"
 
         token = pyjwt.encode(claims, self._jwt_secret, algorithm=self.JWT_ALGORITHM)

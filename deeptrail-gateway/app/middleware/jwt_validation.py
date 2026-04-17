@@ -68,10 +68,34 @@ class AgentContext:
     groups: list[str] = field(default_factory=list)
     party_type: str = "first_party"
     idp_issuer: str | None = None
+    token_type: str = "agent_session"
+    task_id: str | None = None
+    scoped_permissions: list[dict] | None = None
 
     @classmethod
     def from_jwt_payload(cls, payload: dict[str, Any]) -> "AgentContext":
-        """Create AgentContext from validated JWT payload."""
+        """Create AgentContext from validated JWT payload.
+
+        Handles both Layer 3 (agent session) and Layer 4 (task token) JWTs.
+        """
+        token_type = payload.get("token_type", "agent_session")
+
+        if token_type == "task_token":
+            scoped = payload.get("scoped_permissions", [])
+            perm_urns = [
+                p["urn"] for p in scoped if isinstance(p, dict) and "urn" in p
+            ]
+            return cls(
+                agent_id=payload.get("agent_id", ""),
+                owner="",
+                delegation_id="",
+                session_id=payload.get("task_id", ""),
+                delegated_permissions=perm_urns,
+                token_type="task_token",
+                task_id=payload.get("task_id"),
+                scoped_permissions=scoped,
+            )
+
         return cls(
             agent_id=payload.get("sub", ""),
             owner=payload.get("owner", ""),
@@ -175,6 +199,13 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
         "delegated_permissions",
         "delegation_id",
         "session_id",
+    ]
+
+    # Required claims in Task Token JWT (Layer 4)
+    TASK_TOKEN_REQUIRED_CLAIMS = [
+        "agent_id",
+        "task_id",
+        "scoped_permissions",
     ]
 
     # Legacy required claims (for backward compatibility)
@@ -331,8 +362,13 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
                     issuer=self.EXPECTED_ISSUER,
                 )
 
-                # Validate required claims for Layer 3
-                self._validate_required_claims(payload, self.REQUIRED_CLAIMS)
+                token_type = payload.get("token_type")
+                if token_type == "task_token":
+                    self._validate_required_claims(
+                        payload, self.TASK_TOKEN_REQUIRED_CLAIMS
+                    )
+                else:
+                    self._validate_required_claims(payload, self.REQUIRED_CLAIMS)
 
             except jwt.JWTClaimsError:
                 # Fallback: Try without issuer/audience for legacy tokens
