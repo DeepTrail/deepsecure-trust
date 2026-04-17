@@ -38,6 +38,11 @@ from typing import Any
 
 import httpx
 
+from ..security.token_exchange import (
+    TokenExchangeError,
+    get_token_exchange_client,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -195,6 +200,27 @@ class CredentialInjector:
             - Agent receives error message, not token details
             - Token values never appear in logs
         """
+        # Step 0: Try token exchange (primary path when configured)
+        exchange_client = get_token_exchange_client()
+        if exchange_client and exchange_client.config.enabled and agent_jwt_token:
+            try:
+                exchanged = await exchange_client.get_backend_token(
+                    subject_token=agent_jwt_token,
+                    backend_id=backend_id,
+                )
+                logger.debug(
+                    "Credential via token exchange: backend=%s",
+                    backend_id,
+                )
+                return InjectionResult.ok(
+                    {"Authorization": f"Bearer {exchanged.access_token}"}
+                )
+            except TokenExchangeError:
+                logger.warning(
+                    "Token exchange failed for backend %s, falling back to vault",
+                    backend_id,
+                )
+
         # Step 1: Validate credential reference exists (fail-closed)
         if not credential_ref:
             logger.warning(
@@ -386,6 +412,13 @@ class CredentialInjector:
         if expires_at:
             # Buffer: consider expired if within 5 minutes of expiration
             buffer = 300  # 5 minutes
+            if isinstance(expires_at, str):
+                from datetime import datetime, timezone
+                try:
+                    dt = datetime.fromisoformat(expires_at)
+                    expires_at = dt.timestamp()
+                except (ValueError, TypeError):
+                    return False
             return time.time() > (expires_at - buffer)
         
         # If no expiration info, assume valid

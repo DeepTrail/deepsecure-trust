@@ -406,13 +406,13 @@ class TestIssueTaskToken:
             result.task_token,
             JWT_SECRET,
             algorithms=["HS256"],
-            audience="deepsecure-gateway",
+            audience="deeptrail-gateway",
         )
         assert decoded["task_id"] == "task-test-123"
         assert decoded["agent_id"] == "agent-001"
         assert decoded["token_type"] == "task_token"
-        assert decoded["iss"] == "deepsecure-control"
-        assert decoded["aud"] == "deepsecure-gateway"
+        assert decoded["iss"] == "deeptrail-control"
+        assert decoded["aud"] == "deeptrail-gateway"
         assert "exp" in decoded
         assert "scoped_permissions" in decoded
 
