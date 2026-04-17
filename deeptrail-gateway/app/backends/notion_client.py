@@ -408,6 +408,57 @@ class NotionDirectClient:
                 ToolCallStatus.ERROR, f"Request failed: {e}"
             )
 
+    async def get_page_content(
+        self,
+        page_id: str,
+        page_size: int = 100,
+        auth_token: str | None = None,
+    ) -> ToolResult:
+        """
+        Get a page's content blocks (paragraphs, headings, lists, etc.).
+
+        Calls GET /v1/blocks/{page_id}/children
+
+        Args:
+            page_id: Notion page ID (with or without hyphens)
+            page_size: Max blocks to return (1-100)
+            auth_token: Notion integration token
+
+        Returns:
+            ToolResult with block children data or error
+        """
+        if auth_token is None:
+            return ToolResult.from_error(
+                ToolCallStatus.UNAUTHORIZED, "No auth token provided"
+            )
+
+        try:
+            normalized_id = self._normalize_notion_id(page_id)
+        except ValueError as e:
+            return ToolResult.from_error(ToolCallStatus.ERROR, str(e))
+
+        url = f"{self.base_url}/blocks/{normalized_id}/children"
+        params = {"page_size": min(max(page_size, 1), 100)}
+        start_time = datetime.now(timezone.utc)
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    url,
+                    params=params,
+                    headers=self._get_headers(auth_token),
+                )
+            return self._transform_response("get_page_content", response, start_time)
+
+        except httpx.TimeoutException:
+            return ToolResult.from_error(
+                ToolCallStatus.TIMEOUT, "Request timed out"
+            )
+        except httpx.RequestError as e:
+            return ToolResult.from_error(
+                ToolCallStatus.ERROR, f"Request failed: {e}"
+            )
+
     async def create_page(
         self,
         parent_id: str,
@@ -748,6 +799,7 @@ class NotionDirectClient:
         tool_map = {
             "search_pages": self._call_search_pages,
             "read_page": self._call_read_page,
+            "get_page_content": self._call_get_page_content,
             "create_page": self._call_create_page,
             "update_page": self._call_update_page,
             "delete_page": self._call_delete_page,
@@ -766,9 +818,10 @@ class NotionDirectClient:
     async def _call_search_pages(
         self, args: dict[str, Any], auth_token: str | None
     ) -> ToolResult:
+        page_size = args.get("page_size") or args.get("limit", 10)
         return await self.search_pages(
             query=args.get("query"),
-            page_size=args.get("page_size", 10),
+            page_size=page_size,
             start_cursor=args.get("start_cursor"),
             auth_token=auth_token,
         )
@@ -782,6 +835,20 @@ class NotionDirectClient:
                 ToolCallStatus.ERROR, "page_id is required"
             )
         return await self.read_page(page_id=page_id, auth_token=auth_token)
+
+    async def _call_get_page_content(
+        self, args: dict[str, Any], auth_token: str | None
+    ) -> ToolResult:
+        page_id = args.get("page_id")
+        if not page_id:
+            return ToolResult.from_error(
+                ToolCallStatus.ERROR, "page_id is required"
+            )
+        return await self.get_page_content(
+            page_id=page_id,
+            page_size=args.get("page_size", 100),
+            auth_token=auth_token,
+        )
 
     async def _call_create_page(
         self, args: dict[str, Any], auth_token: str | None

@@ -34,7 +34,7 @@ This guide provides complete curl-based validation commands for testing the Deep
 21. [Test Scenario 16: Audit Events Query](#21-test-scenario-16-audit-events-query)
 22. [Test Scenario 17: Service Disconnect](#22-test-scenario-17-service-disconnect) *(P1.5)*
 23. [Test Scenario 18: Token Persistence (Container Restart)](#23-test-scenario-18-token-persistence-container-restart) *(P1.5)*
-24. [Test Scenario 19: SSO Authorization](#24-test-scenario-19-sso-authorization) *(NEW - P2)*
+24. [Test Scenario 19: SSO Authorization & Automated Login](#24-test-scenario-19-sso-authorization--automated-login) *(NEW - P2)*
 25. [Test Scenario 20: Create Task with Scoped Permissions](#25-test-scenario-20-create-task-with-scoped-permissions) *(NEW - P2)*
 26. [Test Scenario 21: Task Lifecycle (Activate / Complete / Revoke)](#26-test-scenario-21-task-lifecycle-activate--complete--revoke) *(NEW - P2)*
 27. [Test Scenario 22: Generate Task Token](#27-test-scenario-22-generate-task-token) *(NEW - P2)*
@@ -153,7 +153,7 @@ docker compose logs deeptrail-gateway --tail=50
 | 16 | Audit Events | All | `/api/v1/audit/events` | GET | User Token |
 | 17 | Service Disconnect | P1.5 | `/api/v1/users/me/services/{service_id}` | DELETE | User Token |
 | 18 | Token Persistence | P1.5 | (container restart test) | - | User Token |
-| 19 | SSO Authorization | P2-B2 | `/api/v1/auth/sso/{idp}/authorize` | GET | None |
+| 19 | SSO Authorization & Login | P2-B2 | `/api/v1/auth/sso/{idp}/authorize` + callback | GET | None |
 | 20 | Create Task | P2-B2 | `/api/v1/tasks/` | POST | Agent JWT / User Token |
 | 21 | Task Lifecycle | P2-B2 | `/api/v1/tasks/{task_id}/{action}` | POST | Agent JWT / User Token |
 | 22 | Generate Task Token | P2-B2 | `/api/v1/tasks/{task_id}/token` | POST | Agent JWT / User Token |
@@ -761,10 +761,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
     \"agent_id\": \"$AGENT_ID\",
     \"permissions\": [
       \"notion:pages:search\",
-      \"notion:pages:read\",
-      \"notion:databases:query\",
-      \"slack:messages:search\",
-      \"slack:channels:list\"
+      \"notion:pages:read\"
     ],
     \"constraints\": {
       \"rate_limit\": 100,
@@ -781,10 +778,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
   "delegation_id": "del-<uuid>",
   "permissions": [
     "notion:pages:search",
-    "notion:pages:read",
-    "notion:databases:query",
-    "slack:messages:search",
-    "slack:channels:list"
+    "notion:pages:read"
   ],
   "expires_in": 28800
 }
@@ -1020,10 +1014,7 @@ fi
   "owner": "sarah@acme.com",
   "delegated_permissions": [
     "notion:pages:search",
-    "notion:pages:read",
-    "notion:databases:query",
-    "slack:messages:search",
-    "slack:channels:list"
+    "notion:pages:read"
   ],
   "delegation_id": "del-<uuid>",
   "session_id": "asess-<uuid>",
@@ -1143,8 +1134,10 @@ curl -s -X POST "http://localhost:8000/api/v1/vault/tokens/notion/refresh" \
 
 ```json
 {
-  "refreshed": false,
-  "reason": "no_refresh_token_stored"
+  "detail": {
+    "error": "no_refresh_token",
+    "message": "Service does not support refresh"
+  }
 }
 ```
 
@@ -1286,11 +1279,13 @@ fi
   "result": {
     "protocolVersion": "2024-11-05",
     "capabilities": {
-      "tools": {}
+      "tools": {
+        "listChanged": true
+      }
     },
     "serverInfo": {
-      "name": "DeepSecure Virtual MCP Server",
-      "version": "0.1.10"
+      "name": "DeepTrail Virtual MCP Server",
+      "version": "0.1.0"
     }
   }
 }
@@ -1351,7 +1346,7 @@ TOOLS_RESULT=$(curl -s -X POST http://localhost:8002/mcp \
 
 echo "$TOOLS_RESULT" | jq .
 
-# Count tools - should be 5 based on delegation
+# Count tools - should be 2 based on delegation
 TOOL_COUNT=$(echo "$TOOLS_RESULT" | jq -r '.result.tools | length')
 echo "✅ Discovered $TOOL_COUNT tools"
 
@@ -1362,7 +1357,7 @@ echo "$TOOLS_RESULT" | jq -r '.result.tools[].name'
 
 ### Expected Response
 
-Based on delegation with permissions `notion:pages:search`, `notion:pages:read`, `notion:databases:query`, `slack:messages:search`, `slack:channels:list`:
+Based on delegation with permissions `notion:pages:search`, `notion:pages:read`:
 
 ```json
 {
@@ -1372,61 +1367,26 @@ Based on delegation with permissions `notion:pages:search`, `notion:pages:read`,
     "tools": [
       {
         "name": "notion.search_pages",
-        "description": "Search for pages in Notion workspace",
+        "description": "[Notion] Search for pages in Notion workspace",
         "inputSchema": {
           "type": "object",
           "properties": {
             "query": {"type": "string", "description": "Search query string"},
-            "limit": {"type": "integer", "description": "Maximum number of results", "default": 10}
+            "limit": {"type": "integer", "description": "Maximum number of results to return", "default": 10},
+            "filter": {"type": "object", "description": "Optional filter criteria", "properties": {"property": {"type": "string"}, "value": {"type": "string"}}}
           },
           "required": ["query"]
         }
       },
       {
         "name": "notion.read_page",
-        "description": "Read a Notion page by ID",
+        "description": "[Notion] Read a specific Notion page by ID",
         "inputSchema": {
           "type": "object",
           "properties": {
-            "page_id": {"type": "string", "description": "Notion page ID"}
+            "page_id": {"type": "string", "description": "The Notion page ID (UUID format)"}
           },
           "required": ["page_id"]
-        }
-      },
-      {
-        "name": "notion.query_database",
-        "description": "Query a Notion database",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "database_id": {"type": "string", "description": "Notion database ID"},
-            "filter": {"type": "object", "description": "Filter conditions"},
-            "sorts": {"type": "array", "description": "Sort conditions"}
-          },
-          "required": ["database_id"]
-        }
-      },
-      {
-        "name": "slack.search_messages",
-        "description": "Search Slack messages across channels",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "query": {"type": "string", "description": "Search query string"},
-            "limit": {"type": "integer", "default": 20}
-          },
-          "required": ["query"]
-        }
-      },
-      {
-        "name": "slack.list_channels",
-        "description": "List available Slack channels",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "types": {"type": "string", "default": "public_channel"},
-            "limit": {"type": "integer", "default": 100}
-          }
         }
       }
     ],
@@ -1441,13 +1401,10 @@ Based on delegation with permissions `notion:pages:search`, `notion:pages:read`,
 |---------------------|------------------|
 | `notion:pages:search` | `notion.search_pages` |
 | `notion:pages:read` | `notion.read_page` |
-| `notion:databases:query` | `notion.query_database` |
-| `slack:messages:search` | `slack.search_messages` |
-| `slack:channels:list` | `slack.list_channels` |
 
 ### Notes
 
-- **5 tools returned** (one per delegated permission)
+- **2 tools returned** (one per delegated permission)
 - Tools are filtered based on `delegated_permissions` in Agent JWT
 - Tools NOT in delegation (e.g., `notion:pages:create`) are hidden
 - Each tool has `inputSchema` for validation
@@ -1758,14 +1715,14 @@ Disconnect a previously connected service. This soft-deletes the connection and 
 | Field | Value |
 |-------|-------|
 | **Endpoint** | `DELETE /api/v1/users/me/services/{service_id}` |
-| **URL** | `http://localhost:8000/api/v1/users/me/services/slack` |
+| **URL** | `http://localhost:8000/api/v1/users/me/services/notion` |
 | **Auth** | `Bearer $USER_TOKEN` |
 
 ### Command
 
 ```bash
-echo "=== Disconnect Service (Slack) ==="
-DISCONNECT_RESULT=$(curl -s -X DELETE http://localhost:8000/api/v1/users/me/services/slack \
+echo "=== Disconnect Service (Notion) ==="
+DISCONNECT_RESULT=$(curl -s -X DELETE http://localhost:8000/api/v1/users/me/services/notion \
   -H "Authorization: Bearer $USER_TOKEN")
 
 echo "$DISCONNECT_RESULT" | jq .
@@ -1783,9 +1740,8 @@ fi
 ```json
 {
   "success": true,
-  "message": "Service disconnected",
-  "service_id": "slack",
-  "disconnected_at": "2026-02-23T15:30:00.000000+00:00"
+  "service_id": "notion",
+  "message": "Service 'notion' disconnected successfully"
 }
 ```
 
@@ -1913,62 +1869,154 @@ Post-restart permissions: 2
 
 ---
 
-## 24. Test Scenario 19: SSO Authorization
+## 24. Test Scenario 19: SSO Authorization & Automated Login
 
 > **Added in P2-B2 (WS-L2)**: Enterprise SSO login via OIDC providers (Keycloak, Okta, Entra ID).
 
 ### Purpose
 
-Initiate SSO login and verify the authorization URL is generated correctly. This tests the IdP service abstraction and SSO state management.
+Complete the full SSO login flow end-to-end: initiate authorization, programmatically log in via Keycloak, and obtain a `USER_TOKEN` (identical shape to Scenario 2's login token but with an `idp` claim). This SSO-issued token can replace the login token for all subsequent test scenarios.
 
 ### API Reference
 
 | Field | Value |
 |-------|-------|
-| **Endpoint** | `GET /api/v1/auth/sso/{idp}/authorize` |
-| **URL** | `http://localhost:8000/api/v1/auth/sso/keycloak/authorize` |
-| **Auth** | None |
+| **Authorize** | `GET /api/v1/auth/sso/{idp}/authorize` |
+| **Callback** | `GET /api/v1/auth/sso/{idp}/callback?code=...&state=...` |
+| **Logout** | `POST /api/v1/auth/sso/logout` |
 
-### Query Parameters
+### Query Parameters (Authorize)
 
 | Parameter | Description |
 |-----------|-------------|
 | `redirect_uri` | Custom redirect URI (optional, uses default from config) |
 | `response_mode` | `json` (default) returns JSON, `redirect` returns 302 |
 
-### Command
+### Keycloak Test Users
+
+| Email | Password | Organization |
+|-------|----------|--------------|
+| `sarah@acme.com` | `test_password` | `acme-org` |
+| `admin@acme.com` | `admin_password` | `acme-org` |
+
+### Step 1: Get SSO Authorization URL
 
 ```bash
-echo "=== SSO Authorization (Keycloak) ==="
-SSO_RESULT=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/keycloak/authorize")
+echo "=== Step 1: Get SSO Authorization URL ==="
+SSO_RESULT=$(curl -s "http://localhost:8000/api/v1/auth/sso/keycloak/authorize")
 
 echo "$SSO_RESULT" | jq .
 
-# Verify response
-if echo "$SSO_RESULT" | jq -e '.authorization_url' > /dev/null 2>&1; then
-  echo "✅ SSO authorize URL generated"
-  echo "   State: $(echo $SSO_RESULT | jq -r '.state')"
-  echo "   Expires in: $(echo $SSO_RESULT | jq -r '.expires_in')s"
-else
-  echo "⚠️ SSO may require Keycloak container: $(echo $SSO_RESULT | jq -c .)"
-fi
+AUTH_URL=$(echo "$SSO_RESULT" | jq -r '.authorization_url')
+SSO_STATE=$(echo "$SSO_RESULT" | jq -r '.state')
+echo "State: $SSO_STATE"
 ```
 
-### Expected Response (Keycloak running)
+### Expected Response (Step 1)
 
 ```json
 {
-  "authorization_url": "http://localhost:8080/realms/deepsecure/protocol/openid-connect/auth?client_id=deepsecure-control&redirect_uri=http://localhost:8000/api/v1/auth/sso/keycloak/callback&response_type=code&scope=openid+profile+email&state=<state_token>",
+  "authorization_url": "http://localhost:8080/realms/deepsecure/protocol/openid-connect/auth?response_type=code&client_id=deepsecure-control&redirect_uri=http://localhost:8000/api/v1/auth/sso/keycloak/callback&scope=openid+profile+email&state=<state_token>&code_challenge=<pkce_challenge>&code_challenge_method=S256",
   "state": "<state_token>",
   "expires_in": 300
 }
 ```
 
+### Step 2: Programmatic Keycloak Login
+
+This step automates what would normally happen in a browser — following the authorization URL to Keycloak's login page, submitting credentials, and capturing the callback response.
+
+```bash
+echo "=== Step 2: Log in to Keycloak (automated) ==="
+
+# Follow authorization URL to Keycloak login page, save session cookies
+LOGIN_PAGE=$(curl -s -c /tmp/kc_cookies.txt -L "$AUTH_URL")
+
+# Extract form action URL from Keycloak login page HTML
+FORM_ACTION=$(echo "$LOGIN_PAGE" | sed -n 's/.*action="\([^"]*\)".*/\1/p' | head -1)
+FORM_ACTION=$(echo "$FORM_ACTION" | sed 's/&amp;/\&/g')
+
+echo "Keycloak login form: ${FORM_ACTION:0:80}..."
+```
+
+### Step 3: Submit Credentials & Get Token
+
+```bash
+echo "=== Step 3: Submit credentials to Keycloak ==="
+
+# POST credentials → Keycloak authenticates → redirects to callback → returns JSON
+SSO_CALLBACK_RESPONSE=$(curl -s \
+  -b /tmp/kc_cookies.txt -c /tmp/kc_cookies.txt \
+  -L \
+  -d "username=sarah@acme.com" \
+  -d "password=test_password" \
+  "$FORM_ACTION")
+
+echo "$SSO_CALLBACK_RESPONSE" | jq .
+
+# Extract the SSO token — this is a full USER_TOKEN
+USER_TOKEN=$(echo "$SSO_CALLBACK_RESPONSE" | jq -r '.token')
+
+if [ -n "$USER_TOKEN" ] && [ "$USER_TOKEN" != "null" ]; then
+  echo "✅ SSO login complete!"
+  echo "   User: $(echo $SSO_CALLBACK_RESPONSE | jq -r '.user.email')"
+  echo "   Name: $(echo $SSO_CALLBACK_RESPONSE | jq -r '.user.name')"
+  echo "   IdP: $(echo $SSO_CALLBACK_RESPONSE | jq -r '.idp')"
+  echo "   Org: $(echo $SSO_CALLBACK_RESPONSE | jq -r '.user.organization_id')"
+  echo "   Expires in: $(echo $SSO_CALLBACK_RESPONSE | jq -r '.expires_in')s"
+else
+  echo "❌ SSO login failed"
+  echo "   Check Keycloak is running: curl -sf http://localhost:8080/health"
+fi
+
+rm -f /tmp/kc_cookies.txt
+```
+
+### Expected Response (Callback — Step 3)
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "user_id": "<uuid>",
+    "email": "sarah@acme.com",
+    "name": "Sarah Chen",
+    "organization_id": "acme-org",
+    "is_new_user": false
+  },
+  "expires_in": 86400,
+  "idp": "keycloak"
+}
+```
+
+### Step 4: Verify SSO Token Works
+
+The SSO-issued `USER_TOKEN` is interchangeable with the login token from Scenario 2. Verify it works for API calls:
+
+```bash
+echo "=== Step 4: Verify SSO token works ==="
+curl -s "http://localhost:8000/api/v1/users/me/available-permissions" \
+  -H "Authorization: Bearer $USER_TOKEN" | jq .
+
+echo "✅ SSO token verified — use \$USER_TOKEN for all subsequent scenarios"
+```
+
+### SSO Token vs Login Token
+
+| Field | Login Token (Scenario 2) | SSO Token (Scenario 19) |
+|-------|--------------------------|-------------------------|
+| `sub` | `sarah@acme.com` | `sarah@acme.com` |
+| `session_id` | `usess-<uuid>` | `usess-<uuid>` |
+| `organization_id` | `acme-org` | `acme-org` |
+| `idp` | *(not present)* | `keycloak` |
+| `expires_in` | 86400s (24h) | 86400s (24h) |
+| **API compatibility** | All endpoints | All endpoints (identical) |
+
 ### Test Invalid IdP
 
 ```bash
 echo "=== SSO with Unknown IdP (Should Fail) ==="
-INVALID_IDP=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/unknown_provider/authorize")
+INVALID_IDP=$(curl -s "http://localhost:8000/api/v1/auth/sso/unknown_provider/authorize")
 
 echo "$INVALID_IDP" | jq .
 
@@ -2011,9 +2059,10 @@ curl -s -X POST "http://localhost:8000/api/v1/auth/sso/logout" \
 - SSO requires a running Keycloak container (configured in `docker-compose.yml`)
 - Supported IdP values: `keycloak`, `okta`, `entra`
 - Okta and Entra ID providers raise `NotImplementedError` in MVP (stubs only)
-- SSO state is one-time use and expires in 5 minutes
-- The callback flow (`/api/v1/auth/sso/{idp}/callback`) requires browser-based OAuth redirect
-- SSO sessions issue the same JWT shape as `POST /api/v1/auth/login`, with an additional `idp` claim
+- SSO state is one-time use and expires in 5 minutes (PKCE with S256)
+- The callback returns JSON (not a redirect) with the same token shape as `POST /api/v1/auth/login`
+- The `idp` claim in the SSO JWT distinguishes SSO sessions from password-based sessions
+- The automated flow uses `curl -L` to follow the Keycloak redirect chain programmatically
 
 ---
 
@@ -2101,13 +2150,11 @@ fi
   "scoped_permissions": [
     {
       "urn": "notion:pages:search",
-      "constraints": {},
-      "max_usage": 10
+      "constraints": {}
     },
     {
       "urn": "notion:pages:read",
-      "constraints": {},
-      "max_usage": 5
+      "constraints": {}
     }
   ],
   "deadline": "2026-04-09T17:00:00+00:00",
@@ -2405,11 +2452,11 @@ echo "$JWT_PAYLOAD" | tr '_-' '/+' | base64 -d 2>/dev/null | jq .
 {
   "task_id": "task-<uuid>",
   "agent_id": "sdr-assistant-001",
+  "owner": "sarah@acme.com",
   "scoped_permissions": [
     {
       "urn": "notion:pages:search",
-      "constraints": {},
-      "max_usage": 5
+      "constraints": {}
     }
   ],
   "deadline": "2026-04-09T17:00:00+00:00",
@@ -2457,7 +2504,7 @@ fi
 
 - Task tokens can only be issued for tasks in `active` status
 - Token expiry is `min(task_deadline, now + 1 hour)`
-- Task tokens use `iss: "deeptrail-control"` / `aud: "deeptrail-gateway"`, aligned with agent JWT conventions (fixed in WS-K9)
+- Task tokens use `iss: "deeptrail-control"` / `aud: "deeptrail-gateway"`, aligned with agent JWT conventions
 - The Gateway fully supports task token JWTs for MCP calls (WS-K9 complete) — see Test Scenario 23 below
 
 ---
@@ -2488,6 +2535,7 @@ Requires a task token from Test Scenario 22. The `$TASK_TOKEN` variable must be 
 {
   "task_id": "task-379b49a5-...",
   "agent_id": "sdr-assistant-001",
+  "owner": "sarah@acme.com",
   "scoped_permissions": [
     { "urn": "notion:pages:search", "constraints": {} }
   ],
@@ -2505,7 +2553,7 @@ Requires a task token from Test Scenario 22. The `$TASK_TOKEN` variable must be 
 | `task_id` | `session_id` | Used as MCP session key |
 | `scoped_permissions[].urn` | `delegated_permissions` | URN strings extracted |
 | `token_type` | `token_type` | `"task_token"` |
-| (not present) | `owner` | Resolved via session lookup |
+| `owner` | `owner` | Direct mapping (user who initiated the task) |
 
 ### Step 1: MCP Initialize with Task Token
 
@@ -2531,8 +2579,8 @@ curl -s -X POST http://localhost:8002/mcp \
 #   "id": 1,
 #   "result": {
 #     "protocolVersion": "2024-11-05",
-#     "serverInfo": { "name": "deeptrail-gateway", "version": "0.1.0" },
-#     "capabilities": { "tools": { "listChanged": false } }
+#     "capabilities": { "tools": { "listChanged": true } },
+#     "serverInfo": { "name": "DeepTrail Virtual MCP Server", "version": "0.1.0" }
 #   }
 # }
 ```
@@ -2554,11 +2602,14 @@ curl -s -X POST http://localhost:8002/mcp \
     }
   }' | jq .
 
-# Expected: successful result (or backend-specific error if API keys not configured)
+# Expected: successful result, or backend-specific error with test tokens:
 # {
 #   "jsonrpc": "2.0",
 #   "id": 2,
-#   "result": { ... }
+#   "result": {
+#     "content": [{"type": "text", "text": "Unauthorized: API token is invalid."}],
+#     "isError": true
+#   }
 # }
 ```
 
@@ -2622,15 +2673,15 @@ curl -s -X POST http://localhost:8002/mcp \
 |--------|---------------|-----------------|
 | Session key | `session_id` claim | `task_id` claim |
 | Tool access | All `delegated_permissions` | Only `scoped_permissions` URNs |
-| Owner | `owner` claim in JWT | Resolved from active sessions |
+| Owner | `owner` claim in JWT | `owner` claim in JWT (from `initiated_by`) |
 | Scope | Broad delegation | Single-task, least-privilege |
 | Issuer/Audience | `deeptrail-control` / `deeptrail-gateway` | `deeptrail-control` / `deeptrail-gateway` |
 
 ### Notes
 
-- Task tokens decode via the Gateway's primary JWT path (not legacy fallback), thanks to aligned `iss`/`aud`
+- Task tokens decode via the Gateway's primary JWT path with aligned `iss`/`aud` (`deeptrail-control`/`deeptrail-gateway`)
 - The `AgentContext.token_type` field distinguishes between `"agent_session"` and `"task_token"`
-- For vault credential lookups, the Gateway resolves `owner` from active sessions when the task token doesn't carry it
+- The `owner` claim in task tokens enables vault credential lookups (same flow as agent JWT)
 - All existing Agent JWT flows remain completely unaffected
 
 ---
@@ -3019,8 +3070,7 @@ DELEGATION_RESULT=$(curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
     \"agent_id\": \"$AGENT_ID\",
     \"permissions\": [
       \"notion:pages:search\",
-      \"notion:pages:read\",
-      \"slack:messages:search\"
+      \"notion:pages:read\"
     ]
   }")
 
@@ -3343,23 +3393,57 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TEST 19: SSO Authorization (P2 - WS-L2)
+# TEST 19: SSO Authorization & Automated Login (P2 - WS-L2)
 # ─────────────────────────────────────────────────────────────────────────────
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "TEST 19: SSO Authorization (P2)"
+echo "TEST 19: SSO Authorization & Automated Login (P2)"
 echo "═══════════════════════════════════════════════════════════════════════"
 
-SSO_RESULT=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/keycloak/authorize")
-if echo "$SSO_RESULT" | jq -e '.authorization_url' > /dev/null 2>&1; then
-  echo "✅ SSO authorize URL generated"
-else
+# Step 1: Get authorization URL
+SSO_RESULT=$(curl -s "http://localhost:8000/api/v1/auth/sso/keycloak/authorize")
+if ! echo "$SSO_RESULT" | jq -e '.authorization_url' > /dev/null 2>&1; then
   echo "⚠️ SSO requires Keycloak (optional): $(echo $SSO_RESULT | jq -c . 2>/dev/null || echo 'unavailable')"
+else
+  echo "✅ SSO authorize URL generated"
+  AUTH_URL=$(echo "$SSO_RESULT" | jq -r '.authorization_url')
+
+  # Step 2: Follow auth URL to Keycloak login page
+  LOGIN_PAGE=$(curl -s -c /tmp/kc_cookies.txt -L "$AUTH_URL")
+  FORM_ACTION=$(echo "$LOGIN_PAGE" | sed -n 's/.*action="\([^"]*\)".*/\1/p' | head -1)
+  FORM_ACTION=$(echo "$FORM_ACTION" | sed 's/&amp;/\&/g')
+
+  if [ -n "$FORM_ACTION" ]; then
+    # Step 3: Submit credentials → Keycloak → callback → JSON token
+    SSO_CALLBACK=$(curl -s -b /tmp/kc_cookies.txt -c /tmp/kc_cookies.txt -L \
+      -d "username=sarah@acme.com" \
+      -d "password=test_password" \
+      "$FORM_ACTION")
+
+    SSO_TOKEN=$(echo "$SSO_CALLBACK" | jq -r '.token')
+    if [ -n "$SSO_TOKEN" ] && [ "$SSO_TOKEN" != "null" ]; then
+      echo "✅ SSO login complete: $(echo $SSO_CALLBACK | jq -r '.user.email') via $(echo $SSO_CALLBACK | jq -r '.idp')"
+
+      # Step 4: Verify SSO token works for API calls
+      SSO_VERIFY=$(curl -s "http://localhost:8000/api/v1/users/me/available-permissions" \
+        -H "Authorization: Bearer $SSO_TOKEN")
+      if echo "$SSO_VERIFY" | jq -e '.total_services' > /dev/null 2>&1; then
+        echo "✅ SSO token verified for API calls"
+      else
+        echo "⚠️ SSO token API verification: $(echo $SSO_VERIFY | jq -c .)"
+      fi
+    else
+      echo "⚠️ SSO login callback failed: $(echo $SSO_CALLBACK | jq -c . 2>/dev/null | head -c 200)"
+    fi
+  else
+    echo "⚠️ Could not extract Keycloak login form"
+  fi
+  rm -f /tmp/kc_cookies.txt
 fi
 
 # Test invalid IdP
-INVALID_IDP=$(curl -s -X GET "http://localhost:8000/api/v1/auth/sso/unknown/authorize")
+INVALID_IDP=$(curl -s "http://localhost:8000/api/v1/auth/sso/unknown/authorize")
 if echo "$INVALID_IDP" | grep -q "Unknown IdP" 2>/dev/null; then
   echo "✅ Unknown IdP correctly rejected"
 fi
@@ -3653,7 +3737,7 @@ rm -f /tmp/agent_keys.env
 | SSO 400 | "Unknown IdP" | Use `keycloak`, `okta`, or `entra` as path param |
 | Task 409 | "Cannot activate task" | Task is not in `pending` status (check lifecycle) |
 | Task 403 | "invalid_permissions" | Requested permissions exceed agent's delegated permissions |
-| Task token not working in Gateway | 401 on MCP call | Verify `iss`/`aud` are `deeptrail-control`/`deeptrail-gateway` (fixed in WS-K9); check token not expired |
+| Task token not working in Gateway | 401 on MCP call | Verify `iss`/`aud` are `deeptrail-control`/`deeptrail-gateway`; check token not expired |
 | Prompt injection false positive | Safe query blocked | Adjust threat threshold or review argument length |
 | PII not masked | Emails/phones visible | Check `configure_result_filter(enabled=True)` in gateway startup |
 

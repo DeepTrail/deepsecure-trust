@@ -270,6 +270,20 @@ def create_oidc_provider(config: IdPConfig | None = None) -> OIDCProvider:
             "EntraIDProvider not yet implemented. "
             "Use KeycloakProvider with Entra identity brokering."
         )
+    elif config.provider == IdPProviderType.GOOGLE:
+        from app.services.providers.google import GoogleProvider
+
+        logger.info(
+            "Creating GoogleProvider: issuer=%s, hd=%s",
+            config.issuer_url,
+            config.hd or "(unrestricted)",
+        )
+        return GoogleProvider(
+            issuer_url=config.issuer_url,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+            hd=config.hd,
+        )
     else:
         raise ValueError(f"Unknown IdP provider: {config.provider}")
 
@@ -321,6 +335,11 @@ async def provision_user_from_claims(claims: OIDCClaims) -> dict:
         "idp_issuer": claims.issuer,
         "last_login": datetime.now(tz=None).isoformat(),
     }
+
+    if not user_data["organization_id"] and claims.raw_claims:
+        hd = claims.raw_claims.get("hd")
+        if hd:
+            user_data["organization_id"] = hd
 
     _provisioned_users[claims.sub] = user_data
     logger.info(

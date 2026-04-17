@@ -151,6 +151,20 @@ class TestIdPConfig:
         assert IdPProviderType.KEYCLOAK.value == "keycloak"
         assert IdPProviderType.OKTA.value == "okta"
         assert IdPProviderType.ENTRA.value == "entra"
+        assert IdPProviderType.GOOGLE.value == "google"
+
+    def test_hd_defaults_to_none(self):
+        config = IdPConfig()
+        assert config.hd is None
+
+    def test_hd_from_kwarg(self):
+        config = IdPConfig(hd="acme.com")
+        assert config.hd == "acme.com"
+
+    def test_hd_from_env(self, monkeypatch):
+        monkeypatch.setenv("IDP_HD", "acme.com")
+        config = IdPConfig()
+        assert config.hd == "acme.com"
 
 
 # ============================================================================
@@ -203,6 +217,30 @@ class TestCreateOIDCProvider:
         )
         with pytest.raises(NotImplementedError, match="EntraIDProvider"):
             create_oidc_provider(config)
+
+    def test_google_provider(self):
+        config = IdPConfig(
+            provider=IdPProviderType.GOOGLE,
+            issuer_url="https://accounts.google.com",
+            client_id="google-client-id",
+            client_secret="google-secret",
+            hd="acme.com",
+        )
+        provider = create_oidc_provider(config)
+        from app.services.providers.google import GoogleProvider
+
+        assert isinstance(provider, GoogleProvider)
+        assert provider._client_id == "google-client-id"
+        assert provider._hd == "acme.com"
+
+    def test_google_provider_passes_hd_none(self):
+        config = IdPConfig(
+            provider=IdPProviderType.GOOGLE,
+            issuer_url="https://accounts.google.com",
+            client_id="google-client-id",
+        )
+        provider = create_oidc_provider(config)
+        assert provider._hd is None
 
     def test_default_config(self):
         provider = create_oidc_provider()
@@ -275,3 +313,57 @@ class TestProvisionUser:
         result = await provision_user_from_claims(claims)
         assert result["roles"] == []
         assert result["groups"] == []
+
+    @pytest.mark.asyncio
+    async def test_hd_fallback_sets_org(self):
+        claims = OIDCClaims(
+            sub="google-user-1",
+            email="sarah@acme.com",
+            email_verified=True,
+            name="Sarah Chen",
+            groups=None,
+            roles=None,
+            issuer="https://accounts.google.com",
+            raw_claims={"hd": "acme.com", "sub": "google-user-1"},
+        )
+        result = await provision_user_from_claims(claims)
+        assert result["organization_id"] == "acme.com"
+
+    @pytest.mark.asyncio
+    async def test_groups_override_hd(self):
+        claims = OIDCClaims(
+            sub="user-both",
+            email="user@acme.com",
+            email_verified=True,
+            groups=["acme-org"],
+            roles=None,
+            issuer="https://accounts.google.com",
+            raw_claims={"hd": "acme.com", "sub": "user-both"},
+        )
+        result = await provision_user_from_claims(claims)
+        assert result["organization_id"] == "acme-org"
+
+    @pytest.mark.asyncio
+    async def test_no_groups_no_hd(self):
+        claims = OIDCClaims(
+            sub="personal-user",
+            email="user@gmail.com",
+            email_verified=True,
+            groups=None,
+            roles=None,
+            issuer="https://accounts.google.com",
+            raw_claims={"sub": "personal-user"},
+        )
+        result = await provision_user_from_claims(claims)
+        assert result["organization_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_no_groups_no_raw_claims(self):
+        claims = OIDCClaims(
+            sub="minimal-user",
+            email="minimal@example.com",
+            groups=None,
+            roles=None,
+        )
+        result = await provision_user_from_claims(claims)
+        assert result["organization_id"] is None

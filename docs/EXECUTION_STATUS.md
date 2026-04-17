@@ -30,6 +30,7 @@ docs/
 | [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Phase 4: Complete | 100% (43/43) | ✅ Complete | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
 | [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | ✅ Phase 4: Complete | 100% (9/9) | ✅ Complete | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
 | [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | Phase 3: Execution | **P2 100%** (WS-L1 ✅, WS-J4 ✅, WS-J5 ✅, WS-K6 ✅, WS-L2 ✅, WS-J6 ✅, WS-K7 ✅, WS-K8 ✅, WS-K9 ✅) | ✅ P2 Complete | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
+| [IdP Selector for Demo](../plans/idp_selector_for_demo_60cecdf4.plan.md) | Phase 3: Execution | 88% (7/8 tasks) | ⏳ All Batches Complete — Conditional Pass | [STATUS.md](./workstreams/idp-selector/STATUS.md) |
 
 
 ---
@@ -41,9 +42,9 @@ docs/
 │                           PORTFOLIO DASHBOARD                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Total Designs: 2 complete, 1 active, 0 planned                             │
-│  Total Tasks:   84 (58 done, 0 in progress, 0 ready, 26 pending)            │
-│  Overall:       68% complete                                                 │
+│  Total Designs: 2 complete, 1 active, 1 planned                             │
+│  Total Tasks:   92 (58 done, 0 in progress, 0 ready, 34 pending)            │
+│  Overall:       63% complete                                                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

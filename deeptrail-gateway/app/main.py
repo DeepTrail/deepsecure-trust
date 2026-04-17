@@ -590,6 +590,7 @@ async def mcp_endpoint(request: Request):
                 "delegator": agent_context.owner,
                 "delegated_permissions": agent_context.delegated_permissions,
                 "delegation_id": agent_context.delegation_id,
+                "organization_id": agent_context.organization_id,
                 "constraints": {},  # MVP: No constraints enforcement yet
                 "agent_jwt_token": getattr(request.state, "agent_jwt_token", None),
             })

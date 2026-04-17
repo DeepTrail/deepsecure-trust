@@ -60,6 +60,7 @@ class PendingSSO:
     idp: str
     redirect_uri: str
     code_verifier: Optional[str] = None
+    post_login_redirect: Optional[str] = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     expires_in: int = 300  # 5 minutes
 
@@ -135,6 +136,7 @@ async def sso_authorize(
     idp: str,
     redirect_uri: Optional[str] = Query(None),
     response_mode: str = Query("json"),
+    post_login_redirect: Optional[str] = Query(None),
 ):
     """Initiate SSO login via the specified IdP.
 
@@ -183,6 +185,7 @@ async def sso_authorize(
         idp=idp,
         redirect_uri=effective_redirect,
         code_verifier=code_verifier,
+        post_login_redirect=post_login_redirect,
     )
     _pending_sso[state] = pending
     _cleanup_expired()
@@ -327,6 +330,17 @@ async def sso_callback(
     token = pyjwt.encode(token_data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
     logger.info("SSO login via %s: %s (new=%s)", idp, claims.email, user_data["is_new_user"])
+
+    if pending.post_login_redirect:
+        from urllib.parse import urlencode as _urlencode
+
+        redirect_params = {"token": token, "email": user_data["email"]}
+        if user_data.get("name"):
+            redirect_params["name"] = user_data["name"]
+        return RedirectResponse(
+            url=f"{pending.post_login_redirect}?{_urlencode(redirect_params)}",
+            status_code=302,
+        )
 
     return SSOCallbackResponse(
         token=token,

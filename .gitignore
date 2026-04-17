@@ -21,3 +21,6 @@ docs/design/internal/pdfs
 docs/design/prospects/
 generated_chat_summaries/
 ideas/
+
+# Google IdP credentials (see .env.google.example)
+.env.google

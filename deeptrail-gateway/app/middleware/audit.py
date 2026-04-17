@@ -86,6 +86,7 @@ class AuditEvent:
     agent_id: str
     on_behalf_of: str
     tool: str
+    success: bool = True
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     arguments: dict[str, Any] | None = None
     result_summary: str | None = None
@@ -93,6 +94,8 @@ class AuditEvent:
     duration_ms: int | None = None
     delegation_id: str | None = None
     session_id: str | None = None
+    agent_session_id: str | None = None
+    mcp_session_id: str | None = None
     organization_id: str | None = None
     extra_data: dict[str, Any] | None = None
     
@@ -103,6 +106,7 @@ class AuditEvent:
             "agent_id": self.agent_id,
             "on_behalf_of": self.on_behalf_of,
             "tool": self.tool,
+            "success": self.success,
             "timestamp": self.timestamp,
             "arguments": self.arguments,
             "result_summary": self.result_summary,
@@ -110,6 +114,8 @@ class AuditEvent:
             "duration_ms": self.duration_ms,
             "delegation_id": self.delegation_id,
             "session_id": self.session_id,
+            "agent_session_id": self.agent_session_id,
+            "mcp_session_id": self.mcp_session_id,
             "organization_id": self.organization_id,
             "extra_data": self.extra_data,
         }
@@ -184,6 +190,7 @@ class AuditMiddleware:
         result: dict[str, Any] | None = None,
         error: str | None = None,
         duration_ms: int | None = None,
+        mcp_session_id: str | None = None,
     ) -> None:
         """
         Log a tool call (successful or failed).
@@ -198,23 +205,38 @@ class AuditMiddleware:
             result: Tool result (optional, for success)
             error: Error message (optional, for failure)
             duration_ms: Execution duration in milliseconds
+            mcp_session_id: Backend MCP session ID (e.g., "mcpsess-notion-abc123")
         """
         if not self.enabled:
             return
         
         event_type = AuditEventType.TOOL_ERROR if error else AuditEventType.MCP_TOOL_CALL
+        is_success = error is None
+        
+        extra_data: dict[str, Any] | None = None
+        if error:
+            extra_data = {"error_type": event_type.value}
+            if duration_ms is not None:
+                extra_data["duration_ms"] = duration_ms
+        elif duration_ms is not None:
+            extra_data = {"duration_ms": duration_ms}
         
         event = AuditEvent(
             event_type=event_type,
             agent_id=agent_context.agent_id,
             on_behalf_of=agent_context.owner,
             tool=tool_name,
+            success=is_success,
             arguments=self._redact_sensitive(arguments),
             result_summary=self._summarize_result(result) if result else None,
             error=error,
             duration_ms=duration_ms,
             delegation_id=agent_context.delegation_id,
             session_id=agent_context.session_id,
+            agent_session_id=agent_context.session_id,
+            mcp_session_id=mcp_session_id,
+            organization_id=agent_context.organization_id,
+            extra_data=extra_data,
         )
         
         # Send asynchronously - don't block tool response
@@ -226,6 +248,7 @@ class AuditMiddleware:
         tool_name: str,
         required_permission: str,
         denial_reason: str,
+        mcp_session_id: str | None = None,
     ) -> None:
         """
         Log a permission denied event.
@@ -237,6 +260,7 @@ class AuditMiddleware:
             tool_name: Tool that was denied
             required_permission: Permission that was required
             denial_reason: Reason for denial (from DenialReason enum)
+            mcp_session_id: Backend MCP session ID if available
         """
         if not self.enabled:
             return
@@ -246,9 +270,13 @@ class AuditMiddleware:
             agent_id=agent_context.agent_id,
             on_behalf_of=agent_context.owner,
             tool=tool_name,
+            success=False,
             error=f"Permission denied: {required_permission}",
             delegation_id=agent_context.delegation_id,
             session_id=agent_context.session_id,
+            agent_session_id=agent_context.session_id,
+            mcp_session_id=mcp_session_id,
+            organization_id=agent_context.organization_id,
             extra_data={
                 "required_permission": required_permission,
                 "denial_reason": denial_reason,
@@ -262,6 +290,7 @@ class AuditMiddleware:
         agent_context: AgentContext,
         tool_name: str,
         error_message: str,
+        mcp_session_id: str | None = None,
     ) -> None:
         """
         Log a credential injection error.
@@ -272,6 +301,7 @@ class AuditMiddleware:
             agent_context: Agent context
             tool_name: Tool that failed
             error_message: Error description (without token details)
+            mcp_session_id: Backend MCP session ID if available
         """
         if not self.enabled:
             return
@@ -281,9 +311,13 @@ class AuditMiddleware:
             agent_id=agent_context.agent_id,
             on_behalf_of=agent_context.owner,
             tool=tool_name,
+            success=False,
             error=error_message,
             delegation_id=agent_context.delegation_id,
             session_id=agent_context.session_id,
+            agent_session_id=agent_context.session_id,
+            mcp_session_id=mcp_session_id,
+            organization_id=agent_context.organization_id,
         )
         
         await self._send_event_async(event)
@@ -292,6 +326,7 @@ class AuditMiddleware:
         self,
         agent_context: AgentContext,
         tool_name: str,
+        mcp_session_id: str | None = None,
     ) -> None:
         """
         Log a delegation revoked event.
@@ -301,6 +336,7 @@ class AuditMiddleware:
         Args:
             agent_context: Agent context
             tool_name: Tool that was attempted
+            mcp_session_id: Backend MCP session ID if available
         """
         if not self.enabled:
             return
@@ -310,9 +346,13 @@ class AuditMiddleware:
             agent_id=agent_context.agent_id,
             on_behalf_of=agent_context.owner,
             tool=tool_name,
+            success=False,
             error="Delegation has been revoked",
             delegation_id=agent_context.delegation_id,
             session_id=agent_context.session_id,
+            agent_session_id=agent_context.session_id,
+            mcp_session_id=mcp_session_id,
+            organization_id=agent_context.organization_id,
         )
         
         await self._send_event_async(event)
@@ -572,6 +612,7 @@ async def log_tool_call(
     result: dict[str, Any] | None = None,
     error: str | None = None,
     duration_ms: int | None = None,
+    mcp_session_id: str | None = None,
 ) -> None:
     """
     Convenience function to log a tool call.
@@ -586,6 +627,7 @@ async def log_tool_call(
         result=result,
         error=error,
         duration_ms=duration_ms,
+        mcp_session_id=mcp_session_id,
     )
 
 
@@ -594,6 +636,7 @@ async def log_permission_denied(
     tool_name: str,
     required_permission: str,
     denial_reason: str,
+    mcp_session_id: str | None = None,
 ) -> None:
     """
     Convenience function to log a permission denied event.
@@ -604,4 +647,5 @@ async def log_permission_denied(
         tool_name=tool_name,
         required_permission=required_permission,
         denial_reason=denial_reason,
+        mcp_session_id=mcp_session_id,
     )

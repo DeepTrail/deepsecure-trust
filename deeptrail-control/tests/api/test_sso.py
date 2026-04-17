@@ -150,6 +150,22 @@ class TestAuthorize:
         assert resp.status_code == 400
         assert "Unknown IdP" in resp.json()["detail"]
 
+    def test_authorize_stores_post_login_redirect(self, client, mock_provider):
+        with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
+            resp = client.get(
+                "/api/v1/auth/sso/keycloak/authorize",
+                params={"post_login_redirect": "http://localhost:9876/done"},
+            )
+        assert resp.status_code == 200
+        state = resp.json()["state"]
+        assert sso_module._pending_sso[state].post_login_redirect == "http://localhost:9876/done"
+
+    def test_authorize_no_post_login_redirect(self, client, mock_provider):
+        with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
+            resp = client.get("/api/v1/auth/sso/keycloak/authorize")
+        state = resp.json()["state"]
+        assert sso_module._pending_sso[state].post_login_redirect is None
+
     def test_authorize_custom_redirect_uri(self, client, mock_provider):
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
@@ -326,6 +342,33 @@ class TestCallback:
 
         _provisioned_users.pop("kc-user-001", None)
 
+    def test_callback_redirects_when_post_login_redirect_set(self, client, mock_provider):
+        _inject_state(post_login_redirect="http://localhost:9876/done")
+        with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
+            resp = client.get(
+                "/api/v1/auth/sso/keycloak/callback",
+                params={"code": "auth-code-123", "state": "test-state"},
+                follow_redirects=False,
+            )
+        assert resp.status_code == 302
+        location = resp.headers["location"]
+        assert location.startswith("http://localhost:9876/done?token=")
+        token = location.split("token=")[1]
+        decoded = pyjwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert decoded["sub"] == "sarah@acme.com"
+        assert decoded["idp"] == "keycloak"
+
+    def test_callback_returns_json_when_no_redirect(self, client, mock_provider):
+        _inject_state()
+        with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
+            resp = client.get(
+                "/api/v1/auth/sso/keycloak/callback",
+                params={"code": "auth-code-123", "state": "test-state"},
+            )
+        assert resp.status_code == 200
+        assert "token" in resp.json()
+        assert resp.json()["idp"] == "keycloak"
+
     def test_callback_idp_mismatch(self, client, mock_provider):
         """State was created for keycloak but callback comes with okta."""
         _inject_state(idp="keycloak")
@@ -460,6 +503,19 @@ class TestPendingSSO:
             expires_in=300,
         )
         assert p.is_expired is True
+
+    def test_post_login_redirect_default_none(self):
+        p = sso_module.PendingSSO(
+            state="s", idp="keycloak", redirect_uri="http://localhost"
+        )
+        assert p.post_login_redirect is None
+
+    def test_post_login_redirect_set(self):
+        p = sso_module.PendingSSO(
+            state="s", idp="keycloak", redirect_uri="http://localhost",
+            post_login_redirect="http://localhost:9876/done",
+        )
+        assert p.post_login_redirect == "http://localhost:9876/done"
 
     def test_cleanup_removes_expired(self):
         sso_module._pending_sso["old"] = sso_module.PendingSSO(

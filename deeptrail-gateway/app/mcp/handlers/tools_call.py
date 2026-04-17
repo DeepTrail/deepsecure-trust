@@ -294,6 +294,7 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             delegation_id=delegation_id or "",
             session_id=agent_session_id or "",
             delegated_permissions=delegated_permissions,
+            organization_id=context.get("organization_id"),
         )
     
     # E4: Fail-closed security - deny if Control Plane unreachable
@@ -553,6 +554,7 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
                 arguments=arguments,
                 error=f"Backend error: {e}",
                 duration_ms=duration_ms,
+                mcp_session_id=backend_session.mcp_session_id,
             )
         else:
             await _log_audit(
@@ -595,6 +597,7 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             arguments=arguments,
             result=result,
             duration_ms=duration_ms,
+            mcp_session_id=backend_session.mcp_session_id,
         )
     else:
         result_summary = _summarize_result(result)
@@ -705,6 +708,7 @@ async def _forward_to_backend(
                 agent_context=agent_context,
                 tool_name=f"{backend_id}.{tool_name}",
                 error_message=error_msg,
+                mcp_session_id=backend_session.mcp_session_id,
             )
         
         raise MCPError(

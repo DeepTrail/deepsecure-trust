@@ -97,6 +97,7 @@ class TaskService:
         task_data: TaskCreate,
         delegation_id: Optional[str] = None,
         delegation_permissions: Optional[List[str]] = None,
+        organization_id: Optional[str] = None,
     ) -> Task:
         """Create a new task with scoped permissions.
 
@@ -121,6 +122,7 @@ class TaskService:
             agent_id=agent_id,
             initiated_by=initiated_by,
             delegation_id=delegation_id,
+            organization_id=organization_id,
             name=task_data.name,
             description=task_data.description,
             scoped_permissions=[
@@ -273,7 +275,6 @@ class TaskService:
         claims["exp"] = int(expires_at.timestamp())
         claims["iss"] = "deeptrail-control"
         claims["aud"] = "deeptrail-gateway"
-
         claims["token_type"] = "task_token"
 
         token = pyjwt.encode(claims, self._jwt_secret, algorithm=self.JWT_ALGORITHM)

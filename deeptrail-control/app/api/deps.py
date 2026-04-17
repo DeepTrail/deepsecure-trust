@@ -163,11 +163,22 @@ def get_current_agent_claims(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Validate required claims for agent JWT
+    # Validate required claims for agent JWT or task token
     # Agent JWTs use 'owner' for user_id and 'sub' for agent_id
+    # Task tokens use 'owner' for user_id and 'agent_id' directly
     # NOTE: 'sub' is agent_id, NOT user_id - do not confuse them
     user_id = payload.get("owner")
-    delegated_permissions = payload.get("delegated_permissions", [])
+    token_type = payload.get("token_type", "agent_session")
+
+    if token_type == "task_token":
+        scoped = payload.get("scoped_permissions", [])
+        delegated_permissions = [
+            p["urn"] for p in scoped if isinstance(p, dict) and "urn" in p
+        ]
+        agent_id = payload.get("agent_id")
+    else:
+        delegated_permissions = payload.get("delegated_permissions", [])
+        agent_id = payload.get("sub")
 
     if not user_id:
         raise HTTPException(
@@ -179,9 +190,9 @@ def get_current_agent_claims(
     # Return normalized claims
     return {
         "user_id": user_id,
-        "agent_id": payload.get("sub"),
+        "agent_id": agent_id,
         "delegated_permissions": delegated_permissions,
-        "session_id": payload.get("session_id"),
+        "session_id": payload.get("session_id") or payload.get("task_id"),
         "delegation_id": payload.get("delegation_id"),
     }
 

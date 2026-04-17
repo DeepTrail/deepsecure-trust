@@ -71,12 +71,14 @@ def _get_caller_identity(
             "user_id": owner,
             "delegation_id": payload.get("delegation_id"),
             "delegated_permissions": payload.get("delegated_permissions"),
+            "organization_id": payload.get("organization_id"),
         }
     return {
         "agent_id": sub,
         "user_id": sub,
         "delegation_id": None,
         "delegated_permissions": None,
+        "organization_id": payload.get("organization_id"),
     }
 
 
@@ -103,6 +105,7 @@ def create_task(
             task_data=task_data,
             delegation_id=identity.get("delegation_id"),
             delegation_permissions=identity.get("delegated_permissions"),
+            organization_id=identity.get("organization_id"),
         )
         return _task_to_response(task)
     except TaskPermissionError as exc:

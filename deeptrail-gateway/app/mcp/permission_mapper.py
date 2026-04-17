@@ -54,6 +54,7 @@ class PermissionMapper:
         # Notion tools
         "notion.search_pages": "notion:pages:search",
         "notion.read_page": "notion:pages:read",
+        "notion.get_page_content": "notion:blocks:read",
         "notion.create_page": "notion:pages:create",
         "notion.update_page": "notion:pages:update",
         "notion.delete_page": "notion:pages:delete",
@@ -64,6 +65,7 @@ class PermissionMapper:
         "slack.search_messages": "slack:messages:search",
         "slack.send_message": "slack:messages:send",
         "slack.list_channels": "slack:channels:list",
+        "slack.get_channel_history": "slack:channels:history",
         "slack.join_channel": "slack:channels:join",
         "slack.post_reaction": "slack:reactions:write",
         "slack.list_users": "slack:users:list",
