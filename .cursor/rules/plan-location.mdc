@@ -5,12 +5,12 @@ alwaysApply: true
 
 # Plan File Location
 
-When creating or updating plans in Plan Mode, save plan files to the repository's `plans/` directory rather than the user's home directory.
+All plan files MUST live in the repository's `plans/` directory, never in `~/.cursor/plans/`.
 
 ## Rule
 
-- Create plans at: `<workspace_root>/plans/<plan_name>.plan.md`
-- Do NOT create plans at: `~/.cursor/plans/`
+- Plans MUST be at: `<workspace_root>/plans/<plan_name>.plan.md`
+- NEVER leave plans at: `~/.cursor/plans/`
 
 ## Why
 
@@ -18,9 +18,12 @@ When creating or updating plans in Plan Mode, save plan files to the repository'
 - Team members can share and review plans
 - Plans stay with the project they belong to
 
-## Implementation
+## Mandatory Procedure
 
-When using the `create_plan` tool or generating plan documents:
-1. Ensure the `plans/` directory exists in the workspace root
-2. Write plan files directly to `plans/` in the workspace
-3. Use the Write tool to create plan markdown files if the create_plan tool doesn't support custom paths
+The `CreatePlan` tool writes to `~/.cursor/plans/` by default and does not support custom paths. Therefore, IMMEDIATELY after every `CreatePlan` call:
+
+1. Read the created file from `~/.cursor/plans/<filename>.plan.md`
+2. Write its contents to `<workspace_root>/plans/<filename>.plan.md`
+3. Delete the file from `~/.cursor/plans/<filename>.plan.md`
+
+This is NOT optional. Every plan must be moved in the same turn it is created. Do not wait for the user to ask.

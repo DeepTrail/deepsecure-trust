@@ -102,6 +102,7 @@ class MVPSession:
     expires_at: datetime
     scoped_permissions: List[str]
     owner_email: str
+    organization_id: Optional[str] = None
 
 
 @dataclass
@@ -346,14 +347,15 @@ class AgentSessionService:
         if delegation:
             scoped_permissions = delegation.get("permissions", [])
             owner_email = delegation.get("user_id", "sarah@acme.com")
+            organization_id = delegation.get("organization_id")
             logger.info(
                 f"Found delegation for agent {agent_id} with "
-                f"{len(scoped_permissions)} permissions"
+                f"{len(scoped_permissions)} permissions, org={organization_id}"
             )
         else:
-            # Fallback if no delegation found (shouldn't happen in normal flow)
             scoped_permissions = []
             owner_email = "sarah@acme.com"
+            organization_id = None
             logger.warning(
                 f"No delegation found for agent {agent_id}, using empty permissions"
             )
@@ -365,6 +367,7 @@ class AgentSessionService:
             expires_at=expires_at,
             scoped_permissions=scoped_permissions,
             owner_email=owner_email,
+            organization_id=organization_id,
         )
 
     def _generate_mvp_jwt(self, agent_id: str, session: "MVPSession") -> str:
@@ -382,7 +385,8 @@ class AgentSessionService:
             "session_id": session.id,
             "owner": session.owner_email,
             "delegated_permissions": session.scoped_permissions,
-            "delegation_id": "mvp-delegation",  # Placeholder for MVP
+            "delegation_id": "mvp-delegation",
+            "organization_id": session.organization_id,
         }
         
         return jwt.encode(payload, self.jwt_secret, algorithm=self.JWT_ALGORITHM)

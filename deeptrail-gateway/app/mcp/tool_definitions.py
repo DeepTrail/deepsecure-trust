@@ -61,6 +61,25 @@ NOTION_TOOLS = [
         }
     ),
     CachedTool(
+        name="get_page_content",
+        description="Get the content blocks of a Notion page (paragraphs, headings, lists)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "page_id": {
+                    "type": "string",
+                    "description": "The Notion page ID (UUID format)"
+                },
+                "page_size": {
+                    "type": "integer",
+                    "description": "Max blocks to return (1-100)",
+                    "default": 100
+                }
+            },
+            "required": ["page_id"]
+        }
+    ),
+    CachedTool(
         name="create_page",
         description="Create a new page in Notion",
         inputSchema={
@@ -221,6 +240,25 @@ SLACK_TOOLS = [
                     "default": 100
                 }
             }
+        }
+    ),
+    CachedTool(
+        name="get_channel_history",
+        description="Get recent messages from a Slack channel",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "Channel ID (e.g., C090C60ADU7)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of messages to return (1-100)",
+                    "default": 10
+                }
+            },
+            "required": ["channel"]
         }
     ),
     CachedTool(

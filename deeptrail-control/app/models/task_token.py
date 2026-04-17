@@ -93,6 +93,7 @@ class Task(Base):
     )
     agent_id = Column(String(64), nullable=False, index=True)
     delegation_id = Column(String(64), nullable=True)
+    organization_id = Column(String(64), nullable=True, index=True)
     initiated_by = Column(String(255), nullable=False)
     name = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
@@ -221,9 +222,11 @@ class Task(Base):
         return {
             "task_id": self.id,
             "agent_id": self.agent_id,
+            "owner": self.initiated_by,
             "scoped_permissions": self.scoped_permissions or [],
             "deadline": deadline.isoformat() if deadline else None,
             "auto_revoke_on_complete": self.auto_revoke_on_complete,
+            "organization_id": self.organization_id,
             "iat": int(created_at.timestamp()) if created_at else None,
         }
 

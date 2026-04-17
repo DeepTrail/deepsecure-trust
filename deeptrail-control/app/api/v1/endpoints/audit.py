@@ -48,6 +48,7 @@ class LogEventRequest(BaseModel):
     agent_session_id: Optional[str] = Field(None, description="Agent session ID")
     mcp_session_id: Optional[str] = Field(None, description="MCP session ID")
     delegation_id: Optional[str] = Field(None, description="Delegation ID")
+    success: Optional[bool] = Field(None, description="Whether the action succeeded")
     extra_data: Optional[dict[str, Any]] = Field(None, description="Extra context")
 
     model_config = {"json_schema_extra": {"example": {
@@ -83,6 +84,7 @@ class AuditEventResponse(BaseModel):
     on_behalf_of: str
     organization_id: Optional[str]
     tool: Optional[str]
+    success: Optional[bool] = None
     arguments: Optional[dict[str, Any]]
     result_summary: Optional[str]
     reason: Optional[str]
@@ -91,6 +93,7 @@ class AuditEventResponse(BaseModel):
     mcp_session_id: Optional[str]
     delegation_id: Optional[str]
     extra_data: Optional[dict[str, Any]]
+    duration_ms: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -189,11 +192,13 @@ def log_event(
         "arguments": request.arguments,
         "result_summary": request.result_summary,
         "error": request.error,
+        "reason": request.error,
         "duration_ms": request.duration_ms,
         "session_id": request.session_id,
         "agent_session_id": request.agent_session_id,
         "mcp_session_id": request.mcp_session_id,
         "delegation_id": request.delegation_id,
+        "success": request.success,
         "extra_data": request.extra_data,
     }
     
@@ -259,6 +264,7 @@ def query_events(
             on_behalf_of=e.get("on_behalf_of", "unknown"),
             organization_id=e.get("organization_id"),
             tool=e.get("tool"),
+            success=e.get("success"),
             arguments=e.get("arguments"),
             result_summary=e.get("result_summary"),
             reason=e.get("reason"),
@@ -267,6 +273,7 @@ def query_events(
             mcp_session_id=e.get("mcp_session_id"),
             delegation_id=e.get("delegation_id"),
             extra_data=e.get("extra_data"),
+            duration_ms=e.get("duration_ms"),
         ))
 
     return QueryEventsResponse(

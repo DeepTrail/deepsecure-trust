@@ -71,11 +71,16 @@ def user_login(
     # Generate a unique session ID
     session_id = f"usess-{uuid.uuid4()}"
     
+    # Derive organization_id from email domain (MVP fallback for when Keycloak
+    # is unavailable; the real SSO path gets it from IdP claims in sso.py)
+    domain = login_request.email.split("@")[-1].split(".")[0]
+    org_id = f"org-{domain}-001"
+
     # Generate JWT token
     token_data = {
         "sub": login_request.email,
         "session_id": session_id,
-        "organization_id": "org-acme-001",
+        "organization_id": org_id,
         "exp": datetime.now(timezone.utc) + timedelta(hours=8),
         "iat": datetime.now(timezone.utc),
     }
@@ -88,7 +93,7 @@ def user_login(
         user={
             "email": login_request.email,
             "id": login_request.email,
-            "organization_id": "org-acme-001",
+            "organization_id": org_id,
         },
         expires_in=28800,
     )

@@ -1,15 +1,16 @@
 """IdP configuration for OIDC identity provider integration.
 
 Supports environment-variable-based configuration for swapping between
-identity providers (Keycloak dev, Okta/Entra production).
+identity providers (Keycloak dev, Google Workspace, Okta/Entra production).
 
 Environment variables:
-    IDP_PROVIDER: Provider type (keycloak, okta, entra). Default: keycloak
+    IDP_PROVIDER: Provider type (keycloak, okta, entra, google). Default: keycloak
     IDP_ISSUER_URL: OIDC issuer URL
     IDP_CLIENT_ID: OIDC client ID registered at the IdP
     IDP_CLIENT_SECRET: OIDC client secret (optional for public clients)
     IDP_REALM: Keycloak realm name (only for keycloak provider)
     IDP_REDIRECT_URI: Default redirect URI after authentication
+    IDP_HD: Google Workspace hosted domain for login restriction (optional)
 """
 
 from enum import Enum
@@ -22,6 +23,7 @@ class IdPProviderType(str, Enum):
     KEYCLOAK = "keycloak"
     OKTA = "okta"
     ENTRA = "entra"
+    GOOGLE = "google"
 
 
 class IdPConfig(BaseSettings):
@@ -57,6 +59,10 @@ class IdPConfig(BaseSettings):
     redirect_uri: str = Field(
         default="http://localhost:8000/api/v1/auth/sso/callback",
         alias="IDP_REDIRECT_URI",
+    )
+    hd: str | None = Field(
+        default=None,
+        alias="IDP_HD",
     )
 
     model_config = {

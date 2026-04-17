@@ -25,6 +25,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(64), primary_key=True),
         sa.Column("agent_id", sa.String(64), nullable=False),
         sa.Column("delegation_id", sa.String(64), nullable=True),
+        sa.Column("organization_id", sa.String(64), nullable=True),
         sa.Column("initiated_by", sa.String(255), nullable=False),
         sa.Column("name", sa.String(255), nullable=True),
         sa.Column("description", sa.Text(), nullable=True),
@@ -39,6 +40,7 @@ def upgrade() -> None:
         sa.Column("usage_summary", postgresql.JSONB(), nullable=False, server_default="{}"),
     )
     op.create_index("ix_task_agent_id", "tasks", ["agent_id"])
+    op.create_index("ix_task_organization_id", "tasks", ["organization_id"])
     op.create_index("ix_task_status", "tasks", ["status"])
     op.create_index("ix_task_agent_status", "tasks", ["agent_id", "status"])
     op.create_index("ix_task_deadline", "tasks", ["deadline"])
@@ -75,5 +77,6 @@ def downgrade() -> None:
     op.drop_index("ix_task_deadline", table_name="tasks")
     op.drop_index("ix_task_agent_status", table_name="tasks")
     op.drop_index("ix_task_status", table_name="tasks")
+    op.drop_index("ix_task_organization_id", table_name="tasks")
     op.drop_index("ix_task_agent_id", table_name="tasks")
     op.drop_table("tasks")

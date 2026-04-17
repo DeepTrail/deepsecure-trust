@@ -56,6 +56,7 @@ deepsecure-mvp/
 ├── docs/
 │   └── workstreams/
 │       └── [feature]/
+│           ├── BREAKDOWN.md
 │           ├── WORKSTREAM.md
 │           ├── STATUS.md
 │           ├── BATCH_EXECUTION_PLAN.md
@@ -380,9 +381,8 @@ Secondary: B1 → B2 → D1 → D3 → F1 (if dual-track)
 
 9. **Save the breakdown output** to a reference file:
    - Ask the user: "Would you like to save this breakdown to a file for reference?"
-   - If yes, save to: `docs/[feature-name]-breakdown.md`
-   - Use naming convention: `[design-doc-name]-breakdown.md`
-   - Example: `deepsecure-virtual-mcp-server-mvp.md` → `deepsecure-virtual-mcp-server-mvp-breakdown.md`
+   - If yes, save to: `docs/workstreams/[feature-name]/BREAKDOWN.md`
+   - This colocates the breakdown with all other workstream files (WORKSTREAM.md, STATUS.md, etc.)
 
 10. **Update status files:**
    
@@ -457,7 +457,7 @@ echo "=== Breakdown Completion Verification ==="
 echo ""
 
 # 1. Breakdown document
-[ -f "docs/${FEATURE}-breakdown.md" ] && echo "✅ docs/${FEATURE}-breakdown.md" || echo "❌ MISSING: docs/${FEATURE}-breakdown.md"
+[ -f "docs/workstreams/${FEATURE}/BREAKDOWN.md" ] && echo "✅ docs/workstreams/${FEATURE}/BREAKDOWN.md" || echo "❌ MISSING: docs/workstreams/${FEATURE}/BREAKDOWN.md"
 
 # 2. Workstream folder structure
 [ -d "docs/workstreams/${FEATURE}" ] && echo "✅ docs/workstreams/${FEATURE}/" || echo "❌ MISSING: docs/workstreams/${FEATURE}/"
@@ -479,7 +479,7 @@ echo "=== Verification Complete ==="
 
 | # | File | Purpose | Created By |
 |---|------|---------|------------|
-| 1 | `docs/[feature]-breakdown.md` | Task breakdown document | Step 9 |
+| 1 | `docs/workstreams/[feature]/BREAKDOWN.md` | Task breakdown document | Step 9 |
 | 2 | `docs/workstreams/[feature]/WORKSTREAM.md` | Workstream overview | `/create-workstream` |
 | 3 | `docs/workstreams/[feature]/STATUS.md` | Progress tracking | `/create-workstream` |
 | 4 | `docs/workstreams/[feature]/BATCH_EXECUTION_PLAN.md` | Execution waves | `/create-batch-execution-plan` |
@@ -498,7 +498,8 @@ echo "=== Verification Complete ==="
    Glob: docs/workstreams/[feature]/*.md
    ```
    
-   **Expected results (minimum 5 files):**
+   **Expected results (minimum 6 files):**
+   - BREAKDOWN.md
    - WORKSTREAM.md
    - STATUS.md
    - BATCH_EXECUTION_PLAN.md
@@ -528,7 +529,7 @@ echo "=== Verification Complete ==="
    
    | File | Status |
    |------|--------|
-   | `docs/[feature]-breakdown.md` | ✅ |
+   | `docs/workstreams/[feature]/BREAKDOWN.md` | ✅ |
    | `docs/workstreams/[feature]/WORKSTREAM.md` | ✅ |
    | `docs/workstreams/[feature]/STATUS.md` | ✅ |
    | `docs/workstreams/[feature]/BATCH_EXECUTION_PLAN.md` | ✅ |
@@ -556,7 +557,7 @@ echo "=== Verification Complete ==="
 
 ## Real-World Example
 - Design: `docs/design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md`
-- Breakdown: `docs/deepsecure-virtual-mcp-server-mvp-breakdown.md`
+- Breakdown: `docs/workstreams/virtual-mcp-server-mvp/BREAKDOWN.md`
 
 ## DeepSecure-Specific Patterns
 
