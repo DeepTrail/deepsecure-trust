@@ -415,6 +415,7 @@ class AgentSession(Base):
             "party_type": self.party_type.value if self.party_type else None,
             "delegated_permissions": self.scoped_permissions or [],
             "delegation_id": self.delegation_id,
+            "organization_id": self.organization_id,
             "groups": self.groups or [],
             "exp": int(expires_at.timestamp()) if expires_at else None,
             "iat": int(created_at.timestamp()) if created_at else None,

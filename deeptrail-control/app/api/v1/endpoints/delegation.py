@@ -67,18 +67,28 @@ def get_current_user_from_token(
     authorization: str = Header(..., description="Bearer token"),
 ) -> str:
     """Extract user ID from authorization header."""
+    return _parse_user_token(authorization)["sub"]
+
+
+def _parse_user_token(authorization: str) -> Dict[str, Any]:
+    """Parse the full User JWT payload from the authorization header.
+
+    Returns a dict with at least 'sub'. Other claims (organization_id,
+    session_id, etc.) are included when present.
+    """
     try:
         token = authorization.replace("Bearer ", "")
-        
+
         if token.startswith("mock_user_token_"):
-            return token.replace("mock_user_token_", "")
-        
+            return {"sub": token.replace("mock_user_token_", "")}
+
         try:
             payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-            return payload.get("sub", "sarah@acme.com")
+            payload.setdefault("sub", "sarah@acme.com")
+            return payload
         except jwt.exceptions.PyJWTError:
-            return "sarah@acme.com"
-            
+            return {"sub": "sarah@acme.com"}
+
     except Exception as e:
         logger.warning(f"Failed to extract user from token: {e}")
         raise HTTPException(
@@ -108,7 +118,9 @@ def create_user_delegation(
     
     MVP: Creates a macaroon-based delegation token.
     """
-    current_user = get_current_user_from_token(authorization)
+    user_claims = _parse_user_token(authorization)
+    current_user = user_claims["sub"]
+    user_org_id = user_claims.get("organization_id")
     
     # Get user's connected services for permission validation
     connections = (
@@ -177,7 +189,7 @@ def create_user_delegation(
         ttl_seconds=ttl_seconds,
     )
     
-    # Store delegation in memory
+    # Store delegation in memory (organization_id flows from User JWT)
     _delegations[delegation_id] = {
         "id": delegation_id,
         "user_id": current_user,
@@ -185,6 +197,7 @@ def create_user_delegation(
         "permissions": request.permissions,
         "token": delegation_token,
         "constraints": request.constraints,
+        "organization_id": user_org_id,
     }
     
     logger.info(

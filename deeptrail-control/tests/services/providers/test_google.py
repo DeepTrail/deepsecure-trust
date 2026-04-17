@@ -1,15 +1,15 @@
-"""Unit tests for KeycloakProvider.
+"""Unit tests for GoogleProvider.
 
-All HTTP calls are mocked via httpx mocking — no real Keycloak needed.
+All HTTP calls are mocked via httpx mocking — no real Google needed.
 """
 
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from jose import JWTError
 
 from app.services.idp_service import (
     OIDCClaims,
@@ -19,21 +19,67 @@ from app.services.idp_service import (
     OIDCTokens,
     UserInfo,
 )
-from app.services.providers.keycloak import KeycloakProvider
+from app.services.providers.google import GoogleProvider
 
-ISSUER = "http://localhost:8080/realms/deepsecure"
-CLIENT_ID = "deepsecure-control"
-CLIENT_SECRET = "control-secret"
+ISSUER = "https://accounts.google.com"
+CLIENT_ID = "google-client-id.apps.googleusercontent.com"
+CLIENT_SECRET = "google-client-secret"
 
 
 @pytest.fixture
-def provider() -> KeycloakProvider:
-    return KeycloakProvider(
+def provider() -> GoogleProvider:
+    return GoogleProvider(
         issuer_url=ISSUER,
         client_id=CLIENT_ID,
         client_secret=CLIENT_SECRET,
-        realm="deepsecure",
+        hd="acme.com",
     )
+
+
+@pytest.fixture
+def provider_no_hd() -> GoogleProvider:
+    return GoogleProvider(
+        issuer_url=ISSUER,
+        client_id=CLIENT_ID,
+    )
+
+
+# ============================================================================
+# Construction
+# ============================================================================
+
+
+class TestGoogleProviderInit:
+    def test_stores_attributes(self):
+        p = GoogleProvider(
+            issuer_url=ISSUER,
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            hd="acme.com",
+        )
+        assert p._issuer_url == ISSUER
+        assert p._client_id == CLIENT_ID
+        assert p._client_secret == CLIENT_SECRET
+        assert p._hd == "acme.com"
+
+    def test_hardcoded_endpoints(self):
+        p = GoogleProvider(issuer_url=ISSUER, client_id=CLIENT_ID)
+        assert p._auth_endpoint == "https://accounts.google.com/o/oauth2/v2/auth"
+        assert p._token_endpoint == "https://oauth2.googleapis.com/token"
+        assert p._jwks_uri == "https://www.googleapis.com/oauth2/v3/certs"
+        assert p._userinfo_endpoint == "https://openidconnect.googleapis.com/v1/userinfo"
+
+    def test_trailing_slash_stripped(self):
+        p = GoogleProvider(issuer_url="https://accounts.google.com/", client_id="test")
+        assert p._issuer_url == "https://accounts.google.com"
+
+    def test_hd_defaults_to_none(self):
+        p = GoogleProvider(issuer_url=ISSUER, client_id=CLIENT_ID)
+        assert p._hd is None
+
+    def test_jwks_cache_starts_empty(self):
+        p = GoogleProvider(issuer_url=ISSUER, client_id=CLIENT_ID)
+        assert p._jwks_cache is None
 
 
 # ============================================================================
@@ -43,7 +89,7 @@ def provider() -> KeycloakProvider:
 
 class TestGetAuthorizationUrl:
     @pytest.mark.asyncio
-    async def test_includes_required_params(self, provider: KeycloakProvider):
+    async def test_includes_required_params(self, provider: GoogleProvider):
         url = await provider.get_authorization_url(
             state="random-state",
             redirect_uri="http://localhost:8000/callback",
@@ -52,16 +98,43 @@ class TestGetAuthorizationUrl:
         assert f"client_id={CLIENT_ID}" in url
         assert "state=random-state" in url
         assert "scope=openid+profile+email" in url or "scope=openid" in url
-        assert url.startswith(f"{ISSUER}/protocol/openid-connect/auth?")
+        assert url.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
 
     @pytest.mark.asyncio
-    async def test_custom_scopes(self, provider: KeycloakProvider):
+    async def test_includes_hd_when_set(self, provider: GoogleProvider):
         url = await provider.get_authorization_url(
             state="s",
             redirect_uri="http://localhost:8000/cb",
-            scopes=["openid", "groups"],
         )
-        assert "scope=openid+groups" in url or "scope=openid" in url
+        assert "hd=acme.com" in url
+
+    @pytest.mark.asyncio
+    async def test_excludes_hd_when_not_set(self, provider_no_hd: GoogleProvider):
+        url = await provider_no_hd.get_authorization_url(
+            state="s",
+            redirect_uri="http://localhost:8000/cb",
+        )
+        assert "hd=" not in url
+
+    @pytest.mark.asyncio
+    async def test_includes_pkce_params(self, provider: GoogleProvider):
+        url = await provider.get_authorization_url(
+            state="s",
+            redirect_uri="http://localhost:8000/cb",
+            code_challenge="challenge-hash",
+            code_challenge_method="S256",
+        )
+        assert "code_challenge=challenge-hash" in url
+        assert "code_challenge_method=S256" in url
+
+    @pytest.mark.asyncio
+    async def test_custom_scopes(self, provider: GoogleProvider):
+        url = await provider.get_authorization_url(
+            state="s",
+            redirect_uri="http://localhost:8000/cb",
+            scopes=["openid", "email"],
+        )
+        assert "scope=openid+email" in url or "scope=openid" in url
 
 
 # ============================================================================
@@ -71,7 +144,7 @@ class TestGetAuthorizationUrl:
 
 class TestExchangeCode:
     @pytest.mark.asyncio
-    async def test_returns_tokens(self, provider: KeycloakProvider):
+    async def test_returns_tokens(self, provider: GoogleProvider):
         mock_response = httpx.Response(
             200,
             json={
@@ -90,7 +163,7 @@ class TestExchangeCode:
         assert tokens.refresh_token == "refresh-jwt"
 
     @pytest.mark.asyncio
-    async def test_handles_400_error(self, provider: KeycloakProvider):
+    async def test_handles_400_error(self, provider: GoogleProvider):
         mock_response = httpx.Response(
             400,
             json={"error": "invalid_grant"},
@@ -101,7 +174,7 @@ class TestExchangeCode:
                 await provider.exchange_code("bad-code", "http://localhost/cb")
 
     @pytest.mark.asyncio
-    async def test_handles_network_error(self, provider: KeycloakProvider):
+    async def test_handles_network_error(self, provider: GoogleProvider):
         with patch(
             "httpx.AsyncClient.post",
             new_callable=AsyncMock,
@@ -131,55 +204,72 @@ MOCK_JWKS = {
 
 class TestValidateToken:
     @pytest.mark.asyncio
-    async def test_extracts_claims(self, provider: KeycloakProvider):
+    async def test_extracts_claims(self, provider: GoogleProvider):
         decoded_claims = {
-            "sub": "user-123",
+            "sub": "google-user-123",
             "email": "sarah@acme.com",
             "email_verified": True,
             "name": "Sarah Chen",
             "given_name": "Sarah",
             "family_name": "Chen",
-            "groups": ["acme-org"],
-            "realm_access": {"roles": ["user"]},
+            "hd": "acme.com",
             "iss": ISSUER,
             "aud": CLIENT_ID,
         }
         with patch.object(provider, "_get_jwks", new_callable=AsyncMock, return_value=MOCK_JWKS):
-            with patch("app.services.providers.keycloak.jwt.decode", return_value=decoded_claims):
+            with patch("app.services.providers.google.jwt.decode", return_value=decoded_claims):
                 claims = await provider.validate_token("valid-jwt")
 
         assert isinstance(claims, OIDCClaims)
-        assert claims.sub == "user-123"
+        assert claims.sub == "google-user-123"
         assert claims.email == "sarah@acme.com"
         assert claims.email_verified is True
         assert claims.name == "Sarah Chen"
-        assert claims.groups == ["acme-org"]
-        assert claims.roles == ["user"]
+        assert claims.given_name == "Sarah"
+        assert claims.family_name == "Chen"
         assert claims.issuer == ISSUER
 
     @pytest.mark.asyncio
-    async def test_rejects_invalid_signature(self, provider: KeycloakProvider):
-        from jose import JWTError
+    async def test_no_groups_or_roles(self, provider: GoogleProvider):
+        decoded_claims = {
+            "sub": "user-1",
+            "email": "user@acme.com",
+            "hd": "acme.com",
+            "iss": ISSUER,
+            "aud": CLIENT_ID,
+        }
+        with patch.object(provider, "_get_jwks", new_callable=AsyncMock, return_value=MOCK_JWKS):
+            with patch("app.services.providers.google.jwt.decode", return_value=decoded_claims):
+                claims = await provider.validate_token("valid-jwt")
 
+        assert claims.groups is None
+        assert claims.roles is None
+
+    @pytest.mark.asyncio
+    async def test_stores_raw_claims_with_hd(self, provider: GoogleProvider):
+        decoded_claims = {
+            "sub": "user-1",
+            "email": "user@acme.com",
+            "hd": "acme.com",
+            "iss": ISSUER,
+            "aud": CLIENT_ID,
+        }
+        with patch.object(provider, "_get_jwks", new_callable=AsyncMock, return_value=MOCK_JWKS):
+            with patch("app.services.providers.google.jwt.decode", return_value=decoded_claims):
+                claims = await provider.validate_token("valid-jwt")
+
+        assert claims.raw_claims is not None
+        assert claims.raw_claims["hd"] == "acme.com"
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_signature(self, provider: GoogleProvider):
         with patch.object(provider, "_get_jwks", new_callable=AsyncMock, return_value=MOCK_JWKS):
             with patch(
-                "app.services.providers.keycloak.jwt.decode",
+                "app.services.providers.google.jwt.decode",
                 side_effect=JWTError("Signature verification failed"),
             ):
                 with pytest.raises(OIDCTokenInvalidError, match="validation failed"):
                     await provider.validate_token("tampered-jwt")
-
-    @pytest.mark.asyncio
-    async def test_rejects_expired_token(self, provider: KeycloakProvider):
-        from jose import ExpiredSignatureError
-
-        with patch.object(provider, "_get_jwks", new_callable=AsyncMock, return_value=MOCK_JWKS):
-            with patch(
-                "app.services.providers.keycloak.jwt.decode",
-                side_effect=ExpiredSignatureError("Token expired"),
-            ):
-                with pytest.raises(OIDCTokenInvalidError):
-                    await provider.validate_token("expired-jwt")
 
 
 # ============================================================================
@@ -189,7 +279,7 @@ class TestValidateToken:
 
 class TestJWKSCaching:
     @pytest.mark.asyncio
-    async def test_caches_jwks(self, provider: KeycloakProvider):
+    async def test_caches_jwks(self, provider: GoogleProvider):
         mock_response = httpx.Response(
             200,
             json=MOCK_JWKS,
@@ -208,10 +298,10 @@ class TestJWKSCaching:
 
         assert first == MOCK_JWKS
         assert second == MOCK_JWKS
-        assert call_count == 1  # Only one HTTP request
+        assert call_count == 1
 
     @pytest.mark.asyncio
-    async def test_jwks_unavailable(self, provider: KeycloakProvider):
+    async def test_jwks_unavailable(self, provider: GoogleProvider):
         with patch(
             "httpx.AsyncClient.get",
             new_callable=AsyncMock,
@@ -221,7 +311,7 @@ class TestJWKSCaching:
                 await provider._get_jwks()
 
     @pytest.mark.asyncio
-    async def test_jwks_non_200(self, provider: KeycloakProvider):
+    async def test_jwks_non_200(self, provider: GoogleProvider):
         mock_response = httpx.Response(
             500,
             request=httpx.Request("GET", provider._jwks_uri),
@@ -238,15 +328,13 @@ class TestJWKSCaching:
 
 class TestGetUserInfo:
     @pytest.mark.asyncio
-    async def test_returns_user_info(self, provider: KeycloakProvider):
+    async def test_returns_user_info(self, provider: GoogleProvider):
         mock_response = httpx.Response(
             200,
             json={
-                "sub": "user-123",
+                "sub": "google-user-123",
                 "email": "sarah@acme.com",
                 "name": "Sarah Chen",
-                "groups": ["acme-org"],
-                "realm_access": {"roles": ["user"]},
             },
             request=httpx.Request("GET", provider._userinfo_endpoint),
         )
@@ -254,12 +342,12 @@ class TestGetUserInfo:
             info = await provider.get_user_info("valid-access-token")
 
         assert isinstance(info, UserInfo)
-        assert info.sub == "user-123"
+        assert info.sub == "google-user-123"
         assert info.email == "sarah@acme.com"
         assert info.name == "Sarah Chen"
 
     @pytest.mark.asyncio
-    async def test_handles_failure(self, provider: KeycloakProvider):
+    async def test_handles_failure(self, provider: GoogleProvider):
         mock_response = httpx.Response(
             401,
             json={"error": "invalid_token"},
@@ -277,7 +365,7 @@ class TestGetUserInfo:
 
 class TestRefreshToken:
     @pytest.mark.asyncio
-    async def test_returns_new_tokens(self, provider: KeycloakProvider):
+    async def test_returns_new_tokens(self, provider: GoogleProvider):
         mock_response = httpx.Response(
             200,
             json={
@@ -296,7 +384,7 @@ class TestRefreshToken:
         assert tokens.refresh_token == "new-refresh-jwt"
 
     @pytest.mark.asyncio
-    async def test_handles_failure(self, provider: KeycloakProvider):
+    async def test_handles_failure(self, provider: GoogleProvider):
         mock_response = httpx.Response(
             400,
             json={"error": "invalid_grant"},
@@ -314,77 +402,26 @@ class TestRefreshToken:
 
 class TestLogoutUrl:
     @pytest.mark.asyncio
-    async def test_includes_id_token_hint(self, provider: KeycloakProvider):
-        url = await provider.logout_url(id_token_hint="my-id-token")
-        assert "id_token_hint=my-id-token" in url
-        assert url.startswith(f"{ISSUER}/protocol/openid-connect/logout?")
+    async def test_returns_google_account_url(self, provider: GoogleProvider):
+        url = await provider.logout_url()
+        assert url == "https://myaccount.google.com"
 
     @pytest.mark.asyncio
-    async def test_includes_post_logout_redirect(self, provider: KeycloakProvider):
+    async def test_ignores_id_token_hint(self, provider: GoogleProvider):
+        url = await provider.logout_url(id_token_hint="my-id-token")
+        assert url == "https://myaccount.google.com"
+
+    @pytest.mark.asyncio
+    async def test_ignores_post_logout_redirect(self, provider: GoogleProvider):
         url = await provider.logout_url(
             post_logout_redirect_uri="http://localhost:8000/logged-out"
         )
-        assert "post_logout_redirect_uri=" in url
+        assert url == "https://myaccount.google.com"
 
     @pytest.mark.asyncio
-    async def test_no_params(self, provider: KeycloakProvider):
-        url = await provider.logout_url()
-        assert url == f"{ISSUER}/protocol/openid-connect/logout"
-        assert "?" not in url
-
-    @pytest.mark.asyncio
-    async def test_both_params(self, provider: KeycloakProvider):
+    async def test_ignores_both_params(self, provider: GoogleProvider):
         url = await provider.logout_url(
             id_token_hint="hint",
             post_logout_redirect_uri="http://example.com/out",
         )
-        assert "id_token_hint=hint" in url
-        assert "post_logout_redirect_uri=" in url
-
-
-# ============================================================================
-# Construction
-# ============================================================================
-
-
-class TestKeycloakProviderInit:
-    def test_endpoints_derived_from_issuer(self):
-        p = KeycloakProvider(
-            issuer_url="http://kc.test:9090/realms/myrealm",
-            client_id="test",
-        )
-        assert p._auth_endpoint == "http://kc.test:9090/realms/myrealm/protocol/openid-connect/auth"
-        assert p._token_endpoint == "http://kc.test:9090/realms/myrealm/protocol/openid-connect/token"
-        assert p._userinfo_endpoint == "http://kc.test:9090/realms/myrealm/protocol/openid-connect/userinfo"
-        assert p._jwks_uri == "http://kc.test:9090/realms/myrealm/protocol/openid-connect/certs"
-        assert p._logout_endpoint == "http://kc.test:9090/realms/myrealm/protocol/openid-connect/logout"
-
-    def test_trailing_slash_stripped(self):
-        p = KeycloakProvider(
-            issuer_url="http://kc.test:9090/realms/myrealm/",
-            client_id="test",
-        )
-        assert p._issuer_url == "http://kc.test:9090/realms/myrealm"
-
-    def test_browser_url_splits_endpoints(self):
-        """Browser-facing endpoints use browser_url; backend endpoints use issuer_url."""
-        p = KeycloakProvider(
-            issuer_url="http://keycloak:8080/realms/deepsecure",
-            client_id="test",
-            browser_url="http://localhost:8080/realms/deepsecure",
-        )
-        assert p._auth_endpoint == "http://localhost:8080/realms/deepsecure/protocol/openid-connect/auth"
-        assert p._logout_endpoint == "http://localhost:8080/realms/deepsecure/protocol/openid-connect/logout"
-        assert p._token_endpoint == "http://keycloak:8080/realms/deepsecure/protocol/openid-connect/token"
-        assert p._userinfo_endpoint == "http://keycloak:8080/realms/deepsecure/protocol/openid-connect/userinfo"
-        assert p._jwks_uri == "http://keycloak:8080/realms/deepsecure/protocol/openid-connect/certs"
-
-    def test_browser_url_none_uses_issuer_for_all(self):
-        """When browser_url is None, all endpoints use issuer_url."""
-        p = KeycloakProvider(
-            issuer_url="http://localhost:8080/realms/deepsecure",
-            client_id="test",
-            browser_url=None,
-        )
-        assert p._auth_endpoint == "http://localhost:8080/realms/deepsecure/protocol/openid-connect/auth"
-        assert p._token_endpoint == "http://localhost:8080/realms/deepsecure/protocol/openid-connect/token"
+        assert url == "https://myaccount.google.com"

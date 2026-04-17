@@ -59,13 +59,14 @@ class ScopeMapper:
             "read_content": [
                 "notion:pages:read",
                 "notion:pages:search",
+                "notion:blocks:read",
                 "notion:databases:list",
                 "notion:databases:query",
             ],
             "update_content": ["notion:pages:update"],
             "insert_content": ["notion:pages:create"],
             # User-friendly aliases (commonly used in demos/tests)
-            "read_pages": ["notion:pages:read", "notion:pages:search"],
+            "read_pages": ["notion:pages:read", "notion:pages:search", "notion:blocks:read"],
             "search_content": ["notion:pages:search"],
             "write_pages": ["notion:pages:create", "notion:pages:update"],
             "read_databases": ["notion:databases:list", "notion:databases:query"],
@@ -73,6 +74,7 @@ class ScopeMapper:
             "full_access": [
                 "notion:pages:read",
                 "notion:pages:search",
+                "notion:blocks:read",
                 "notion:pages:create",
                 "notion:pages:update",
                 "notion:pages:delete",
@@ -83,7 +85,7 @@ class ScopeMapper:
         "slack": {
             # Official Slack OAuth scopes
             "channels:read": ["slack:channels:list"],
-            "channels:history": ["slack:messages:search"],
+            "channels:history": ["slack:messages:search", "slack:channels:history"],
             "chat:write": ["slack:messages:send"],
             "users:read": ["slack:users:list"],
             "reactions:write": ["slack:reactions:write"],
@@ -96,6 +98,7 @@ class ScopeMapper:
             # Full access
             "full_access": [
                 "slack:channels:list",
+                "slack:channels:history",
                 "slack:messages:search",
                 "slack:messages:send",
                 "slack:users:list",

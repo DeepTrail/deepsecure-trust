@@ -9,7 +9,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Index, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Index, JSON, String, Text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.sql import func
 
@@ -103,6 +103,13 @@ class AuditEvent(Base):
         nullable=True,
         index=True,
         comment="Organization context for multi-tenant deployments",
+    )
+
+    # Whether the action succeeded
+    success = Column(
+        Boolean,
+        nullable=True,
+        comment="Whether the action succeeded (true for mcp_tool_call, false for denials/errors)",
     )
 
     # Tool call details (for mcp_tool_call events)

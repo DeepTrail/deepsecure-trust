@@ -62,12 +62,13 @@ class AgentContext:
 
     agent_id: str
     owner: str
-    delegation_id: str
+    delegation_id: str | None
     session_id: str
     delegated_permissions: list[str] = field(default_factory=list)
     groups: list[str] = field(default_factory=list)
     party_type: str = "first_party"
     idp_issuer: str | None = None
+    organization_id: str | None = None
     token_type: str = "agent_session"
     task_id: str | None = None
     scoped_permissions: list[dict] | None = None
@@ -87,10 +88,11 @@ class AgentContext:
             ]
             return cls(
                 agent_id=payload.get("agent_id", ""),
-                owner="",
-                delegation_id="",
+                owner=payload.get("owner", ""),
+                delegation_id=None,
                 session_id=payload.get("task_id", ""),
                 delegated_permissions=perm_urns,
+                organization_id=payload.get("organization_id"),
                 token_type="task_token",
                 task_id=payload.get("task_id"),
                 scoped_permissions=scoped,
@@ -105,6 +107,7 @@ class AgentContext:
             groups=payload.get("groups", []),
             party_type=payload.get("party_type", "first_party"),
             idp_issuer=payload.get("idp_issuer"),
+            organization_id=payload.get("organization_id"),
         )
 
     def has_permission(self, permission: str) -> bool:
