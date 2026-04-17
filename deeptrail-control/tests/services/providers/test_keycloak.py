@@ -365,3 +365,26 @@ class TestKeycloakProviderInit:
             client_id="test",
         )
         assert p._issuer_url == "http://kc.test:9090/realms/myrealm"
+
+    def test_browser_url_splits_endpoints(self):
+        """Browser-facing endpoints use browser_url; backend endpoints use issuer_url."""
+        p = KeycloakProvider(
+            issuer_url="http://keycloak:8080/realms/deepsecure",
+            client_id="test",
+            browser_url="http://localhost:8080/realms/deepsecure",
+        )
+        assert p._auth_endpoint == "http://localhost:8080/realms/deepsecure/protocol/openid-connect/auth"
+        assert p._logout_endpoint == "http://localhost:8080/realms/deepsecure/protocol/openid-connect/logout"
+        assert p._token_endpoint == "http://keycloak:8080/realms/deepsecure/protocol/openid-connect/token"
+        assert p._userinfo_endpoint == "http://keycloak:8080/realms/deepsecure/protocol/openid-connect/userinfo"
+        assert p._jwks_uri == "http://keycloak:8080/realms/deepsecure/protocol/openid-connect/certs"
+
+    def test_browser_url_none_uses_issuer_for_all(self):
+        """When browser_url is None, all endpoints use issuer_url."""
+        p = KeycloakProvider(
+            issuer_url="http://localhost:8080/realms/deepsecure",
+            client_id="test",
+            browser_url=None,
+        )
+        assert p._auth_endpoint == "http://localhost:8080/realms/deepsecure/protocol/openid-connect/auth"
+        assert p._token_endpoint == "http://localhost:8080/realms/deepsecure/protocol/openid-connect/token"

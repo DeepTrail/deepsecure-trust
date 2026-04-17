@@ -91,7 +91,6 @@ services:
       # IdP Configuration (Keycloak dev-time)
       - IDP_PROVIDER=keycloak
       - IDP_ISSUER_URL=http://keycloak:8080/realms/deepsecure
-      - IDP_BROWSER_URL=http://localhost:8080/realms/deepsecure
       - IDP_CLIENT_ID=deepsecure-control
       - IDP_CLIENT_SECRET=control-secret
       - IDP_REALM=deepsecure

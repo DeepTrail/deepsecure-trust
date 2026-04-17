@@ -186,6 +186,20 @@ class TestCreateOIDCProvider:
         assert provider._issuer_url == "http://localhost:8080/realms/deepsecure"
         assert provider._client_id == "deepsecure-control"
 
+    def test_keycloak_provider_with_browser_url(self):
+        config = IdPConfig(
+            provider=IdPProviderType.KEYCLOAK,
+            issuer_url="http://keycloak:8080/realms/deepsecure",
+            browser_url="http://localhost:8080/realms/deepsecure",
+            client_id="deepsecure-control",
+            client_secret="secret",
+            realm="deepsecure",
+        )
+        provider = create_oidc_provider(config)
+        assert isinstance(provider, KeycloakProvider)
+        assert provider._auth_endpoint.startswith("http://localhost:8080/")
+        assert provider._token_endpoint.startswith("http://keycloak:8080/")
+
     def test_okta_not_implemented(self):
         config = IdPConfig(
             provider=IdPProviderType.OKTA,
