@@ -551,7 +551,7 @@ class TestDelegationTokenDesignDocCompliance:
                 "slack:channels:list",
             ],
             constraints={"max_actions_per_day": 100},
-            expires_at=datetime(2026, 2, 6, 0, 0, 0, tzinfo=timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             logging_uri="https://audit.deeptrail.io/log",
             revocation_uri="https://deeptrail.io/revoke/del-sarah-sdr-001",
         )

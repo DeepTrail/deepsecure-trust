@@ -30,6 +30,16 @@ class SSOCallbackResponse(BaseModel):
     user: SSOUserInfo
     expires_in: int
     idp: str
+    refresh_available: bool = False
+
+
+class SSORefreshResponse(BaseModel):
+    """Response from SSO session refresh."""
+
+    token: str
+    expires_in: int
+    idp: str
+    refreshed_at: str
 
 
 class SSOLogoutRequest(BaseModel):

@@ -11,6 +11,8 @@ Environment variables:
     IDP_REALM: Keycloak realm name (only for keycloak provider)
     IDP_REDIRECT_URI: Default redirect URI after authentication
     IDP_HD: Google Workspace hosted domain for login restriction (optional)
+    IDP_FETCH_GROUPS: When true and provider is Google, fetch user groups from
+        Directory API during SSO callback. Default: false
 """
 
 from enum import Enum
@@ -63,6 +65,11 @@ class IdPConfig(BaseSettings):
     hd: str | None = Field(
         default=None,
         alias="IDP_HD",
+    )
+    fetch_groups: bool = Field(
+        default=False,
+        alias="IDP_FETCH_GROUPS",
+        description="When true and provider is Google, fetch user groups from Directory API during SSO callback",
     )
 
     model_config = {

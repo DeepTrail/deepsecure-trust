@@ -293,6 +293,10 @@ def create_oidc_provider(config: IdPConfig | None = None) -> OIDCProvider:
 # ============================================================================
 
 
+# Legacy static group→role mapping for Keycloak ID-token groups.
+# Retained as a baseline fallback; the YAML-driven GroupPolicyMapper
+# in sso.py runs *after* provision_user_from_claims and merges
+# additional roles and permissions on top.
 _GROUP_TO_ROLE_MAP = {
     "acme-org": "user",
     "admin-org": "admin",

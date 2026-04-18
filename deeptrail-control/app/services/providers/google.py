@@ -33,6 +33,8 @@ _GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 _GOOGLE_JWKS_URI = "https://www.googleapis.com/oauth2/v3/certs"
 _GOOGLE_USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo"
 _GOOGLE_ACCOUNT_URL = "https://myaccount.google.com"
+_GOOGLE_DIRECTORY_API = "https://admin.googleapis.com/admin/directory/v1"
+_DIRECTORY_SCOPE = "https://www.googleapis.com/auth/admin.directory.group.readonly"
 
 
 class GoogleProvider:
@@ -68,8 +70,11 @@ class GoogleProvider:
         scopes: list[str] | None = None,
         code_challenge: str | None = None,
         code_challenge_method: str | None = None,
+        fetch_groups: bool = False,
     ) -> str:
-        scopes = scopes or ["openid", "profile", "email"]
+        scopes = list(scopes or ["openid", "profile", "email"])
+        if fetch_groups and _DIRECTORY_SCOPE not in scopes:
+            scopes.append(_DIRECTORY_SCOPE)
         params: dict[str, str] = {
             "response_type": "code",
             "client_id": self._client_id,
@@ -87,6 +92,46 @@ class GoogleProvider:
         params["access_type"] = "offline"
         params["include_granted_scopes"] = "true"
         return f"{self._auth_endpoint}?{urlencode(params)}"
+
+    async def fetch_user_groups(self, access_token: str, email: str) -> list[str]:
+        """Fetch user's group memberships from Google Admin Directory API.
+
+        Args:
+            access_token: OAuth access token with admin.directory.group.readonly scope.
+            email: User's email address to query groups for.
+
+        Returns:
+            List of group email addresses the user belongs to.
+            Returns empty list on any error (fail-open for availability).
+        """
+        url = f"{_GOOGLE_DIRECTORY_API}/groups"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    params={"userKey": email},
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=10.0,
+                )
+        except httpx.HTTPError as exc:
+            logger.warning("Failed to fetch groups for %s: %s", email, exc)
+            return []
+
+        if response.status_code != 200:
+            logger.warning(
+                "Directory API returned %d for %s: %s",
+                response.status_code,
+                email,
+                response.text[:200],
+            )
+            return []
+
+        try:
+            data = response.json()
+            return [g["email"] for g in data.get("groups", [])]
+        except (KeyError, ValueError) as exc:
+            logger.warning("Failed to parse groups response for %s: %s", email, exc)
+            return []
 
     async def exchange_code(
         self, code: str, redirect_uri: str, code_verifier: str | None = None

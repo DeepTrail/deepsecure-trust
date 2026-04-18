@@ -12,8 +12,9 @@ Test Categories:
 - Logout: With valid token, without auth
 """
 
+import os
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt as pyjwt
 import pytest
@@ -22,12 +23,16 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.main import app
 from app.api.v1.endpoints import sso as sso_module
+from app.api.v1.endpoints.sso import _decode_jwt_for_refresh
 from app.services.idp_service import (
     OIDCClaims,
     OIDCError,
     OIDCTokenInvalidError,
     OIDCTokens,
 )
+
+_IDP_SESSION_SVC_PATCH = "app.services.idp_session_service.IdPSessionService"
+_CREATE_PROVIDER_PATCH = "app.api.v1.endpoints.sso.create_oidc_provider"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -343,6 +348,8 @@ class TestCallback:
         _provisioned_users.pop("kc-user-001", None)
 
     def test_callback_redirects_when_post_login_redirect_set(self, client, mock_provider):
+        from urllib.parse import parse_qs, urlparse
+
         _inject_state(post_login_redirect="http://localhost:9876/done")
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
@@ -352,11 +359,15 @@ class TestCallback:
             )
         assert resp.status_code == 302
         location = resp.headers["location"]
-        assert location.startswith("http://localhost:9876/done?token=")
-        token = location.split("token=")[1]
+        assert location.startswith("http://localhost:9876/done?")
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+        token = params["token"][0]
         decoded = pyjwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         assert decoded["sub"] == "sarah@acme.com"
         assert decoded["idp"] == "keycloak"
+        assert decoded["groups"] == ["acme-org"]
+        assert "user" in decoded["roles"]
 
     def test_callback_returns_json_when_no_redirect(self, client, mock_provider):
         _inject_state()
@@ -380,6 +391,226 @@ class TestCallback:
         # okta provider creation raises NotImplementedError
         assert resp.status_code == 400
         assert "mismatch" in resp.json()["detail"].lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Callback — Groups Integration
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCallbackGroups:
+    """Tests for group-fetching + policy-resolution paths in sso_callback.
+
+    Covers the WS-A4 integration: GoogleProvider.fetch_user_groups() →
+    GroupPolicyMapper.resolve() → JWT groups/roles claims.
+    """
+
+    def _make_google_provider_mock(self, *, groups=None, fetch_raises=False):
+        """Build a mock that quacks like GoogleProvider (with fetch_user_groups).
+
+        Uses spec=GoogleProvider so isinstance() checks pass in sso_callback.
+        """
+        from app.services.providers.google import GoogleProvider
+
+        m = AsyncMock(spec=GoogleProvider)
+        m.get_authorization_url = AsyncMock(return_value="https://accounts.google.com/o/oauth2/v2/auth?state=abc")
+        m.exchange_code = AsyncMock(
+            return_value=OIDCTokens(
+                id_token="mock.id.token",
+                access_token="mock.access.token",
+                refresh_token="mock.refresh.token",
+            )
+        )
+        m.validate_token = AsyncMock(
+            return_value=OIDCClaims(
+                sub="google-user-001",
+                email="sarah@acme.com",
+                name="Sarah Chen",
+                groups=[],
+                roles=[],
+                issuer="https://accounts.google.com",
+            )
+        )
+        if fetch_raises:
+            m.fetch_user_groups = AsyncMock(side_effect=Exception("Directory API down"))
+        else:
+            m.fetch_user_groups = AsyncMock(return_value=groups or [])
+        m.logout_url = AsyncMock(return_value="https://myaccount.google.com")
+        return m
+
+    @pytest.fixture(autouse=True)
+    def reset_group_mapper(self):
+        """Reset the cached _group_mapper singleton between tests."""
+        sso_module._group_mapper = None
+        yield
+        sso_module._group_mapper = None
+
+    def _google_callback(self, client, mock_provider, *, fetch_groups=True, extra_patches=None):
+        """Helper: run a Google SSO callback with given mocks."""
+        _inject_state(idp="google", redirect_uri="http://localhost:8000/api/v1/auth/sso/google/callback")
+        env_val = "true" if fetch_groups else "false"
+        patches = [
+            patch.object(sso_module, "create_oidc_provider", return_value=mock_provider),
+            patch.dict(os.environ, {"IDP_FETCH_GROUPS": env_val}),
+        ]
+        if extra_patches:
+            patches.extend(extra_patches)
+
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            return client.get(
+                "/api/v1/auth/sso/google/callback",
+                params={"code": "auth-code", "state": "test-state"},
+            )
+
+    def test_google_callback_populates_jwt_groups(self, client):
+        """Google callback with fetch_groups=True populates JWT groups claim."""
+        mock_prov = self._make_google_provider_mock(
+            groups=["engineering@acme.com", "all@acme.com"],
+        )
+        resp = self._google_callback(client, mock_prov)
+
+        assert resp.status_code == 200
+        decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert "engineering@acme.com" in decoded["groups"]
+        assert "all@acme.com" in decoded["groups"]
+
+    def test_google_callback_policy_roles_in_jwt(self, client):
+        """GroupPolicyMapper.resolve() merges roles into JWT roles claim."""
+        mock_prov = self._make_google_provider_mock(groups=["engineering@acme.com"])
+
+        from app.services.group_policy import GroupPolicyMapper, GroupPolicy
+        mapper = GroupPolicyMapper([
+            GroupPolicy(group="engineering@acme.com", role="engineer", default_permissions=["github:repos:read"]),
+        ])
+
+        resp = self._google_callback(client, mock_prov, extra_patches=[
+            patch.object(sso_module, "_get_group_policy_mapper", return_value=mapper),
+        ])
+
+        assert resp.status_code == 200
+        decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert "engineer" in decoded["roles"]
+
+    def test_group_fetch_failure_is_fail_open(self, client):
+        """Group fetch failure: callback succeeds with groups=[]."""
+        mock_prov = self._make_google_provider_mock(fetch_raises=True)
+        resp = self._google_callback(client, mock_prov)
+
+        assert resp.status_code == 200
+        decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert decoded["groups"] == []
+
+    def test_fetch_groups_false_skips_directory_call(self, client):
+        """fetch_groups=False: fetch_user_groups is NOT called."""
+        mock_prov = self._make_google_provider_mock(groups=["should-not-appear@acme.com"])
+        resp = self._google_callback(client, mock_prov, fetch_groups=False)
+
+        assert resp.status_code == 200
+        mock_prov.fetch_user_groups.assert_not_called()
+
+    def test_keycloak_preserves_groups_from_id_token(self, client, mock_provider):
+        """Keycloak callback preserves groups from ID token claims."""
+        mock_provider.validate_token = AsyncMock(
+            return_value=OIDCClaims(
+                sub="kc-user-001",
+                email="sarah@acme.com",
+                name="Sarah Chen",
+                groups=["acme-org", "admin-org"],
+                roles=["user"],
+                issuer="https://keycloak:8080/realms/deepsecure",
+            )
+        )
+        _inject_state(idp="keycloak")
+
+        with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
+            resp = client.get(
+                "/api/v1/auth/sso/keycloak/callback",
+                params={"code": "auth-code", "state": "test-state"},
+            )
+
+        assert resp.status_code == 200
+        decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert "acme-org" in decoded["groups"]
+        assert "admin-org" in decoded["groups"]
+
+    def test_missing_yaml_uses_empty_mapper(self, client):
+        """Missing group_policies.yaml: no crash, no extra roles added."""
+        mock_prov = self._make_google_provider_mock(groups=["unknown-group@acme.com"])
+
+        resp = self._google_callback(client, mock_prov, extra_patches=[
+            patch("pathlib.Path.exists", return_value=False),
+        ])
+
+        assert resp.status_code == 200
+        decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert "unknown-group@acme.com" in decoded["groups"]
+
+    def test_role_deduplication(self, client):
+        """Duplicate roles from legacy map + policy mapper are deduplicated."""
+        mock_prov = self._make_google_provider_mock(groups=["acme-org"])
+        mock_prov.validate_token = AsyncMock(
+            return_value=OIDCClaims(
+                sub="google-user-001",
+                email="sarah@acme.com",
+                groups=[],
+                roles=["user"],
+                issuer="https://accounts.google.com",
+            )
+        )
+
+        from app.services.group_policy import GroupPolicyMapper, GroupPolicy
+        mapper = GroupPolicyMapper([
+            GroupPolicy(group="acme-org", role="user", default_permissions=[]),
+        ])
+
+        resp = self._google_callback(client, mock_prov, extra_patches=[
+            patch.object(sso_module, "_get_group_policy_mapper", return_value=mapper),
+        ])
+
+        assert resp.status_code == 200
+        decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert decoded["roles"].count("user") == 1
+
+    def test_multiple_group_policies_merge(self, client):
+        """Multiple matched groups: all policy roles and permissions merged."""
+        mock_prov = self._make_google_provider_mock(
+            groups=["engineering@acme.com", "security@acme.com"],
+        )
+
+        from app.services.group_policy import GroupPolicyMapper, GroupPolicy
+        mapper = GroupPolicyMapper([
+            GroupPolicy(group="engineering@acme.com", role="engineer", default_permissions=["github:repos:read"]),
+            GroupPolicy(group="security@acme.com", role="security-analyst", default_permissions=["vault:secrets:read"]),
+        ])
+
+        resp = self._google_callback(client, mock_prov, extra_patches=[
+            patch.object(sso_module, "_get_group_policy_mapper", return_value=mapper),
+        ])
+
+        assert resp.status_code == 200
+        decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert "engineer" in decoded["roles"]
+        assert "security-analyst" in decoded["roles"]
+
+    def test_policy_default_permissions_set(self, client):
+        """Policy default_permissions are set on user data (verified via roles)."""
+        mock_prov = self._make_google_provider_mock(groups=["engineering@acme.com"])
+
+        from app.services.group_policy import GroupPolicyMapper, GroupPolicy
+        mapper = GroupPolicyMapper([
+            GroupPolicy(group="engineering@acme.com", role="engineer", default_permissions=["github:repos:read", "jira:issues:read"]),
+        ])
+
+        resp = self._google_callback(client, mock_prov, extra_patches=[
+            patch.object(sso_module, "_get_group_policy_mapper", return_value=mapper),
+        ])
+
+        assert resp.status_code == 200
+        decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert "engineer" in decoded["roles"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -532,3 +763,351 @@ class TestPendingSSO:
         sso_module._cleanup_expired()
         assert "old" not in sso_module._pending_sso
         assert "new" in sso_module._pending_sso
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Refresh — helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _refresh_jwt(
+    sub: str = "user@acme.com",
+    session_id: str = "usess-oldoldoldold0001",
+    idp: str = "google",
+    groups: list | None = None,
+    roles: list | None = None,
+    organization_id: str | None = "org-acme",
+    exp_delta: timedelta | None = None,
+    include_exp: bool = True,
+) -> str:
+    """Create a signed session JWT for refresh testing."""
+    now = datetime.now(timezone.utc)
+    payload: dict = {
+        "sub": sub,
+        "session_id": session_id,
+        "idp": idp,
+        "groups": groups or [],
+        "roles": roles or [],
+        "organization_id": organization_id,
+        "iat": now,
+    }
+    if include_exp:
+        payload["exp"] = now + (exp_delta if exp_delta is not None else timedelta(hours=24))
+    return pyjwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def _mock_session_svc(
+    session_exists: bool = True,
+    refresh_token: str | None = "stored-refresh-token",
+    store_raises: bool = False,
+    revoke_raises: bool = False,
+):
+    svc = MagicMock()
+    svc.get_by_session.return_value = MagicMock() if session_exists else None
+    if session_exists and refresh_token:
+        svc.get_decrypted_tokens.return_value = {
+            "access_token": "old-access",
+            "refresh_token": refresh_token,
+        }
+    elif session_exists:
+        svc.get_decrypted_tokens.return_value = {
+            "access_token": "old-access",
+            "refresh_token": None,
+        }
+    else:
+        svc.get_decrypted_tokens.return_value = None
+    svc.store.side_effect = Exception("DB write") if store_raises else None
+    if not store_raises:
+        svc.store.return_value = MagicMock()
+    svc.revoke.side_effect = Exception("DB revoke") if revoke_raises else None
+    if not revoke_raises:
+        svc.revoke.return_value = True
+    return svc
+
+
+def _mock_refresh_provider(
+    refresh_ok: bool = True,
+    new_id_token: str = "new-id",
+    new_access: str = "new-access",
+    new_refresh: str | None = "new-refresh",
+    refresh_error: Exception | None = None,
+):
+    prov = AsyncMock()
+    if refresh_ok:
+        prov.refresh_token.return_value = OIDCTokens(
+            id_token=new_id_token,
+            access_token=new_access,
+            refresh_token=new_refresh,
+        )
+    else:
+        prov.refresh_token.side_effect = refresh_error or OIDCError(
+            "Token refresh failed: 400", error_code="refresh_failed"
+        )
+    prov.validate_token.return_value = OIDCClaims(
+        sub="user@acme.com", email="user@acme.com", email_verified=True,
+    )
+    return prov
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestDecodeJwtForRefresh — unit tests for the helper function
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestDecodeJwtForRefresh:
+    """Direct tests for ``_decode_jwt_for_refresh()`` (module-level helper)."""
+
+    def test_valid_non_expired_jwt(self):
+        token = _refresh_jwt()
+        claims = _decode_jwt_for_refresh(f"Bearer {token}")
+        assert claims["sub"] == "user@acme.com"
+        assert claims["session_id"] == "usess-oldoldoldold0001"
+
+    def test_expired_within_grace_30min(self):
+        token = _refresh_jwt(exp_delta=timedelta(minutes=-30))
+        claims = _decode_jwt_for_refresh(f"Bearer {token}")
+        assert claims["sub"] == "user@acme.com"
+
+    def test_expired_within_grace_59min(self):
+        token = _refresh_jwt(exp_delta=timedelta(minutes=-59))
+        claims = _decode_jwt_for_refresh(f"Bearer {token}")
+        assert claims["sub"] == "user@acme.com"
+
+    def test_expired_beyond_grace_2h(self):
+        token = _refresh_jwt(exp_delta=timedelta(hours=-2))
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _decode_jwt_for_refresh(f"Bearer {token}")
+        assert exc_info.value.status_code == 401
+        assert "grace window" in exc_info.value.detail
+
+    def test_none_authorization(self):
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _decode_jwt_for_refresh(None)
+        assert exc_info.value.status_code == 401
+
+    def test_empty_authorization(self):
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _decode_jwt_for_refresh("")
+        assert exc_info.value.status_code == 401
+
+    def test_wrong_prefix(self):
+        from fastapi import HTTPException
+
+        token = _refresh_jwt()
+        with pytest.raises(HTTPException) as exc_info:
+            _decode_jwt_for_refresh(f"Token {token}")
+        assert exc_info.value.status_code == 401
+
+    def test_malformed_jwt(self):
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _decode_jwt_for_refresh("Bearer not.a.jwt")
+        assert exc_info.value.status_code == 401
+
+    def test_wrong_signing_key(self):
+        from fastapi import HTTPException
+
+        payload = {
+            "sub": "user@acme.com",
+            "session_id": "usess-123",
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        }
+        token = pyjwt.encode(payload, "wrong-key", algorithm="HS256")
+        with pytest.raises(HTTPException) as exc_info:
+            _decode_jwt_for_refresh(f"Bearer {token}")
+        assert exc_info.value.status_code == 401
+
+    def test_jwt_without_exp_claim(self):
+        token = _refresh_jwt(include_exp=False)
+        claims = _decode_jwt_for_refresh(f"Bearer {token}")
+        assert claims["sub"] == "user@acme.com"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestRefresh — endpoint tests via TestClient
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestRefresh:
+    """Tests for ``POST /api/v1/auth/sso/refresh`` endpoint."""
+
+    # --- Happy path (7) ---
+
+    def test_valid_jwt_returns_200(self, client):
+        token = _refresh_jwt()
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "token" in data
+        assert "expires_in" in data
+        assert "idp" in data
+        assert "refreshed_at" in data
+
+    def test_new_session_id_differs(self, client):
+        token = _refresh_jwt(session_id="usess-original-sess")
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        new_claims = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert new_claims["session_id"] != "usess-original-sess"
+        assert new_claims["session_id"].startswith("usess-")
+
+    def test_preserves_sub_groups_roles_org_idp(self, client):
+        token = _refresh_jwt(
+            sub="sarah@acme.com",
+            groups=["eng@acme.com"], roles=["engineer"],
+            organization_id="org-acme", idp="google",
+        )
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        c = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        assert c["groups"] == ["eng@acme.com"]
+        assert c["roles"] == ["engineer"]
+        assert c["organization_id"] == "org-acme"
+        assert c["idp"] == "google"
+
+    def test_fresh_exp_and_iat(self, client):
+        token = _refresh_jwt()
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        before = datetime.now(timezone.utc)
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        c = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        exp = datetime.fromtimestamp(c["exp"], tz=timezone.utc)
+        iat = datetime.fromtimestamp(c["iat"], tz=timezone.utc)
+        assert exp > before + timedelta(hours=23)
+        assert iat >= before - timedelta(seconds=5)
+
+    def test_expires_in_is_86400(self, client):
+        token = _refresh_jwt()
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.json()["expires_in"] == 86400
+
+    def test_idp_field_matches_input(self, client):
+        token = _refresh_jwt(idp="google")
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.json()["idp"] == "google"
+
+    def test_refreshed_at_is_iso_8601(self, client):
+        token = _refresh_jwt()
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        ts = resp.json()["refreshed_at"]
+        parsed = datetime.fromisoformat(ts)
+        assert parsed.year >= 2026
+
+    # --- Grace window (2) ---
+
+    def test_expired_within_grace_returns_200(self, client):
+        token = _refresh_jwt(exp_delta=timedelta(minutes=-30))
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+
+    def test_expired_beyond_grace_returns_401(self, client):
+        token = _refresh_jwt(exp_delta=timedelta(hours=-2))
+        resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 401
+
+    # --- Error paths (5) ---
+
+    def test_missing_auth_header_returns_401(self, client):
+        resp = client.post("/api/v1/auth/sso/refresh")
+        assert resp.status_code == 401
+
+    def test_garbage_jwt_returns_401(self, client):
+        resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": "Bearer garbage.token.here"})
+        assert resp.status_code == 401
+
+    def test_no_stored_session_returns_404(self, client):
+        token = _refresh_jwt()
+        svc = _mock_session_svc(session_exists=False)
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 404
+        assert "No refresh session" in resp.json()["detail"]
+
+    def test_no_refresh_token_returns_404(self, client):
+        token = _refresh_jwt()
+        svc = _mock_session_svc(refresh_token=None)
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 404
+        assert "No refresh token" in resp.json()["detail"]
+
+    def test_idp_refresh_failure_returns_502(self, client):
+        token = _refresh_jwt()
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider(refresh_ok=False)
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 502
+        assert "IdP refresh failed" in resp.json()["detail"]
+
+    # --- Session lifecycle (3) ---
+
+    def test_old_session_revoked_after_refresh(self, client):
+        token = _refresh_jwt(session_id="usess-revoke-me")
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        svc.revoke.assert_called_once_with("usess-revoke-me")
+
+    def test_new_session_stored_after_refresh(self, client):
+        token = _refresh_jwt()
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        svc.store.assert_called_once()
+        kwargs = svc.store.call_args.kwargs
+        assert kwargs["session_id"].startswith("usess-")
+        assert kwargs["session_id"] != "usess-oldoldoldold0001"
+
+    def test_works_with_keycloak_idp(self, client):
+        token = _refresh_jwt(idp="keycloak")
+        svc = _mock_session_svc()
+        prov = _mock_refresh_provider()
+        with patch(_IDP_SESSION_SVC_PATCH, return_value=svc), \
+             patch(_CREATE_PROVIDER_PATCH, return_value=prov):
+            resp = client.post("/api/v1/auth/sso/refresh", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        assert resp.json()["idp"] == "keycloak"

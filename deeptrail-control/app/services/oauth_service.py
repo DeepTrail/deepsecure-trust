@@ -88,6 +88,14 @@ DEFAULT_SCOPES = {
     OAuthProvider.NOTION: [],  # Notion uses integration-level permissions
     OAuthProvider.SLACK: ["chat:write", "channels:read", "users:read"],
     OAuthProvider.HUBSPOT: ["crm.objects.contacts.read", "crm.objects.contacts.write"],
+    OAuthProvider.GOOGLE: [],  # Service-specific scopes used instead
+}
+
+# Service-specific default scopes (for providers shared by multiple services)
+SERVICE_DEFAULT_SCOPES = {
+    "gdrive": ["https://www.googleapis.com/auth/drive.readonly"],
+    "gcalendar": ["https://www.googleapis.com/auth/calendar.readonly"],
+    "gmail": ["https://www.googleapis.com/auth/gmail.readonly"],
 }
 
 # Provider OAuth URLs
@@ -105,6 +113,11 @@ PROVIDER_URLS = {
     OAuthProvider.HUBSPOT: {
         "authorization_url": "https://app.hubspot.com/oauth/authorize",
         "token_url": "https://api.hubapi.com/oauth/v1/token",
+        "uses_pkce": False,
+    },
+    OAuthProvider.GOOGLE: {
+        "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
         "uses_pkce": False,
     },
 }
@@ -179,13 +192,18 @@ class OAuthService:
     # Public Methods
     # ========================================================================
 
-    def get_provider_config(self, provider: OAuthProvider) -> OAuthConfig:
+    def get_provider_config(
+        self, provider: OAuthProvider, service_id: str | None = None
+    ) -> OAuthConfig:
         """Get OAuth configuration for a provider.
 
         Reads client credentials from environment variables.
 
         Args:
             provider: The OAuth provider.
+            service_id: Optional service identifier for multi-service providers
+                (e.g., "gdrive" for Google). Used for service-specific redirect
+                URIs and scopes.
 
         Returns:
             OAuthConfig with provider-specific settings.
@@ -214,11 +232,19 @@ class OAuthService:
                 f"Missing required environment variables: {', '.join(missing)}"
             )
 
-        # Build redirect URI
-        redirect_uri = f"{redirect_base.rstrip('/')}/api/v1/oauth/{provider.value}/callback"
+        # Use service_id for redirect URI when provided (e.g., "gdrive" not "google")
+        redirect_path = service_id or provider.value
+        redirect_uri = f"{redirect_base.rstrip('/')}/api/v1/oauth/{redirect_path}/callback"
 
         # Get provider-specific URLs
         urls = PROVIDER_URLS[provider]
+
+        # Use service-specific scopes if available, otherwise provider defaults
+        scopes = (
+            SERVICE_DEFAULT_SCOPES.get(service_id, [])
+            if service_id
+            else DEFAULT_SCOPES.get(provider, [])
+        )
 
         return OAuthConfig(
             provider=provider,
@@ -226,13 +252,13 @@ class OAuthService:
             client_secret=client_secret,
             authorization_url=urls["authorization_url"],
             token_url=urls["token_url"],
-            scopes=DEFAULT_SCOPES.get(provider, []),
+            scopes=scopes,
             redirect_uri=redirect_uri,
             uses_pkce=urls["uses_pkce"],
         )
 
     async def get_authorization_url(
-        self, request: AuthorizationRequest
+        self, request: AuthorizationRequest, service_id: str | None = None
     ) -> AuthorizationResponse:
         """Generate OAuth authorization URL.
 
@@ -242,6 +268,7 @@ class OAuthService:
 
         Args:
             request: Authorization request with provider and user info.
+            service_id: Optional service identifier for multi-service providers.
 
         Returns:
             AuthorizationResponse containing:
@@ -252,7 +279,7 @@ class OAuthService:
         Raises:
             OAuthConfigError: If provider configuration is missing.
         """
-        config = self.get_provider_config(request.provider)
+        config = self.get_provider_config(request.provider, service_id=service_id)
 
         # Generate PKCE pair if needed
         code_verifier = None
@@ -283,6 +310,11 @@ class OAuthService:
         elif scopes:
             params["scope"] = " ".join(scopes)
 
+        # Google-specific: request offline access for refresh tokens
+        if request.provider == OAuthProvider.GOOGLE:
+            params["access_type"] = "offline"
+            params["prompt"] = "consent"
+
         # Add PKCE parameters
         if code_challenge:
             params["code_challenge"] = code_challenge
@@ -303,7 +335,7 @@ class OAuthService:
         )
 
     async def exchange_code_for_tokens(
-        self, request: TokenExchangeRequest
+        self, request: TokenExchangeRequest, service_id: str | None = None
     ) -> OAuthTokenResponse:
         """Exchange authorization code for OAuth tokens.
 
@@ -331,7 +363,7 @@ class OAuthService:
             )
 
         # Get provider config
-        config = self.get_provider_config(request.provider)
+        config = self.get_provider_config(request.provider, service_id=service_id)
 
         # Build token request
         data = {
@@ -408,7 +440,7 @@ class OAuthService:
             raise OAuthExchangeError(f"HTTP error during token exchange: {e}") from e
 
     async def refresh_tokens(
-        self, request: TokenRefreshRequest
+        self, request: TokenRefreshRequest, service_id: str | None = None
     ) -> OAuthTokenResponse:
         """Refresh OAuth tokens using a refresh token.
 
@@ -422,7 +454,7 @@ class OAuthService:
             OAuthRefreshError: If token refresh fails.
             OAuthConfigError: If provider configuration is missing.
         """
-        config = self.get_provider_config(request.provider)
+        config = self.get_provider_config(request.provider, service_id=service_id)
 
         # Build refresh request
         data = {
