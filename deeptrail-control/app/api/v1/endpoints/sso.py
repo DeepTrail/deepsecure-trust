@@ -13,13 +13,17 @@ import secrets
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Dict, Optional
 
 import jwt as pyjwt
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db
 from app.core.config import settings
 from app.core.idp_config import IdPConfig, IdPProviderType
 from app.schemas.sso import (
@@ -27,8 +31,10 @@ from app.schemas.sso import (
     SSOCallbackResponse,
     SSOLogoutRequest,
     SSOLogoutResponse,
+    SSORefreshResponse,
     SSOUserInfo,
 )
+from app.services.group_policy import GroupPolicyMapper
 from app.services.idp_service import (
     OIDCError,
     OIDCProviderUnavailableError,
@@ -39,10 +45,35 @@ from app.services.idp_service import (
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Group Policy Mapper (lazy singleton)
+# ============================================================================
+
+_group_mapper: GroupPolicyMapper | None = None
+
+
+def _get_group_policy_mapper() -> GroupPolicyMapper:
+    """Lazily load the GroupPolicyMapper singleton from group_policies.yaml."""
+    global _group_mapper
+    if _group_mapper is None:
+        config_path = Path(__file__).resolve().parents[4] / "group_policies.yaml"
+        if config_path.exists():
+            _group_mapper = GroupPolicyMapper.from_yaml(config_path)
+            logger.info("Loaded group policies from %s", config_path)
+        else:
+            logger.warning(
+                "No group_policies.yaml found at %s — using empty policy", config_path
+            )
+            _group_mapper = GroupPolicyMapper([])
+    return _group_mapper
+
 router = APIRouter()
 
 # JWT expiry for SSO sessions (24 hours)
 SSO_SESSION_EXPIRY_HOURS = 24
+
+# Expired tokens are accepted for refresh up to this many seconds past exp
+REFRESH_GRACE_WINDOW_SECONDS = 3600
 
 SUPPORTED_IDPS = {t.value for t in IdPProviderType}
 
@@ -190,14 +221,18 @@ async def sso_authorize(
     _pending_sso[state] = pending
     _cleanup_expired()
 
+    auth_kwargs: dict = {
+        "state": state,
+        "redirect_uri": effective_redirect,
+        "scopes": ["openid", "profile", "email"],
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    if idp == "google" and idp_config.fetch_groups:
+        auth_kwargs["fetch_groups"] = True
+
     try:
-        authorization_url = await provider.get_authorization_url(
-            state=state,
-            redirect_uri=effective_redirect,
-            scopes=["openid", "profile", "email"],
-            code_challenge=code_challenge,
-            code_challenge_method="S256",
-        )
+        authorization_url = await provider.get_authorization_url(**auth_kwargs)
     except OIDCProviderUnavailableError:
         del _pending_sso[state]
         raise HTTPException(
@@ -228,6 +263,7 @@ async def sso_callback(
     state: Optional[str] = Query(None),
     error: Optional[str] = Query(None),
     error_description: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
 ):
     """Handle IdP callback after user authentication.
 
@@ -313,8 +349,44 @@ async def sso_callback(
             detail=f"ID token validation failed: {exc}",
         )
 
-    # Provision user
+    # Fetch groups from Directory API for Google when configured
+    if idp == "google" and idp_config.fetch_groups:
+        try:
+            from app.services.providers.google import GoogleProvider
+
+            if isinstance(provider, GoogleProvider):
+                groups = await provider.fetch_user_groups(
+                    access_token=tokens.access_token,
+                    email=claims.email,
+                )
+                claims.groups = groups
+        except Exception:
+            logger.warning(
+                "Failed to fetch groups for %s — continuing without group policy",
+                claims.email,
+                exc_info=True,
+            )
+
+    # Provision user (applies static _GROUP_TO_ROLE_MAP as a baseline)
     user_data = await provision_user_from_claims(claims)
+
+    # Resolve group policy (merges YAML-driven roles and permissions)
+    if user_data.get("groups"):
+        group_mapper = _get_group_policy_mapper()
+        policy_result = group_mapper.resolve(user_data["groups"])
+        if policy_result.roles:
+            merged_roles = list(
+                dict.fromkeys(user_data.get("roles", []) + policy_result.roles)
+            )
+            user_data["roles"] = merged_roles
+        if policy_result.default_permissions:
+            user_data["default_permissions"] = policy_result.default_permissions
+        logger.info(
+            "Group policy resolved: matched=%s roles=%s perms=%d",
+            policy_result.matched_groups,
+            policy_result.roles,
+            len(policy_result.default_permissions),
+        )
 
     # Issue DeepSecure session JWT (same shape as POST /login)
     session_id = f"usess-{uuid.uuid4()}"
@@ -323,11 +395,35 @@ async def sso_callback(
         "sub": user_data["email"],
         "session_id": session_id,
         "organization_id": user_data.get("organization_id"),
+        "groups": user_data.get("groups", []),
+        "roles": user_data.get("roles", []),
         "exp": now + timedelta(hours=SSO_SESSION_EXPIRY_HOURS),
         "iat": now,
         "idp": idp,
     }
     token = pyjwt.encode(token_data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+    # Store IdP tokens for future refresh (Feature 2 — offline access)
+    refresh_available = False
+    if tokens.refresh_token:
+        try:
+            from app.services.idp_session_service import IdPSessionService
+
+            idp_session_svc = IdPSessionService(db)
+            idp_session_svc.store(
+                session_id=session_id,
+                user_id=user_data["email"],
+                idp=idp,
+                tokens=tokens,
+                id_token_claims=claims.raw_claims,
+            )
+            refresh_available = True
+        except Exception:
+            logger.warning(
+                "Failed to store IdP session for %s — session continues without refresh capability",
+                user_data["email"],
+                exc_info=True,
+            )
 
     logger.info("SSO login via %s: %s (new=%s)", idp, claims.email, user_data["is_new_user"])
 
@@ -353,6 +449,7 @@ async def sso_callback(
         ),
         expires_in=SSO_SESSION_EXPIRY_HOURS * 3600,
         idp=idp,
+        refresh_available=refresh_available,
     )
 
 
@@ -360,10 +457,27 @@ async def sso_callback(
 async def sso_logout(
     body: Optional[SSOLogoutRequest] = None,
     user_claims: dict = Depends(_get_current_user_claims),
+    db: Session = Depends(get_db),
 ):
-    """Logout: invalidate session and return IdP logout URL."""
+    """Logout: revoke stored IdP session, invalidate session, return IdP logout URL."""
     idp_name = user_claims.get("idp", "keycloak")
+    session_id = user_claims.get("session_id")
     post_redirect = body.post_logout_redirect_uri if body else None
+
+    # Revoke stored IdP session (if exists)
+    idp_session_revoked = False
+    if session_id:
+        try:
+            from app.services.idp_session_service import IdPSessionService
+
+            idp_session_svc = IdPSessionService(db)
+            idp_session_revoked = idp_session_svc.revoke(session_id)
+        except Exception:
+            logger.warning(
+                "Failed to revoke IdP session for %s — continuing logout",
+                session_id,
+                exc_info=True,
+            )
 
     try:
         idp_config = IdPConfig()
@@ -376,9 +490,162 @@ async def sso_logout(
     except Exception:
         logout_url = None
 
-    logger.info("SSO logout: user=%s idp=%s", user_claims.get("sub"), idp_name)
+    logger.info(
+        "SSO logout: user=%s idp=%s session_revoked=%s",
+        user_claims.get("sub"),
+        idp_name,
+        idp_session_revoked,
+    )
 
     return SSOLogoutResponse(
         logout_url=logout_url,
         message="Session invalidated. Redirect to logout_url to complete IdP logout.",
+    )
+
+
+# ============================================================================
+# Refresh
+# ============================================================================
+
+
+def _decode_jwt_for_refresh(authorization: str | None) -> dict:
+    """Decode a session JWT for refresh, tolerating tokens expired within the grace window."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization")
+
+    token = authorization.removeprefix("Bearer ").strip()
+
+    try:
+        return pyjwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except pyjwt.ExpiredSignatureError:
+        try:
+            claims = pyjwt.decode(
+                token,
+                settings.SECRET_KEY,
+                algorithms=[settings.ALGORITHM],
+                options={"verify_exp": False},
+            )
+        except pyjwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        exp = claims.get("exp")
+        if exp:
+            expired_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+            grace_deadline = expired_at + timedelta(seconds=REFRESH_GRACE_WINDOW_SECONDS)
+            if datetime.now(timezone.utc) > grace_deadline:
+                raise HTTPException(
+                    status_code=401, detail="Token expired beyond refresh grace window"
+                )
+        return claims
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+@router.post("/refresh", response_model=SSORefreshResponse)
+async def sso_refresh(
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Silent session renewal using a stored IdP refresh token.
+
+    Accepts JWTs that have expired within a 1-hour grace window so clients
+    can call this endpoint even after the session JWT's ``exp`` has passed.
+    """
+    claims = _decode_jwt_for_refresh(authorization)
+
+    session_id = claims.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Token missing session_id claim")
+
+    idp = claims.get("idp", "keycloak")
+    sub = claims.get("sub")
+
+    # --- Load stored IdP session ---
+    from app.services.idp_session_service import IdPSessionService
+
+    idp_session_svc = IdPSessionService(db)
+    idp_session = idp_session_svc.get_by_session(session_id)
+    if idp_session is None:
+        raise HTTPException(status_code=404, detail="No refresh session found")
+
+    decrypted = idp_session_svc.get_decrypted_tokens(session_id)
+    if not decrypted or not decrypted.get("refresh_token"):
+        raise HTTPException(status_code=404, detail="No refresh token available")
+
+    # --- Refresh tokens with IdP provider ---
+    idp_config = IdPConfig()
+    idp_config.provider = IdPProviderType(idp)
+    provider = create_oidc_provider(idp_config)
+
+    try:
+        new_tokens = await provider.refresh_token(decrypted["refresh_token"])
+    except (OIDCError, Exception) as exc:
+        raise HTTPException(status_code=502, detail=f"IdP refresh failed: {exc}")
+
+    # Optionally validate new ID token for updated claims; fall back to old JWT claims
+    refreshed_claims = dict(claims)
+    if new_tokens.id_token:
+        try:
+            validated = await provider.validate_token(
+                new_tokens.id_token, new_tokens.access_token
+            )
+            if validated.email:
+                refreshed_claims["sub"] = validated.email
+            if hasattr(validated, "groups") and validated.groups:
+                refreshed_claims["groups"] = validated.groups
+        except Exception:
+            logger.debug("Could not validate refreshed ID token — using previous claims")
+
+    # --- Mint new session JWT ---
+    new_session_id = f"usess-{uuid.uuid4().hex[:16]}"
+    now = datetime.now(timezone.utc)
+    token_data = {
+        "sub": refreshed_claims.get("sub", sub),
+        "session_id": new_session_id,
+        "organization_id": refreshed_claims.get("organization_id"),
+        "groups": refreshed_claims.get("groups", []),
+        "roles": refreshed_claims.get("roles", []),
+        "exp": now + timedelta(hours=SSO_SESSION_EXPIRY_HOURS),
+        "iat": now,
+        "idp": idp,
+    }
+    new_jwt = pyjwt.encode(token_data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+    # --- Store new IdP session, revoke old ---
+    try:
+        idp_session_svc.store(
+            session_id=new_session_id,
+            user_id=refreshed_claims.get("sub", sub),
+            idp=idp,
+            tokens=new_tokens,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to store new IdP session for %s — JWT still issued",
+            new_session_id,
+            exc_info=True,
+        )
+
+    try:
+        idp_session_svc.revoke(session_id)
+    except Exception:
+        logger.warning(
+            "Failed to revoke old IdP session %s after refresh",
+            session_id,
+            exc_info=True,
+        )
+
+    logger.info(
+        "SSO refresh: user=%s idp=%s old_session=%s new_session=%s",
+        refreshed_claims.get("sub", sub),
+        idp,
+        session_id,
+        new_session_id,
+    )
+
+    return SSORefreshResponse(
+        token=new_jwt,
+        expires_in=SSO_SESSION_EXPIRY_HOURS * 3600,
+        idp=idp,
+        refreshed_at=now.isoformat(),
     )

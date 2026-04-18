@@ -8,6 +8,7 @@ from .audit_event import AuditEvent, AuditEventType  # noqa
 from .connected_service import ConnectedService  # noqa
 from .credential import Credential  # noqa
 from .delegation import DelegationToken  # noqa
+from .idp_session import IdPSession  # noqa
 from .nonce import Nonce  # noqa
 from .policy import Policy  # noqa
 from .user_session import UserSession  # noqa
@@ -33,6 +34,7 @@ __all__ = [
     "ConnectedService",
     "Credential",
     "DelegationToken",
+    "IdPSession",
     "Nonce",
     "PartyType",
     "PlatformType",

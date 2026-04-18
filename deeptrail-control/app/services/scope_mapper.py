@@ -128,6 +128,43 @@ class ScopeMapper:
                 "hubspot:deals:update",
             ],
         },
+        "gdrive": {
+            # Google Drive API scopes (short names, without googleapis.com prefix)
+            "drive.readonly": [
+                "gdrive:files:search",
+                "gdrive:files:read",
+                "gdrive:files:list",
+                "gdrive:files:metadata",
+            ],
+            "drive.file": [
+                "gdrive:files:search",
+                "gdrive:files:read",
+                "gdrive:files:list",
+                "gdrive:files:metadata",
+            ],
+        },
+        "gcalendar": {
+            # Google Calendar API scopes
+            "calendar.readonly": [
+                "gcalendar:calendars:list",
+                "gcalendar:events:list",
+                "gcalendar:events:read",
+            ],
+            "calendar.events.readonly": [
+                "gcalendar:events:list",
+                "gcalendar:events:read",
+                "gcalendar:events:search",
+            ],
+        },
+        "gmail": {
+            # Gmail API scopes
+            "gmail.readonly": [
+                "gmail:messages:list",
+                "gmail:messages:read",
+                "gmail:messages:search",
+                "gmail:labels:list",
+            ],
+        },
     }
     
     @classmethod

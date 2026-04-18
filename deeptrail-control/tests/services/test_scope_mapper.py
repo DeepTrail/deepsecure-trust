@@ -267,10 +267,10 @@ class TestGetSupportedServices:
         assert "slack" in services
         assert "hubspot" in services
     
-    def test_exactly_three_services(self):
-        """Currently supports exactly 3 services."""
+    def test_exactly_six_services(self):
+        """Currently supports exactly 6 services (notion, slack, hubspot, gdrive, gcalendar, gmail)."""
         services = ScopeMapper.get_supported_services()
-        assert len(services) == 3
+        assert len(services) == 6
 
 
 class TestGetSupportedScopes:
@@ -346,6 +346,115 @@ class TestGetAllPermissionsForService:
         """Unknown service returns empty set."""
         perms = ScopeMapper.get_all_permissions_for_service("unknown")
         assert perms == set()
+
+
+class TestGoogleScopeMappings:
+    """Test Google API scope mappings (gdrive, gcalendar, gmail)."""
+
+    def test_gdrive_drive_readonly(self):
+        """gdrive drive.readonly scope grants 4 read permissions."""
+        perms = ScopeMapper.get_permissions_for_scope("gdrive", "drive.readonly")
+        assert len(perms) == 4
+        assert "gdrive:files:search" in perms
+        assert "gdrive:files:read" in perms
+        assert "gdrive:files:list" in perms
+        assert "gdrive:files:metadata" in perms
+
+    def test_gdrive_drive_file(self):
+        """gdrive drive.file scope grants identical read-only permissions (MVP)."""
+        readonly = ScopeMapper.get_permissions_for_scope("gdrive", "drive.readonly")
+        file_scope = ScopeMapper.get_permissions_for_scope("gdrive", "drive.file")
+        assert readonly == file_scope
+
+    def test_gcalendar_calendar_readonly(self):
+        """gcalendar calendar.readonly scope grants 3 permissions."""
+        perms = ScopeMapper.get_permissions_for_scope("gcalendar", "calendar.readonly")
+        assert len(perms) == 3
+        assert "gcalendar:calendars:list" in perms
+        assert "gcalendar:events:list" in perms
+        assert "gcalendar:events:read" in perms
+
+    def test_gcalendar_events_readonly(self):
+        """gcalendar calendar.events.readonly scope grants 3 permissions."""
+        perms = ScopeMapper.get_permissions_for_scope("gcalendar", "calendar.events.readonly")
+        assert len(perms) == 3
+        assert "gcalendar:events:list" in perms
+        assert "gcalendar:events:read" in perms
+        assert "gcalendar:events:search" in perms
+
+    def test_gmail_readonly(self):
+        """gmail gmail.readonly scope grants 4 permissions."""
+        perms = ScopeMapper.get_permissions_for_scope("gmail", "gmail.readonly")
+        assert len(perms) == 4
+        assert "gmail:messages:list" in perms
+        assert "gmail:messages:read" in perms
+        assert "gmail:messages:search" in perms
+        assert "gmail:labels:list" in perms
+
+    def test_gdrive_unknown_scope(self):
+        """Unknown gdrive scope returns empty list."""
+        perms = ScopeMapper.get_permissions_for_scope("gdrive", "unknown")
+        assert perms == []
+
+    def test_google_services_in_supported_list(self):
+        """All Google services appear in supported services."""
+        services = ScopeMapper.get_supported_services()
+        assert "gdrive" in services
+        assert "gcalendar" in services
+        assert "gmail" in services
+
+    def test_gdrive_scopes_list(self):
+        """gdrive has expected scopes."""
+        scopes = ScopeMapper.get_supported_scopes("gdrive")
+        assert "drive.readonly" in scopes
+        assert "drive.file" in scopes
+
+    def test_gcalendar_scopes_list(self):
+        """gcalendar has expected scopes."""
+        scopes = ScopeMapper.get_supported_scopes("gcalendar")
+        assert "calendar.readonly" in scopes
+        assert "calendar.events.readonly" in scopes
+
+    def test_gmail_scopes_list(self):
+        """gmail has expected scopes."""
+        scopes = ScopeMapper.get_supported_scopes("gmail")
+        assert "gmail.readonly" in scopes
+
+    def test_google_permissions_format(self):
+        """All Google permission strings follow service:resource:action format."""
+        import re
+        pattern = re.compile(r"^[a-z]+:[a-z]+:[a-z]+$")
+        for svc in ["gdrive", "gcalendar", "gmail"]:
+            for perms in ScopeMapper.SCOPE_TO_PERMISSIONS[svc].values():
+                for p in perms:
+                    assert pattern.match(p), f"Bad format: {p}"
+
+    def test_validate_google_permissions(self):
+        """validate_permissions works with Google service permissions."""
+        is_valid, invalid = ScopeMapper.validate_permissions(
+            ["gdrive:files:read", "gcalendar:events:list"],
+            [("gdrive", ["drive.readonly"]), ("gcalendar", ["calendar.readonly"])],
+        )
+        assert is_valid is True
+        assert invalid == []
+
+    def test_validate_google_permissions_invalid(self):
+        """validate_permissions rejects Google permissions without matching scope."""
+        is_valid, invalid = ScopeMapper.validate_permissions(
+            ["gdrive:files:read"],
+            [("gcalendar", ["calendar.readonly"])],
+        )
+        assert is_valid is False
+        assert "gdrive:files:read" in invalid
+
+    def test_no_write_permissions_in_mvp(self):
+        """MVP Google scopes map only to read-only permissions (no write/create/update/delete)."""
+        write_actions = {"write", "create", "update", "delete", "send"}
+        for svc in ["gdrive", "gcalendar", "gmail"]:
+            all_perms = ScopeMapper.get_all_permissions_for_service(svc)
+            for p in all_perms:
+                action = p.split(":")[-1]
+                assert action not in write_actions, f"Write permission found: {p}"
 
 
 class TestPermissionConsistency:
