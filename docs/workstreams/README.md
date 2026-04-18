@@ -143,9 +143,11 @@ docs/workstreams/
 
 | Feature | Status | Progress | Link |
 |---------|--------|----------|------|
-| Virtual MCP Server MVP | `in_progress` | 0% (0/44 tasks) | [WORKSTREAM.md](./virtual-mcp-server-mvp/WORKSTREAM.md) |
+| IdP Enhanced SSO Features | `planning` | 0% (0/20 tasks) | [WORKSTREAM.md](./idp-enhanced-sso/WORKSTREAM.md) |
+| Virtual MCP Server MVP | `complete` | 100% | [WORKSTREAM.md](./virtual-mcp-server-mvp/WORKSTREAM.md) |
+| MVP Production Readiness | `complete` | 100% | [WORKSTREAM.md](./mvp-production-readiness/WORKSTREAM.md) |
+| IdP Selector for Demo | `complete` | 100% | [WORKSTREAM.md](./idp-selector/WORKSTREAM.md) |
 | Interactive Demo | `planning` | 0% (0/9 tasks) | [WORKSTREAM.md](./interactive-demo/WORKSTREAM.md) |
-| IdP Selector for Demo | `planning` | 0% (0/8 tasks) | [WORKSTREAM.md](./idp-selector/WORKSTREAM.md) |
 
 ## Completed Workstreams
 

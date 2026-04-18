@@ -36,32 +36,66 @@ Create a new workstream folder structure with overview document.
    **Note:** `CODEBASE_ANALYSIS.md` should already exist from pre-breakdown exploration.
    `BATCH_EXECUTION_PLAN.md` is created by `/create-batch-execution-plan`.
 
-2b. **Create git worktrees (if parallel execution):**
+2b. **Worktree Lifecycle (if parallel execution):**
+   
+   > **Full guide:** `docs/WORKTREE_GUIDE.md`
+   
+   **IMPORTANT:** The WORKSTREAM.md and BATCH_EXECUTION_PLAN.md MUST include a complete
+   "Worktree Lifecycle" section with all three steps below. This is mandatory for any
+   workstream that uses parallel worktrees.
+   
+   **Step 1: Clean up old worktrees** (from previous features):
    ```bash
-   # Create worktrees from dev branch (not main)
-   git worktree add ../[worktree-name] -b feature/[branch-name] dev
+   cd /Users/imaxxs/repositories/deepsecure-mvp
    
-   # Example:
-   git worktree add ../vmcp-control -b feature/vmcp-control dev
-   git worktree add ../vmcp-gateway -b feature/vmcp-gateway dev
+   # Check existing worktrees
+   git worktree list
+   
+   # Remove stale worktrees (adjust names to match previous feature)
+   git worktree remove ../[old-worktree-name] --force
+   
+   # Delete stale branches (if already merged to dev)
+   git branch -D feature/[old-branch-name]
+   
+   # Verify clean state
+   git worktree list
+   # Should show only: /Users/imaxxs/repositories/deepsecure-mvp  [dev]
    ```
-
-2c. **Copy .cursor/commands to each worktree:**
    
-   Cursor commands are only available in the main repo's `.cursor/` folder.
-   For commands to work in worktrees, copy the folder:
-   
+   **Step 2: Create fresh worktrees:**
    ```bash
-   # For each worktree created:
-   cp -r .cursor ../[worktree-name]/
+   cd /Users/imaxxs/repositories/deepsecure-mvp
    
-   # Example:
-   cp -r .cursor ../vmcp-control/
-   cp -r .cursor ../vmcp-gateway/
+   # Create worktrees from current dev HEAD
+   git worktree add ../[feature]-control -b feature/[feature]-control dev
+   git worktree add ../[feature]-gateway -b feature/[feature]-gateway dev
+   
+   # Copy .cursor commands to each worktree (required for /execute-task to work)
+   cp -r .cursor ../[feature]-control/
+   cp -r .cursor ../[feature]-gateway/
+   
+   # Verify
+   git worktree list
    ```
    
-   **Why:** Git worktrees share git history but NOT working directory files like `.cursor/`.
-   Commands like `/execute-task` won't be found without this copy.
+   **Why copy `.cursor/`?** Git worktrees share git history but NOT working directory
+   files like `.cursor/`. Commands like `/execute-task` won't be found without this copy.
+   
+   **Step 3: Post-merge cleanup** (after all merge points complete):
+   ```bash
+   cd /Users/imaxxs/repositories/deepsecure-mvp
+   
+   # Remove worktree directories
+   git worktree remove ../[feature]-control
+   git worktree remove ../[feature]-gateway
+   
+   # Delete feature branches (after PRs are merged)
+   git branch -d feature/[feature]-control
+   git branch -d feature/[feature]-gateway
+   
+   # Prune stale references
+   git worktree prune
+   ```
 
 3. **Create WORKSTREAM.md** from template with:
    - All metadata filled in

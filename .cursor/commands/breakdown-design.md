@@ -238,11 +238,21 @@ python demos/demo_sarah_journey_e2e.py  # E2E demo
 | Multiple Clones | ❌ | Overkill, sync overhead |
 | Single Worktree | ❌ | Misses parallelization |
 
-**Setup Commands:**
+**Worktree Lifecycle:** (see `docs/WORKTREE_GUIDE.md` for full guide)
 ```bash
-# From main repo
+# Step 1: Clean up old worktrees (from previous features)
+cd /Users/imaxxs/repositories/deepsecure-mvp
+git worktree list
+git worktree remove ../[old-worktree] --force   # if any exist
+git branch -D feature/[old-branch]               # if already merged
+
+# Step 2: Create fresh worktrees
 git worktree add ../[feature]-control -b feature/[feature]-control dev
 git worktree add ../[feature]-gateway -b feature/[feature]-gateway dev
+
+# Step 3: Copy .cursor commands (required for /execute-task)
+cp -r .cursor ../[feature]-control/
+cp -r .cursor ../[feature]-gateway/
 ```
 
 ### Workstream A: [Name] (PARALLEL with B, C)

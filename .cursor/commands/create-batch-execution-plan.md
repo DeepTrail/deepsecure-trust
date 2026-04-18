@@ -55,9 +55,10 @@ CONTROL="${MAIN_REPO}/deeptrail-control"
 # Gateway
 GATEWAY="${MAIN_REPO}/deeptrail-gateway"
 
-# Worktrees (when created)
-WORKTREE_CONTROL="/Users/imaxxs/repositories/mvp-prod-control"
-WORKTREE_GATEWAY="/Users/imaxxs/repositories/mvp-prod-gateway"
+# Worktrees (adjust per feature — use feature-specific names)
+# Example: WORKTREE_CONTROL="/Users/imaxxs/repositories/idp-sso-control"
+WORKTREE_CONTROL="/Users/imaxxs/repositories/[feature]-control"
+WORKTREE_GATEWAY="/Users/imaxxs/repositories/[feature]-gateway"
 ```
 
 ### Validation Command Templates
@@ -466,6 +467,7 @@ After creating the execution plan:
 
 | # | Section | Required? | Purpose |
 |---|---------|-----------|---------|
+| 0 | **Worktree Setup (Lifecycle)** | ✅ YES | Cleanup old worktrees + create fresh + post-merge cleanup (see `docs/WORKTREE_GUIDE.md`) |
 | 1 | **Quick Reference** | ✅ YES | Status tracking table with Complete column |
 | 2 | **Worktree Reference** | ✅ YES | Path, Branch, Workstreams mapping |
 | 3 | **Per-Batch: Dependencies** | ✅ YES | Table with Worktree column |
