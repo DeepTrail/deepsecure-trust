@@ -17,6 +17,9 @@ Environment Variables:
     NOTION_API_VERSION: Notion API version header value
     SLACK_BASE_URL: Slack API base URL
     HUBSPOT_BASE_URL: HubSpot API base URL
+    GDRIVE_BASE_URL: Google Drive API base URL
+    GCALENDAR_BASE_URL: Google Calendar API base URL
+    GMAIL_BASE_URL: Gmail API base URL
 """
 
 from __future__ import annotations
@@ -107,6 +110,51 @@ class HubSpotConfig(BackendAPIConfig):
     model_config = {"env_prefix": "HUBSPOT_"}
 
 
+class GDriveConfig(BackendAPIConfig):
+    """
+    Google Drive API configuration.
+
+    Environment Variables:
+        GDRIVE_BASE_URL: Base URL (default: https://www.googleapis.com/drive/v3)
+        GDRIVE_TIMEOUT_SECONDS: Request timeout
+        GDRIVE_RETRY_ATTEMPTS: Number of retries
+        GDRIVE_HEALTH_ENDPOINT: Health check endpoint
+    """
+    base_url: str = Field(default="https://www.googleapis.com/drive/v3")
+
+    model_config = {"env_prefix": "GDRIVE_"}
+
+
+class GCalendarConfig(BackendAPIConfig):
+    """
+    Google Calendar API configuration.
+
+    Environment Variables:
+        GCALENDAR_BASE_URL: Base URL (default: https://www.googleapis.com/calendar/v3)
+        GCALENDAR_TIMEOUT_SECONDS: Request timeout
+        GCALENDAR_RETRY_ATTEMPTS: Number of retries
+        GCALENDAR_HEALTH_ENDPOINT: Health check endpoint
+    """
+    base_url: str = Field(default="https://www.googleapis.com/calendar/v3")
+
+    model_config = {"env_prefix": "GCALENDAR_"}
+
+
+class GmailConfig(BackendAPIConfig):
+    """
+    Gmail API configuration.
+
+    Environment Variables:
+        GMAIL_BASE_URL: Base URL (default: https://gmail.googleapis.com/gmail/v1)
+        GMAIL_TIMEOUT_SECONDS: Request timeout
+        GMAIL_RETRY_ATTEMPTS: Number of retries
+        GMAIL_HEALTH_ENDPOINT: Health check endpoint
+    """
+    base_url: str = Field(default="https://gmail.googleapis.com/gmail/v1")
+
+    model_config = {"env_prefix": "GMAIL_"}
+
+
 # =============================================================================
 # Gateway Settings
 # =============================================================================
@@ -123,6 +171,9 @@ class GatewaySettings(BaseSettings):
         notion: Notion API configuration
         slack: Slack API configuration
         hubspot: HubSpot API configuration
+        gdrive: Google Drive API configuration
+        gcalendar: Google Calendar API configuration
+        gmail: Gmail API configuration
         max_connections_per_backend: Maximum connections per backend
         health_check_interval_seconds: Interval between health checks
         health_check_timeout_seconds: Timeout for health check requests
@@ -132,11 +183,17 @@ class GatewaySettings(BaseSettings):
         GATEWAY_MAX_CONNECTIONS_PER_BACKEND: Max connections per backend
         GATEWAY_HEALTH_CHECK_INTERVAL_SECONDS: Health check interval
         GATEWAY_HEALTH_CHECK_TIMEOUT_SECONDS: Health check timeout
+        GDRIVE_BASE_URL: Google Drive API base URL
+        GCALENDAR_BASE_URL: Google Calendar API base URL
+        GMAIL_BASE_URL: Gmail API base URL
     """
     control_plane_url: str = Field(default="http://localhost:8000")
     notion: NotionConfig = Field(default_factory=NotionConfig)
     slack: SlackConfig = Field(default_factory=SlackConfig)
     hubspot: HubSpotConfig = Field(default_factory=HubSpotConfig)
+    gdrive: GDriveConfig = Field(default_factory=GDriveConfig)
+    gcalendar: GCalendarConfig = Field(default_factory=GCalendarConfig)
+    gmail: GmailConfig = Field(default_factory=GmailConfig)
     max_connections_per_backend: int = Field(default=10)
     health_check_interval_seconds: float = Field(default=30.0)
     health_check_timeout_seconds: float = Field(default=5.0)
