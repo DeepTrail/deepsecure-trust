@@ -603,3 +603,128 @@ class TestPermissionMapperIntegration:
             tool_counts[tool] = tool_counts.get(tool, 0) + 1
         
         assert tool_counts.get("search_pages", 0) == 1, "search_pages should appear only once"
+
+
+# =============================================================================
+# WS-D5: Google Workspace backend session creation
+# =============================================================================
+
+
+class TestGoogleBackendSessions:
+    """Tests for WS-D5: initialize handler creates Google backend sessions."""
+
+    @pytest.fixture
+    def session_manager_mock(self, mocker):
+        from app.mcp.handlers.initialize import configure_initialize_handler
+        from app.mcp.session_manager import MCPSessionManager
+
+        mock_manager = mocker.Mock(spec=MCPSessionManager)
+        configure_initialize_handler(mock_manager)
+        return mock_manager
+
+    def _params(self, perms):
+        return {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "TestClient", "version": "1.0"},
+            "_context": {
+                "agent_session_id": "test-agent-d5",
+                "delegated_permissions": perms,
+                "delegator": "user@example.com",
+            },
+        }
+
+    @pytest.mark.asyncio
+    async def test_gdrive_permission_creates_session(self, session_manager_mock):
+        await handle_initialize(self._params(["gdrive:files:search"]))
+
+        session_manager_mock.create_agent_session.assert_called_once()
+        connected = session_manager_mock.create_agent_session.call_args.kwargs.get(
+            "connected_services", []
+        )
+        gdrive = next((s for s in connected if s["service_id"] == "gdrive"), None)
+        assert gdrive is not None
+        assert "search_files" in gdrive["available_tools"]
+        assert gdrive["oauth_token_ref"] == "vault://gdrive-oauth-test-agent-d5"
+
+    @pytest.mark.asyncio
+    async def test_gcalendar_permission_creates_session(self, session_manager_mock):
+        await handle_initialize(self._params(["gcalendar:events:list"]))
+
+        connected = session_manager_mock.create_agent_session.call_args.kwargs.get(
+            "connected_services", []
+        )
+        gcal = next((s for s in connected if s["service_id"] == "gcalendar"), None)
+        assert gcal is not None
+        assert "list_events" in gcal["available_tools"]
+        assert gcal["oauth_token_ref"] == "vault://gcalendar-oauth-test-agent-d5"
+
+    @pytest.mark.asyncio
+    async def test_gmail_permission_creates_session(self, session_manager_mock):
+        await handle_initialize(self._params(["gmail:messages:read"]))
+
+        connected = session_manager_mock.create_agent_session.call_args.kwargs.get(
+            "connected_services", []
+        )
+        gmail = next((s for s in connected if s["service_id"] == "gmail"), None)
+        assert gmail is not None
+        assert "read_message" in gmail["available_tools"]
+        assert gmail["oauth_token_ref"] == "vault://gmail-oauth-test-agent-d5"
+
+    @pytest.mark.asyncio
+    async def test_no_google_permissions_no_google_sessions(self, session_manager_mock):
+        """Without Google perms, no Google services should appear in connected_services."""
+        await handle_initialize(self._params(["notion:pages:search"]))
+
+        connected = session_manager_mock.create_agent_session.call_args.kwargs.get(
+            "connected_services", []
+        )
+        google_ids = [s["service_id"] for s in connected if s["service_id"] in ("gdrive", "gcalendar", "gmail")]
+        assert google_ids == []
+
+    @pytest.mark.asyncio
+    async def test_all_three_google_sessions_created(self, session_manager_mock):
+        perms = [
+            "gdrive:files:search",
+            "gdrive:files:read",
+            "gcalendar:events:list",
+            "gcalendar:calendars:list",
+            "gmail:messages:read",
+            "gmail:labels:list",
+        ]
+        await handle_initialize(self._params(perms))
+
+        connected = session_manager_mock.create_agent_session.call_args.kwargs.get(
+            "connected_services", []
+        )
+        ids = {s["service_id"] for s in connected}
+        assert {"gdrive", "gcalendar", "gmail"}.issubset(ids)
+
+        gdrive = next(s for s in connected if s["service_id"] == "gdrive")
+        gcal = next(s for s in connected if s["service_id"] == "gcalendar")
+        gmail = next(s for s in connected if s["service_id"] == "gmail")
+        assert "search_files" in gdrive["available_tools"]
+        assert "read_file" in gdrive["available_tools"]
+        assert "list_events" in gcal["available_tools"]
+        assert "list_calendars" in gcal["available_tools"]
+        assert "read_message" in gmail["available_tools"]
+        assert "list_labels" in gmail["available_tools"]
+
+    @pytest.mark.asyncio
+    async def test_google_sessions_alongside_existing_backends(self, session_manager_mock):
+        """Regression: Google sessions coexist with notion/slack/hubspot sessions."""
+        perms = [
+            "notion:pages:search",
+            "slack:messages:send",
+            "hubspot:contacts:read",
+            "gdrive:files:search",
+            "gcalendar:events:read",
+            "gmail:messages:list",
+        ]
+        await handle_initialize(self._params(perms))
+
+        connected = session_manager_mock.create_agent_session.call_args.kwargs.get(
+            "connected_services", []
+        )
+        ids = {s["service_id"] for s in connected}
+        assert ids == {"notion", "slack", "hubspot", "gdrive", "gcalendar", "gmail"}

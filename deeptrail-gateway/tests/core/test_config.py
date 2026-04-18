@@ -11,6 +11,9 @@ import pytest
 
 from app.core.config import (
     GatewaySettings,
+    GCalendarConfig,
+    GDriveConfig,
+    GmailConfig,
     HubSpotConfig,
     NotionConfig,
     SlackConfig,
@@ -84,6 +87,49 @@ class TestDefaultValues:
         assert isinstance(settings.notion, NotionConfig)
         assert isinstance(settings.slack, SlackConfig)
         assert isinstance(settings.hubspot, HubSpotConfig)
+        assert isinstance(settings.gdrive, GDriveConfig)
+        assert isinstance(settings.gcalendar, GCalendarConfig)
+        assert isinstance(settings.gmail, GmailConfig)
+
+    def test_gdrive_defaults(self):
+        """Test GDriveConfig has correct defaults."""
+        config = GDriveConfig()
+        assert config.base_url == "https://www.googleapis.com/drive/v3"
+        assert config.api_version is None
+        assert config.version_header is None
+        assert config.timeout_seconds == 30.0
+        assert config.retry_attempts == 3
+        assert config.retry_backoff_factor == 0.5
+        assert config.health_endpoint == "/health"
+
+    def test_gcalendar_defaults(self):
+        """Test GCalendarConfig has correct defaults."""
+        config = GCalendarConfig()
+        assert config.base_url == "https://www.googleapis.com/calendar/v3"
+        assert config.api_version is None
+        assert config.version_header is None
+        assert config.timeout_seconds == 30.0
+        assert config.retry_attempts == 3
+        assert config.retry_backoff_factor == 0.5
+        assert config.health_endpoint == "/health"
+
+    def test_gmail_defaults(self):
+        """Test GmailConfig has correct defaults."""
+        config = GmailConfig()
+        assert config.base_url == "https://gmail.googleapis.com/gmail/v1"
+        assert config.api_version is None
+        assert config.version_header is None
+        assert config.timeout_seconds == 30.0
+        assert config.retry_attempts == 3
+        assert config.retry_backoff_factor == 0.5
+        assert config.health_endpoint == "/health"
+
+    def test_gateway_settings_google_defaults(self):
+        """Test GatewaySettings exposes Google config defaults."""
+        settings = GatewaySettings()
+        assert settings.gdrive.base_url == "https://www.googleapis.com/drive/v3"
+        assert settings.gcalendar.base_url == "https://www.googleapis.com/calendar/v3"
+        assert settings.gmail.base_url == "https://gmail.googleapis.com/gmail/v1"
 
 
 # =============================================================================
@@ -135,6 +181,30 @@ class TestEnvironmentOverrides:
         with patch.dict(os.environ, {"SLACK_RETRY_ATTEMPTS": "5"}):
             config = SlackConfig()
             assert config.retry_attempts == 5
+
+    def test_gdrive_base_url_override(self):
+        """Test GDRIVE_BASE_URL environment variable."""
+        with patch.dict(os.environ, {"GDRIVE_BASE_URL": "http://mock-gdrive:8080"}):
+            config = GDriveConfig()
+            assert config.base_url == "http://mock-gdrive:8080"
+
+    def test_gcalendar_base_url_override(self):
+        """Test GCALENDAR_BASE_URL environment variable."""
+        with patch.dict(os.environ, {"GCALENDAR_BASE_URL": "http://mock-gcal:8080"}):
+            config = GCalendarConfig()
+            assert config.base_url == "http://mock-gcal:8080"
+
+    def test_gmail_base_url_override(self):
+        """Test GMAIL_BASE_URL environment variable."""
+        with patch.dict(os.environ, {"GMAIL_BASE_URL": "http://mock-gmail:8080"}):
+            config = GmailConfig()
+            assert config.base_url == "http://mock-gmail:8080"
+
+    def test_gdrive_timeout_override(self):
+        """Test GDRIVE_TIMEOUT_SECONDS environment variable."""
+        with patch.dict(os.environ, {"GDRIVE_TIMEOUT_SECONDS": "45.0"}):
+            config = GDriveConfig()
+            assert config.timeout_seconds == 45.0
 
 
 # =============================================================================
@@ -219,6 +289,35 @@ class TestBackendConfigMapping:
             config = NotionConfig()
             headers = get_backend_extra_headers(config)
             assert headers == {"Notion-Version": "2023-06-01"}
+
+    def test_create_backend_config_gdrive(self):
+        """Test GDriveConfig creates BackendConfig correctly."""
+        config = GDriveConfig()
+        backend_config = create_backend_config_from_settings("gdrive", config)
+        assert backend_config.backend_id == "gdrive"
+        assert backend_config.base_url == "https://www.googleapis.com/drive/v3"
+        assert backend_config.timeout_seconds == 30.0
+        assert backend_config.retry_attempts == 3
+
+    def test_create_backend_config_gcalendar(self):
+        """Test GCalendarConfig creates BackendConfig correctly."""
+        config = GCalendarConfig()
+        backend_config = create_backend_config_from_settings("gcalendar", config)
+        assert backend_config.backend_id == "gcalendar"
+        assert backend_config.base_url == "https://www.googleapis.com/calendar/v3"
+
+    def test_create_backend_config_gmail(self):
+        """Test GmailConfig creates BackendConfig correctly."""
+        config = GmailConfig()
+        backend_config = create_backend_config_from_settings("gmail", config)
+        assert backend_config.backend_id == "gmail"
+        assert backend_config.base_url == "https://gmail.googleapis.com/gmail/v1"
+
+    def test_get_backend_extra_headers_google(self):
+        """Test Google configs have no extra headers (no version header)."""
+        assert get_backend_extra_headers(GDriveConfig()) == {}
+        assert get_backend_extra_headers(GCalendarConfig()) == {}
+        assert get_backend_extra_headers(GmailConfig()) == {}
 
 
 # =============================================================================

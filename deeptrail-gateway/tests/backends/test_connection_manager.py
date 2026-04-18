@@ -1032,3 +1032,34 @@ class TestEnums:
         assert RequestMethod.INITIALIZE.value == "initialize"
         assert RequestMethod.TOOLS_LIST.value == "tools/list"
         assert RequestMethod.TOOLS_CALL.value == "tools/call"
+
+
+# =============================================================================
+# WS-D5: create_connection_manager() factory
+# =============================================================================
+
+
+class TestCreateConnectionManager:
+    """Tests for WS-D5: factory registers all 6 backends including Google."""
+
+    def test_registers_six_backends(self):
+        from app.backends.connection_manager import create_connection_manager
+
+        manager = create_connection_manager()
+        ids = manager.get_backend_ids()
+        assert len(ids) == 6, f"Expected 6 backends, got {len(ids)}: {ids}"
+
+    def test_registers_google_workspace_backends(self):
+        from app.backends.connection_manager import create_connection_manager
+
+        manager = create_connection_manager()
+        ids = set(manager.get_backend_ids())
+        assert {"gdrive", "gcalendar", "gmail"}.issubset(ids)
+
+    def test_existing_backends_still_registered(self):
+        """Regression: notion/slack/hubspot must still be registered."""
+        from app.backends.connection_manager import create_connection_manager
+
+        manager = create_connection_manager()
+        ids = set(manager.get_backend_ids())
+        assert {"notion", "slack", "hubspot"}.issubset(ids)

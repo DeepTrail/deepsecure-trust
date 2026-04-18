@@ -78,6 +78,24 @@ class PermissionMapper:
         "hubspot.list_deals": "hubspot:deals:list",
         "hubspot.create_deal": "hubspot:deals:create",
         "hubspot.update_deal": "hubspot:deals:update",
+
+        # Google Drive tools (WS-D2)
+        "gdrive.search_files": "gdrive:files:search",
+        "gdrive.read_file": "gdrive:files:read",
+        "gdrive.list_files": "gdrive:files:list",
+        "gdrive.get_file_metadata": "gdrive:files:metadata",
+
+        # Google Calendar tools (WS-D3)
+        "gcalendar.list_calendars": "gcalendar:calendars:list",
+        "gcalendar.list_events": "gcalendar:events:list",
+        "gcalendar.read_event": "gcalendar:events:read",
+        "gcalendar.search_events": "gcalendar:events:search",
+
+        # Gmail tools (WS-D4)
+        "gmail.list_messages": "gmail:messages:list",
+        "gmail.read_message": "gmail:messages:read",
+        "gmail.search_messages": "gmail:messages:search",
+        "gmail.list_labels": "gmail:labels:list",
     }
     
     # Reverse mapping for validation
