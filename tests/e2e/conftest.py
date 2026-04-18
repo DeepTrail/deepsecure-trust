@@ -24,6 +24,7 @@ from nacl.signing import SigningKey
 
 from .test_fixtures import (
     DEFAULT_SCENARIO,
+    GoogleJourneyScenario,
     SarahJourneyScenario,
     get_mcp_initialize_request,
 )
@@ -370,3 +371,118 @@ def skip_if_services_unavailable(services_available: bool):
     """Skip test if services are not available."""
     if not services_available:
         pytest.skip("Control Plane and/or Gateway not available")
+
+
+# =============================================================================
+# Google Journey Fixtures
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def google_scenario() -> GoogleJourneyScenario:
+    """Get the Google services test scenario.
+
+    Session-scoped to ensure consistent agent ID across all Google tests.
+    """
+    return GoogleJourneyScenario()
+
+
+@pytest_asyncio.fixture
+async def google_user_token(
+    control_plane_client: httpx.AsyncClient,
+    google_scenario: GoogleJourneyScenario,
+) -> str:
+    """Authenticate user and return JWT for Google journey tests."""
+    try:
+        response = await control_plane_client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": google_scenario.user.email,
+                "password": google_scenario.user.password,
+            },
+        )
+        if response.status_code == 200:
+            return response.json()["token"]
+        return f"mock_user_token_{google_scenario.user.id}"
+    except httpx.ConnectError:
+        return f"mock_user_token_{google_scenario.user.id}"
+
+
+@pytest_asyncio.fixture
+async def google_delegation_token(
+    control_plane_client: httpx.AsyncClient,
+    google_user_token: str,
+    google_scenario: GoogleJourneyScenario,
+    agent_keypair: dict[str, Any],
+) -> str:
+    """Connect Google services, register agent, and create delegation."""
+    try:
+        await control_plane_client.post(
+            "/api/v1/agents/",
+            headers={"Authorization": f"Bearer {google_user_token}"},
+            json=google_scenario.get_agent_register_request(
+                agent_keypair["public_key_base64"]
+            ),
+        )
+
+        for service in google_scenario.services:
+            await control_plane_client.post(
+                "/api/v1/users/me/services/connect",
+                headers={"Authorization": f"Bearer {google_user_token}"},
+                json={
+                    "service_id": service.id,
+                    "oauth_token": {
+                        "access_token": service.test_token,
+                        "token_type": "bearer",
+                        "scope": " ".join(service.oauth_scopes),
+                    },
+                },
+            )
+
+        response = await control_plane_client.post(
+            "/api/v1/auth/delegate",
+            headers={"Authorization": f"Bearer {google_user_token}"},
+            json=google_scenario.get_delegation_request(),
+        )
+
+        if response.status_code == 200:
+            return response.json()["delegation_token"]
+        return f"mock_delegation_token_{google_scenario.agent.id}"
+    except httpx.ConnectError:
+        return f"mock_delegation_token_{google_scenario.agent.id}"
+
+
+@pytest_asyncio.fixture
+async def google_agent_jwt(
+    control_plane_client: httpx.AsyncClient,
+    google_delegation_token: str,
+    google_scenario: GoogleJourneyScenario,
+    agent_keypair: dict[str, Any],
+) -> str:
+    """Authenticate agent via challenge-response for Google journey."""
+    try:
+        challenge_response = await control_plane_client.post(
+            "/api/v1/auth/agent/challenge",
+            json={"agent_id": google_scenario.agent.id},
+        )
+        if challenge_response.status_code != 200:
+            return f"mock_agent_jwt_{google_scenario.agent.id}"
+
+        challenge = challenge_response.json()["challenge"]
+        signature = sign_challenge(agent_keypair["private_key"], challenge)
+
+        verify_response = await control_plane_client.post(
+            "/api/v1/auth/agent/verify",
+            json={
+                "agent_id": google_scenario.agent.id,
+                "challenge": challenge,
+                "signature": signature,
+                "delegation_token": google_delegation_token,
+            },
+        )
+
+        if verify_response.status_code == 200:
+            return verify_response.json()["access_token"]
+        return f"mock_agent_jwt_{google_scenario.agent.id}"
+    except httpx.ConnectError:
+        return f"mock_agent_jwt_{google_scenario.agent.id}"

@@ -2,7 +2,7 @@
 
 > **Workflow Guide:** [WORKFLOW_GUIDE.md](./WORKFLOW_GUIDE.md)
 >
-> **Last Updated:** April 2026
+> **Last Updated:** April 18, 2026
 
 Lightweight dashboard tracking all active designs. For detailed tracking, see each design's STATUS.md in `docs/workstreams/`.
 
@@ -23,14 +23,15 @@ docs/
 
 ---
 
-## Active Designs
+## All Designs
 
 | Design | Phase | Progress | Status | Detailed Status |
 |--------|-------|----------|--------|-----------------|
-| [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Phase 4: Complete | 100% (43/43) | ✅ Complete | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
-| [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | ✅ Phase 4: Complete | 100% (9/9) | ✅ Complete | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
-| [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | Phase 3: Execution | **P2 100%** (WS-L1 ✅, WS-J4 ✅, WS-J5 ✅, WS-K6 ✅, WS-L2 ✅, WS-J6 ✅, WS-K7 ✅, WS-K8 ✅, WS-K9 ✅) | ✅ P2 Complete | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
-| [IdP Selector for Demo](../plans/idp_selector_for_demo_60cecdf4.plan.md) | Phase 3: Execution | 88% (7/8 tasks) | ⏳ All Batches Complete — Conditional Pass | [STATUS.md](./workstreams/idp-selector/STATUS.md) |
+| [Virtual MCP Server MVP](./design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md) | ✅ Complete | 100% (43/43) | ✅ Complete (Feb 2026) | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
+| [Interactive Demo](../.cursor/plans/interactive_demo_plan_7ee6283a.plan.md) | ✅ Complete | 100% (9/9) | ✅ Complete (Feb 2026) | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
+| [MVP Production Readiness](../plans/mvp_production_readiness.plan.md) | ✅ Complete | 100% — P0 ✅ P1 ✅ (12/12) P1.5 ✅ (6/6) P2 ✅ (9/9) | ✅ All Phases Complete (Apr 2026) | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
+| [IdP Selector for Demo](../plans/idp_selector_for_demo_60cecdf4.plan.md) | ✅ Conditional Pass | 88% (7/8 tasks) | ✅ All Batches Complete — PRE-1 manual step pending | [STATUS.md](./workstreams/idp-selector/STATUS.md) |
+| [IdP Enhanced SSO](./design/idp-enhanced-sso-features.md) | ✅ Complete | 100% (20/20) | ✅ All Batches Complete — Workstream Done | [STATUS.md](./workstreams/idp-enhanced-sso/STATUS.md) |
 
 
 ---
@@ -42,9 +43,15 @@ docs/
 │                           PORTFOLIO DASHBOARD                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Total Designs: 2 complete, 1 active, 1 planned                             │
-│  Total Tasks:   92 (58 done, 0 in progress, 0 ready, 34 pending)            │
-│  Overall:       63% complete                                                 │
+│  Total Designs: 5 (4 complete, 1 conditional pass)                           │
+│                                                                              │
+│  ✅ Virtual MCP Server MVP     43/43  100%                                  │
+│  ✅ Interactive Demo             9/9   100%                                  │
+│  ✅ MVP Production Readiness   34/34  100%  (P0+P1+P1.5+P2)                │
+│  ✅ IdP Selector for Demo       7/8    88%  (PRE-1 manual pending)          │
+│  ✅ IdP Enhanced SSO           20/20  100%  (ALL BATCHES COMPLETE)          │
+│                                                                              │
+│  Overall: 113/114 tasks complete (99%)                                      │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -53,25 +60,14 @@ docs/
 
 ## Designs by Phase
 
-### Phase 1: Design
-_No designs currently in this phase_
-
-### Phase 2: Planning
-_No designs currently in this phase_
-
-### Phase 3: Execution
-| Design | Progress | Current Batch | Next Task |
-|--------|----------|---------------|-----------|
-| MVP Production Readiness | 16% (5/32) | P1-B2 | WS-G5 (Slack REST API) |
-
-### Phase 4: Learning
-_No designs currently in this phase_
-
 ### ✅ Completed
-| Design | Completed | Tasks | Breakdown |
-|--------|-----------|-------|-----------|
-| Virtual MCP Server MVP | Feb 2026 | 43/43 | [Breakdown](./deepsecure-virtual-mcp-server-mvp-breakdown.md) |
-| Interactive Demo | Feb 2026 | 9/9 | [Breakdown](./interactive-demo-breakdown.md) |
+| Design | Completed | Tasks | Status |
+|--------|-----------|-------|--------|
+| Virtual MCP Server MVP | Feb 2026 | 43/43 | [STATUS.md](./workstreams/virtual-mcp-server-mvp/STATUS.md) |
+| Interactive Demo | Feb 2026 | 9/9 | [STATUS.md](./workstreams/interactive-demo/STATUS.md) |
+| MVP Production Readiness | Apr 2026 | 34/34 (P0+P1+P1.5+P2) | [STATUS.md](./workstreams/mvp-production-readiness/STATUS.md) |
+| IdP Selector for Demo | Mar 2026 | 7/8 (conditional pass) | [STATUS.md](./workstreams/idp-selector/STATUS.md) |
+| IdP Enhanced SSO | Apr 2026 | 20/20 | [STATUS.md](./workstreams/idp-enhanced-sso/STATUS.md) |
 
 ---
 

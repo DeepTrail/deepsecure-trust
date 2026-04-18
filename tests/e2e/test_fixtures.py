@@ -102,6 +102,27 @@ HUBSPOT_SERVICE = TestService(
     test_token="test_hubspot_token_abcde",
 )
 
+GDRIVE_SERVICE = TestService(
+    id="gdrive",
+    name="Google Drive",
+    oauth_scopes=["drive.readonly"],
+    test_token="test_gdrive_token_google_001",
+)
+
+GCALENDAR_SERVICE = TestService(
+    id="gcalendar",
+    name="Google Calendar",
+    oauth_scopes=["calendar.readonly", "calendar.events.readonly"],
+    test_token="test_gcalendar_token_google_002",
+)
+
+GMAIL_SERVICE = TestService(
+    id="gmail",
+    name="Gmail",
+    oauth_scopes=["gmail.readonly"],
+    test_token="test_gmail_token_google_003",
+)
+
 
 # =============================================================================
 # Permission Fixtures
@@ -161,6 +182,52 @@ EXPECTED_HIDDEN_TOOLS = [
 
 
 # =============================================================================
+# Google Permission Fixtures
+# =============================================================================
+
+
+GOOGLE_DELEGATED_PERMISSIONS = [
+    "gdrive:files:search",
+    "gdrive:files:list",
+    "gcalendar:events:list",
+    "gcalendar:events:read",
+    "gmail:messages:search",
+    "gmail:messages:list",
+]
+
+GOOGLE_NON_DELEGATED_PERMISSIONS = [
+    "gdrive:files:read",
+    "gdrive:files:metadata",
+    "gcalendar:calendars:list",
+    "gmail:messages:read",
+    "gmail:labels:list",
+]
+
+
+# =============================================================================
+# Google Tool Fixtures
+# =============================================================================
+
+
+GOOGLE_EXPECTED_VISIBLE_TOOLS = [
+    "gdrive.search_files",
+    "gdrive.list_files",
+    "gcalendar.list_events",
+    "gcalendar.get_event",
+    "gmail.search_messages",
+    "gmail.list_messages",
+]
+
+GOOGLE_EXPECTED_HIDDEN_TOOLS = [
+    "gdrive.read_file",
+    "gdrive.get_file_metadata",
+    "gcalendar.list_calendars",
+    "gmail.read_message",
+    "gmail.list_labels",
+]
+
+
+# =============================================================================
 # Test Scenario Data
 # =============================================================================
 
@@ -205,6 +272,43 @@ class SarahJourneyScenario:
 
 # Default test scenario
 DEFAULT_SCENARIO = SarahJourneyScenario()
+
+
+@dataclass
+class GoogleJourneyScenario:
+    """Test scenario for Google services E2E journey."""
+
+    organization: TestOrganization = field(default_factory=TestOrganization)
+    user: TestUser = field(default_factory=TestUser)
+    agent: TestAgent = field(default_factory=TestAgent)
+    services: list[TestService] = field(
+        default_factory=lambda: [GDRIVE_SERVICE, GCALENDAR_SERVICE, GMAIL_SERVICE]
+    )
+    delegated_permissions: list[str] = field(
+        default_factory=lambda: GOOGLE_DELEGATED_PERMISSIONS.copy()
+    )
+
+    def get_delegation_request(self) -> dict[str, Any]:
+        """Get delegation request payload for Google permissions."""
+        return {
+            "agent_id": self.agent.id,
+            "permissions": self.delegated_permissions,
+            "constraints": {
+                "rate_limit": 100,
+                "expires_in_hours": 8,
+            },
+        }
+
+    def get_agent_register_request(self, public_key: str) -> dict[str, Any]:
+        """Get agent registration request payload."""
+        return {
+            "agent_id": self.agent.id,
+            "name": self.agent.name,
+            "public_key": public_key,
+        }
+
+
+DEFAULT_GOOGLE_SCENARIO = GoogleJourneyScenario()
 
 
 # =============================================================================
