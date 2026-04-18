@@ -5,6 +5,108 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-04-17
+
+### 🚀 **MVP PRODUCTION READINESS + SSO / IDENTITY PROVIDER SUPPORT**
+**Completion of the MVP production-readiness workstream (MP1–MP4), full SSO/OIDC support via Keycloak (default) and Google Workspace, and a Virtual MCP Server MVP for end-to-end tool invocation through the Gateway.**
+
+### Added
+
+#### **SSO / Identity Provider Support**
+- **Keycloak IdP container** added to `docker-compose.yml` on port `8080`, with a pre-seeded `deepsecure` realm auto-imported from `config/keycloak/deepsecure-realm.json`. SSO works zero-config on first `docker compose up`.
+- **OIDC provider abstraction** (`deeptrail-control/app/services/providers/`): pluggable `OIDCProvider` protocol with concrete `KeycloakProvider` and `GoogleProvider` implementations (Okta and Entra remain stubs).
+- **Google Workspace IdP support** via a dedicated Compose override (`docker-compose.google.yml`) and a `.env.google.example` template. Set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in `.env.google` and start with `docker compose -f docker-compose.yml -f docker-compose.google.yml up -d`. Optional `GOOGLE_HD` restricts login to a Workspace hosted domain.
+- **`IdPProviderType.GOOGLE` enum value** + `hd` (hosted domain) configuration field in `idp_config.py`.
+- **`post_login_redirect` query parameter** on `GET /api/v1/auth/sso/{idp}/authorize` and `/callback` — enables browser-based token delivery for demo/CLI flows (callback returns a `RedirectResponse` when set).
+- **SSO endpoints** under `/api/v1/auth/sso/`: `{idp}/authorize`, `{idp}/callback`, `logout`.
+- **Parameterized demo script** (`scripts/demo_sarah_journey.sh`) supporting `IDP_NAME=keycloak|google` for end-to-end testing against either IdP.
+
+#### **Virtual MCP Server MVP (Gateway-side)**
+- **MCP JSON-RPC entrypoint** at `POST /mcp` on the Gateway, implementing the required `initialize` → `tools/list` → `tools/call` sequence.
+- **JWT validation middleware** on `/mcp`, `/proxy`, and `/api/v1/tools` with layered token support.
+- **Connector backends** for 3rd-party tool invocation (Notion, Slack, HubSpot) with OAuth credential injection.
+- **Agent JWT challenge-response flow** (`POST /api/v1/auth/agent/challenge` + `/verify`) for agent-to-Control authentication using Ed25519 signatures.
+
+#### **Production Hardening (P2)**
+- **Task tokens** — short-lived, scope-bound JWTs issued per task with full lifecycle management and Gateway-side validation.
+- **Scoped permissions** table and enforcement for fine-grained per-service/per-action authorization.
+- **Attestation policies** table for platform-native identity (Kubernetes, AWS, Azure, Docker) bootstrapping.
+- **Connected services** table for user-authorized 3rd-party service integrations.
+- **Redis pub/sub cache invalidation** on the Control Plane (new `REDIS_URL` env var on `deeptrail-control`) — propagates policy and permission changes across replicas in real time.
+
+#### **OAuth 3rd-Party Connector Configuration**
+- New env vars on `deeptrail-control`: `OAUTH_REDIRECT_BASE_URL`, `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET`, `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`, `HUBSPOT_CLIENT_ID` / `HUBSPOT_CLIENT_SECRET`.
+- `POST /api/v1/oauth/{provider}/authorize` endpoints for initiating connector authorization flows.
+
+#### **Documentation & Developer Experience**
+- **Full refresh of `docs/deepsecure-services-setup.md`** for the 5-container architecture (Control / Gateway / Keycloak / Postgres / Redis) with IdP selection, env var reference, realm bootstrap, and Keycloak troubleshooting.
+- **Interactive persona-based demo** (`demos/`) and Sarah's end-to-end journey documentation.
+- **Integration validation guide** (`docs/INTEGRATION_VALIDATION_GUIDE.md`) with 18-step verification flow.
+- **Workstream documentation** for `mvp-production-readiness`, `idp-selector`, `idp-enhanced-sso`, and `virtual-mcp-server-mvp` under `docs/workstreams/`.
+
+### Changed
+
+- **Delegation response format** updated for consistency with agent auth flow.
+- **Agent registration schema** verified and aligned with E2E contract.
+- **Gateway credential injection** now sources from the vault (rather than static config).
+- **Token refresh integration** now uses the internal API token + `X-User-ID` header pattern documented in `CLAUDE.md`.
+- **Policy enforcement** moved fully into the Gateway as the Policy Enforcement Point (PEP); Control Plane acts as PDP only.
+- **Demo and E2E tests** relocated from `deeptrail-gateway/` to root-level `demos/` and `tests/e2e/` for discoverability.
+
+### Fixed
+
+- **Gateway `DEEPSECURE_VERSION`** env var was stuck at `0.1.10` in `docker-compose.yml` (drift since 0.1.11). Both control-plane and gateway `DEEPSECURE_VERSION` values are now aligned at `0.1.12`.
+- **6 broken documentation cross-references** to the renamed `backend-services-setup.md` file — updated to `deepsecure-services-setup.md` in `docs/README.md`, `examples/README.md`, `docs/deepsecure-release-process.md`, and `CHANGELOG.md`.
+- **SSO auth flow bugs** discovered during integration testing (pre-MP4 and post-MP3).
+- **Tool name derivation and cache alignment** on the Gateway (`WS-J2`) so permission checks consistently match emitted tool names.
+- **Keycloak token exchange** implementation (`WS-J6`) for internal service-to-service delegation.
+- **Integration bug sweep (MP3.5)** — 6 tasks across Control and Gateway fixing issues surfaced by the `INTEGRATION_VALIDATION_GUIDE.md` walkthrough.
+
+### Infrastructure
+
+- **New Docker container:** `deeptrail_keycloak` (`quay.io/keycloak/keycloak:24.0`) running in dev mode with realm import.
+- **New Docker Compose override:** `docker-compose.google.yml` for Google IdP.
+- **New config directory:** `config/keycloak/` containing the dev realm definition.
+- **New env file template:** `.env.google.example` (with `.env.google` added to `.gitignore`).
+
+### Technical Details
+
+#### **New Database Tables**
+- `connected_services` — user-authorized 3rd-party service connections
+- `scoped_permissions` — fine-grained per-service/action permissions
+- `attestation_policies` — platform attestation rules
+- `tasks` — task-scoped authorization records
+- `nonces` — one-time challenge nonces for anti-replay
+- `vault_tokens` — vault-backed token references for injected secrets
+
+#### **Workstream Summary**
+
+| Workstream | Tasks | Status |
+|------------|-------|--------|
+| `mvp-production-readiness` | 38 / 38 | ✅ Complete (MP1–MP4 reached) |
+| `idp-selector` | 7 / 8 | ✅ E2E conditional pass (Google live-test deferred pending Cloud Console creds) |
+| `virtual-mcp-server-mvp` | Batches 1–9 | ✅ MVP complete |
+
+#### **Documentation Cross-Reference Fixes**
+
+| File | Change |
+|------|--------|
+| `docs/README.md` (lines 41, 309) | Link → `./deepsecure-services-setup.md` |
+| `examples/README.md` (lines 585, 616) | Link → `../docs/deepsecure-services-setup.md` |
+| `docs/deepsecure-release-process.md` (lines 54, 167) | File reference → `docs/deepsecure-services-setup.md` |
+| `CHANGELOG.md` (line 297) | Historical note added pointing at current filename |
+
+#### **Release Process Doc Updates**
+- Workflow 1 expected-container list and post-release container verification updated to 5 containers (added `deeptrail_keycloak`).
+- Troubleshooting "Test Failures" list updated to reference all 5 containers and port 8080.
+
+### Migration Notes
+
+No breaking SDK API changes. For deployments upgrading from `0.1.11`:
+1. Pull the latest `docker-compose.yml` — the `keycloak` service is additive.
+2. Add `IDP_*` environment variables if customizing the IdP; defaults point at the bundled Keycloak realm.
+3. Add `REDIS_URL` to `deeptrail-control` env if running in a custom compose setup (required by the cache invalidation pub/sub).
+
 ## [0.1.11] - 2026-01-11
 
 ### 🚀 **MODEL-AGNOSTIC GATEWAY INTERFACE + ANTHROPIC INTEGRATION**
@@ -294,7 +396,7 @@ Full test report: [`test-results/v0.1.11/test-report.md`](test-results/v0.1.11/t
 
 ### Changed
 - **Environment Variable Propagation**: Added missing `DEEPSECURE_VERSION=0.1.10` environment variable to `deeptrail-gateway` service in `docker-compose.yml`, ensuring both services receive proper version information.
-- **Version Documentation**: Updated example health check responses in `docs/backend-services-setup.md` to show version 0.1.10 for both Control Plane and Gateway services.
+- **Version Documentation**: Updated example health check responses in `docs/backend-services-setup.md` (since renamed to `docs/deepsecure-services-setup.md`) to show version 0.1.10 for both Control Plane and Gateway services.
 - **OpenAPI Specification Rewrite**: Completely rewrote `docs/openapi.yaml` to accurately document the dual-service architecture with comprehensive API specification including all Control Plane endpoints (agent management, authentication, bootstrapping, vault operations, policies) and Gateway endpoints (health checks, proxy operations, metrics), proper security schemes, detailed schemas, and extensive examples.
 
 ### Technical Implementation Details

@@ -636,13 +636,22 @@ class TestCompleteJourney:
         user_token = auth_response.json()["token"]
 
         # Step 3: Sarah connects services
+        # NOTE: `scope` (space-separated OAuth scopes) is REQUIRED so the
+        # delegation endpoint's monotonic-attenuation check (ScopeMapper)
+        # has scopes to validate requested permissions against. Omitting it
+        # stores scopes_granted=[] and causes /auth/delegate to return 400
+        # "permission_validation_failed".
         for service in scenario.services:
             connect_response = await control_plane_client.post(
                 "/api/v1/users/me/services/connect",
                 headers={"Authorization": f"Bearer {user_token}"},
                 json={
                     "service_id": service.id,
-                    "oauth_token": {"access_token": service.test_token},
+                    "oauth_token": {
+                        "access_token": service.test_token,
+                        "token_type": "bearer",
+                        "scope": " ".join(service.oauth_scopes),
+                    },
                 },
             )
             assert connect_response.status_code == 200, f"Step 3 failed: Cannot connect {service.id}"

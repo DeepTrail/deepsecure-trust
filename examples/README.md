@@ -582,7 +582,7 @@ deepsecure policy list
 ## 📚 Further Reading
 1. **Understand [Core Concepts](../docs/README.md)** for a deeper dive
 2. **Review [CLI Reference](../docs/cli_reference.md)** for all commands
-3. **Review [Backend Setup Guide](../docs/backend-services-setup.md)** for production deployment
+3. **Review [Backend Setup Guide](../docs/deepsecure-services-setup.md)** for production deployment
 
 ## 🎓 Learning Path
 
@@ -613,7 +613,7 @@ deepsecure policy list
 After running these examples:
 1. **Read the [SDK Documentation](../docs/README.md)** for comprehensive API reference
 2. **Check out [CLI Reference](../docs/cli_reference.md)** for administrative commands
-3. **Review [Backend Setup Guide](../docs/backend-services-setup.md)** for production deployment
+3. **Review [Backend Setup Guide](../docs/deepsecure-services-setup.md)** for production deployment
 4. **Explore [Contributing Guide](../CONTRIBUTING.md)** to help improve DeepSecure
 
 ## 🆘 Getting Help

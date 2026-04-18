@@ -38,7 +38,7 @@ pip install deepsecure
 
 You'll need the DeepSecure backend services (Control Plane and Gateway) running to use the SDK. For complete, step-by-step instructions on how to run the services locally, please see our comprehensive:
 
-➡️ **[Backend Services Setup Guide](./backend-services-setup.md)**
+➡️ **[Backend Services Setup Guide](./deepsecure-services-setup.md)**
 
 ## Quick Start Guide
 
@@ -306,7 +306,7 @@ For more comprehensive examples, check out our [examples directory](../examples/
 ## Next Steps
 
 - 📖 **[CLI Reference](./cli_reference.md)** - Learn about administrative commands
-- 🔧 **[Backend Setup Guide](./backend-services-setup.md)** - Detailed backend configuration
+- 🔧 **[Backend Setup Guide](./deepsecure-services-setup.md)** - Detailed backend configuration
 - 🏗️ **[Contributing Guide](../CONTRIBUTING.md)** - Help improve DeepSecure
 - 💬 **[GitHub Discussions](https://github.com/your-repo/discussions)** - Get help from the community
 

@@ -83,14 +83,20 @@ services:
       - ALGORITHM=HS256
       - POSTGRES_DRIVER=psycopg2
       # Pass the current DeepSecure version to the container
-      - DEEPSECURE_VERSION=0.1.11
+      - DEEPSECURE_VERSION=0.1.12
 
       # Redis URL for cache invalidation pub/sub
       - REDIS_URL=redis://redis:6379
 
       # IdP Configuration (Keycloak dev-time)
+      # IDP_ISSUER_URL uses the Docker-internal hostname for server-to-server
+      # token validation; IDP_BROWSER_URL exposes the host-reachable URL that
+      # the authorize endpoint returns to browsers (and host-side test/demo
+      # scripts such as scripts/demo_sarah_journey.sh that cannot resolve
+      # `keycloak:8080`).
       - IDP_PROVIDER=keycloak
       - IDP_ISSUER_URL=http://keycloak:8080/realms/deepsecure
+      - IDP_BROWSER_URL=http://localhost:8080/realms/deepsecure
       - IDP_CLIENT_ID=deepsecure-control
       - IDP_CLIENT_SECRET=control-secret
       - IDP_REALM=deepsecure
@@ -129,7 +135,7 @@ services:
       - GATEWAY_ENCRYPTION_KEY=gateway-master-encryption-key-32-chars
       - GATEWAY_INTERNAL_API_TOKEN=gateway-internal-secret-token
       # Pass the current DeepSecure version to the container
-      - DEEPSECURE_VERSION=0.1.10
+      - DEEPSECURE_VERSION=0.1.12
     networks:
       - deepsecure_network
 

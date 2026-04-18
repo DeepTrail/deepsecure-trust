@@ -222,8 +222,8 @@ def step_03_connect_services(client: httpx.Client, user_token: str, scenario: De
     print_step(3, "Sarah Connects Backend Services")
     
     services = [
-        ("notion", scenario.notion_token, ["read_pages", "search_content"]),
-        ("slack", scenario.slack_token, ["search:read", "channels:read"]),
+        ("notion", scenario.notion_token, ["read_pages", "search_content", "read_databases"]),
+        ("slack", scenario.slack_token, ["search:read", "channels:read", "users:read"]),
     ]
     
     headers = {"Authorization": f"Bearer {user_token}"}

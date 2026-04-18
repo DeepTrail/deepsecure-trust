@@ -51,7 +51,7 @@ The project version must be updated in **five** key locations to ensure consiste
       title: DeepSecure API
       version: "X.Y.Z" # <-- UPDATE THIS
     ```
--   **`docs/backend-services-setup.md`**: Update the version in the health check example response.
+-   **`docs/deepsecure-services-setup.md`**: Update the version in the health check example response.
     ```json
     {
       "service": "DeepSecure Control Plane",
@@ -124,10 +124,12 @@ docker compose down --volumes
         - Expected containers:
           - `deeptrail_control_app` (Control Plane)
           - `deeptrail_gateway_app` (Gateway)
+          - `deeptrail_keycloak` (Identity Provider / OIDC)
           - `deeptrail_control_db` (PostgreSQL Database)
-          - `deeptrail_gateway_redis` (Redis for Split-Key Storage)
+          - `deeptrail_gateway_redis` (Redis for Split-Key Storage + Cache Pub/Sub)
         - Verifying the control plane service: `curl http://localhost:8000/health`
         - Verifying the gateway service: `curl http://localhost:8002/health`
+        - Verifying Keycloak readiness: `curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health/ready` (expect `200`)
 
 -   **[ ] Workflow 2: Main `README.md` Quick Start**
     1.  Follow the 30-second quickstart in the main `README.md` precisely. Key validation steps include:
@@ -164,7 +166,7 @@ This phase prepares the code for publication.
 
 ### 1. Commit All Changes
 
-Stage all modified files (`pyproject.toml`, `deepsecure/__init__.py`, `docker-compose.yml`, `docs/openapi.yaml`, `docs/backend-services-setup.md`, `CHANGELOG.md`, etc.) and create a release commit.
+Stage all modified files (`pyproject.toml`, `deepsecure/__init__.py`, `docker-compose.yml`, `docs/openapi.yaml`, `docs/deepsecure-services-setup.md`, `CHANGELOG.md`, etc.) and create a release commit.
 
 ```bash
 # Stage all changes
@@ -236,15 +238,16 @@ After publishing, perform these verification steps:
 ### 3. Container Verification
 - Pull and test the updated Docker containers to ensure they work with the new version.
 - Verify that the `DEEPSECURE_VERSION` environment variable is correctly set in running containers.
-- Validate all four containers are running:
+- Validate all five containers are running:
   ```bash
   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
   ```
   Expected output should show:
   - `deeptrail_control_app` (Up, port 8000:8001)
   - `deeptrail_gateway_app` (Up, port 8002:8001)
-  - `deeptrail_control_db` (Up, port 5434:5432)
-  - `deeptrail_gateway_redis` (Up, port 6380:6379)
+  - `deeptrail_keycloak` (Up healthy, port 8080:8080)
+  - `deeptrail_control_db` (Up healthy, port 5434:5432)
+  - `deeptrail_gateway_redis` (Up healthy, port 6380:6379)
 
 ---
 
@@ -264,17 +267,19 @@ If Docker builds fail after version updates:
 
 ### Test Failures
 If integration tests fail:
-1. Ensure all four containers are running and healthy:
+1. Ensure all five containers are running and healthy:
    - `deeptrail_control_app`
    - `deeptrail_gateway_app`
+   - `deeptrail_keycloak`
    - `deeptrail_control_db`
    - `deeptrail_gateway_redis`
-2. Check that all environment variables are set correctly.
-3. Verify that ports 8000 (control plane) and 8002 (gateway) are not in use by other services.
+2. Check that all environment variables are set correctly (including `IDP_*` vars for SSO).
+3. Verify that ports 8000 (control plane), 8002 (gateway), 8080 (Keycloak), 5434 (Postgres), and 6380 (Redis) are not in use by other services.
 4. Check container logs for specific errors:
    ```bash
    docker logs deeptrail_control_app
    docker logs deeptrail_gateway_app
+   docker logs deeptrail_keycloak
    docker logs deeptrail_control_db
    docker logs deeptrail_gateway_redis
    ``` 
