@@ -11,6 +11,9 @@ Main Components:
 - NotionMCPClient: Notion-specific MCP client
 - SlackMCPClient: Slack-specific MCP client
 - HubSpotMCPClient: HubSpot CRM-specific MCP client
+- GDriveDirectClient: Google Drive direct REST API client (WS-D2)
+- GCalendarDirectClient: Google Calendar direct REST API client (WS-D3)
+- GmailDirectClient: Gmail direct REST API client (WS-D4)
 - BackendConfig: Configuration for a backend server
 - MCPRequest/MCPResponse: Request/response wrappers
 
@@ -24,11 +27,17 @@ Usage:
         NotionMCPClient,
         SlackMCPClient,
         HubSpotMCPClient,
+        GDriveDirectClient,
+        GCalendarDirectClient,
+        GmailDirectClient,
         create_mcp_client,
         create_router,
         create_notion_client,
         create_slack_client,
         create_hubspot_client,
+        create_gdrive_direct_client,
+        create_gcalendar_direct_client,
+        create_gmail_direct_client,
     )
 """
 
@@ -118,6 +127,24 @@ from .hubspot_client import (
     create_hubspot_client,
 )
 
+from .gdrive_client import (
+    GDriveDirectClient,
+    GDriveAPIConfig,
+    create_gdrive_direct_client,
+)
+
+from .gcalendar_client import (
+    GCalendarDirectClient,
+    GCalendarAPIConfig,
+    create_gcalendar_direct_client,
+)
+
+from .gmail_client import (
+    GmailDirectClient,
+    GmailAPIConfig,
+    create_gmail_direct_client,
+)
+
 from .router import (
     # Router
     BackendRouter,
@@ -189,6 +216,18 @@ __all__ = [
     "HubSpotValidationError",
     "HubSpotMCPClient",
     "create_hubspot_client",
+    # Google Drive Client (WS-D2)
+    "GDriveDirectClient",
+    "GDriveAPIConfig",
+    "create_gdrive_direct_client",
+    # Google Calendar Client (WS-D3)
+    "GCalendarDirectClient",
+    "GCalendarAPIConfig",
+    "create_gcalendar_direct_client",
+    # Gmail Client (WS-D4)
+    "GmailDirectClient",
+    "GmailAPIConfig",
+    "create_gmail_direct_client",
     # Router
     "BackendRouter",
     "RouterError",

@@ -284,7 +284,67 @@ async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
                     "oauth_token_ref": f"vault://hubspot-oauth-{agent_session_id}",
                     "available_tools": hubspot_tools,
                 })
-        
+
+        # Check for gdrive permissions (WS-D5)
+        gdrive_perms = [p for p in delegated_permissions if p.startswith("gdrive:")]
+        if gdrive_perms:
+            gdrive_tools = []
+            for perm in gdrive_perms:
+                tools = PermissionMapper.get_all_tools_for_permission(perm)
+                for tool in tools:
+                    if "." in tool:
+                        _, tool_name = tool.split(".", 1)
+                        gdrive_tools.append(tool_name)
+
+            gdrive_tools = list(dict.fromkeys(gdrive_tools))
+
+            if gdrive_tools:
+                connected_services.append({
+                    "service_id": "gdrive",
+                    "oauth_token_ref": f"vault://gdrive-oauth-{agent_session_id}",
+                    "available_tools": gdrive_tools,
+                })
+
+        # Check for gcalendar permissions (WS-D5)
+        gcalendar_perms = [p for p in delegated_permissions if p.startswith("gcalendar:")]
+        if gcalendar_perms:
+            gcalendar_tools = []
+            for perm in gcalendar_perms:
+                tools = PermissionMapper.get_all_tools_for_permission(perm)
+                for tool in tools:
+                    if "." in tool:
+                        _, tool_name = tool.split(".", 1)
+                        gcalendar_tools.append(tool_name)
+
+            gcalendar_tools = list(dict.fromkeys(gcalendar_tools))
+
+            if gcalendar_tools:
+                connected_services.append({
+                    "service_id": "gcalendar",
+                    "oauth_token_ref": f"vault://gcalendar-oauth-{agent_session_id}",
+                    "available_tools": gcalendar_tools,
+                })
+
+        # Check for gmail permissions (WS-D5)
+        gmail_perms = [p for p in delegated_permissions if p.startswith("gmail:")]
+        if gmail_perms:
+            gmail_tools = []
+            for perm in gmail_perms:
+                tools = PermissionMapper.get_all_tools_for_permission(perm)
+                for tool in tools:
+                    if "." in tool:
+                        _, tool_name = tool.split(".", 1)
+                        gmail_tools.append(tool_name)
+
+            gmail_tools = list(dict.fromkeys(gmail_tools))
+
+            if gmail_tools:
+                connected_services.append({
+                    "service_id": "gmail",
+                    "oauth_token_ref": f"vault://gmail-oauth-{agent_session_id}",
+                    "available_tools": gmail_tools,
+                })
+
         # Create the agent session
         try:
             session_manager.create_agent_session(

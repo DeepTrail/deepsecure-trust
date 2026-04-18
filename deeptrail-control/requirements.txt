@@ -15,6 +15,7 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 pydantic-settings
+pyyaml
 pymacaroons
 PyJWT[crypto]
 docker 

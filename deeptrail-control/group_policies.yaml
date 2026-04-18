@@ -1,0 +1,20 @@
+policies:
+  - group: "engineering@deeptrail.com"
+    role: "engineer"
+    default_permissions:
+      - "github:repos:read"
+      - "jira:issues:read"
+      - "gdrive:files:read"
+  - group: "sales@deeptrail.com"
+    role: "sales"
+    default_permissions:
+      - "notion:pages:search"
+      - "notion:pages:read"
+      - "slack:channels:list"
+      - "slack:messages:search"
+      - "gcalendar:events:list"
+  - group: "acme-org"
+    role: "user"
+    default_permissions:
+      - "notion:pages:search"
+      - "notion:pages:read"

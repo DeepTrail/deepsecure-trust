@@ -39,13 +39,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Supported OAuth services
-SUPPORTED_SERVICES = {"notion", "slack", "hubspot"}
+SUPPORTED_SERVICES = {"notion", "slack", "hubspot", "gdrive", "gcalendar", "gmail"}
 
 # Service ID to OAuthProvider mapping
 SERVICE_TO_PROVIDER = {
     "notion": OAuthProvider.NOTION,
     "slack": OAuthProvider.SLACK,
     "hubspot": OAuthProvider.HUBSPOT,
+    "gdrive": OAuthProvider.GOOGLE,
+    "gcalendar": OAuthProvider.GOOGLE,
+    "gmail": OAuthProvider.GOOGLE,
 }
 
 
@@ -119,7 +122,7 @@ def get_vault_client() -> VaultClient:
     Returns the authorization URL to redirect the user to the OAuth provider.
     If redirect=true, performs a 302 redirect instead of returning JSON.
 
-    **Supported services:** notion, slack, hubspot
+    **Supported services:** notion, slack, hubspot, gdrive, gcalendar, gmail
     """,
     responses={
         400: {"description": "Invalid service or configuration error"},
@@ -169,8 +172,10 @@ async def oauth_authorize(
     )
 
     try:
-        # Generate authorization URL
-        auth_response = await oauth_service.get_authorization_url(auth_request)
+        # Generate authorization URL (pass service_id for multi-service providers)
+        auth_response = await oauth_service.get_authorization_url(
+            auth_request, service_id=service_id.lower()
+        )
     except Exception as e:
         logger.error(f"Failed to generate authorization URL: {e}")
         raise HTTPException(
@@ -291,7 +296,9 @@ async def oauth_callback(
 
     # Exchange code for tokens
     try:
-        tokens = await oauth_service.exchange_code_for_tokens(exchange_request)
+        tokens = await oauth_service.exchange_code_for_tokens(
+            exchange_request, service_id=service_id.lower()
+        )
     except OAuthStateError as e:
         logger.warning(f"OAuth state validation failed: {e}")
         raise HTTPException(
@@ -421,7 +428,9 @@ async def oauth_refresh(
 
     # Refresh the token
     try:
-        new_tokens = await oauth_service.refresh_tokens(refresh_request)
+        new_tokens = await oauth_service.refresh_tokens(
+            refresh_request, service_id=service_id.lower()
+        )
     except OAuthRefreshError as e:
         logger.error(f"OAuth token refresh failed: {e}")
         raise HTTPException(

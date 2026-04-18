@@ -354,3 +354,110 @@ class TestEdgeCases:
         """Test that tool names are case-sensitive."""
         assert PermissionMapper.get_permission("Notion.search_pages") is None
         assert PermissionMapper.get_permission("notion.Search_pages") is None
+
+
+# =============================================================================
+# WS-D5: Google Workspace Backend Mappings
+# =============================================================================
+
+
+class TestGooglePermissionMappings:
+    """Tests for WS-D5 Google Workspace tool→permission mappings.
+
+    Verifies that gdrive, gcalendar, and gmail tools are correctly mapped to
+    the permission strings defined in the design doc and matching the control
+    plane's ScopeMapper (WS-C1).
+    """
+
+    GDRIVE_MAPPINGS = {
+        "gdrive.search_files": "gdrive:files:search",
+        "gdrive.read_file": "gdrive:files:read",
+        "gdrive.list_files": "gdrive:files:list",
+        "gdrive.get_file_metadata": "gdrive:files:metadata",
+    }
+
+    GCALENDAR_MAPPINGS = {
+        "gcalendar.list_calendars": "gcalendar:calendars:list",
+        "gcalendar.list_events": "gcalendar:events:list",
+        "gcalendar.read_event": "gcalendar:events:read",
+        "gcalendar.search_events": "gcalendar:events:search",
+    }
+
+    GMAIL_MAPPINGS = {
+        "gmail.list_messages": "gmail:messages:list",
+        "gmail.read_message": "gmail:messages:read",
+        "gmail.search_messages": "gmail:messages:search",
+        "gmail.list_labels": "gmail:labels:list",
+    }
+
+    def test_gdrive_tools_resolve_correctly(self):
+        for tool, expected in self.GDRIVE_MAPPINGS.items():
+            assert PermissionMapper.get_permission(tool) == expected, tool
+
+    def test_gcalendar_tools_resolve_correctly(self):
+        for tool, expected in self.GCALENDAR_MAPPINGS.items():
+            assert PermissionMapper.get_permission(tool) == expected, tool
+
+    def test_gmail_tools_resolve_correctly(self):
+        for tool, expected in self.GMAIL_MAPPINGS.items():
+            assert PermissionMapper.get_permission(tool) == expected, tool
+
+    def test_gdrive_backend_tool_count(self):
+        tools = PermissionMapper.get_backend_tools("gdrive")
+        assert len(tools) == 4, f"Expected 4 gdrive tools, got {tools}"
+
+    def test_gcalendar_backend_tool_count(self):
+        tools = PermissionMapper.get_backend_tools("gcalendar")
+        assert len(tools) == 4, f"Expected 4 gcalendar tools, got {tools}"
+
+    def test_gmail_backend_tool_count(self):
+        tools = PermissionMapper.get_backend_tools("gmail")
+        assert len(tools) == 4, f"Expected 4 gmail tools, got {tools}"
+
+    def test_filter_gdrive_tools_includes_matched(self):
+        tools = [{"name": t} for t in self.GDRIVE_MAPPINGS.keys()]
+        filtered = PermissionMapper.filter_tools(
+            tools, ["gdrive:files:search", "gdrive:files:read"]
+        )
+        names = {t["name"] for t in filtered}
+        assert "gdrive.search_files" in names
+        assert "gdrive.read_file" in names
+        assert "gdrive.list_files" not in names
+        assert "gdrive.get_file_metadata" not in names
+
+    def test_unknown_gdrive_tool_denied_fail_closed(self):
+        """Security: unknown gdrive tool must be denied even with valid gdrive permission."""
+        assert not PermissionMapper.is_tool_permitted(
+            "gdrive.unknown_tool", ["gdrive:files:search"]
+        )
+
+    def test_unknown_gcalendar_tool_denied_fail_closed(self):
+        assert not PermissionMapper.is_tool_permitted(
+            "gcalendar.delete_event", ["gcalendar:events:read"]
+        )
+
+    def test_unknown_gmail_tool_denied_fail_closed(self):
+        assert not PermissionMapper.is_tool_permitted(
+            "gmail.send_message", ["gmail:messages:read"]
+        )
+
+    def test_cross_backend_permission_does_not_grant_google_tools(self):
+        """A notion permission must never grant a gdrive tool."""
+        assert not PermissionMapper.is_tool_permitted(
+            "gdrive.search_files", ["notion:pages:search"]
+        )
+        assert not PermissionMapper.is_tool_permitted(
+            "gmail.read_message", ["slack:messages:read"]
+        )
+
+    def test_existing_backend_mappings_unchanged(self):
+        """Regression: notion/slack/hubspot mappings must remain intact."""
+        assert PermissionMapper.get_permission("notion.search_pages") == "notion:pages:search"
+        assert PermissionMapper.get_permission("slack.send_message") == "slack:messages:send"
+        assert PermissionMapper.get_permission("hubspot.get_contact") == "hubspot:contacts:read"
+
+    def test_total_google_tools_in_registry(self):
+        """All 12 Google tool entries must be present."""
+        all_tools = PermissionMapper.get_all_tools()
+        google_tools = [t for t in all_tools if t.startswith(("gdrive.", "gcalendar.", "gmail."))]
+        assert len(google_tools) == 12, f"Expected 12 Google tools, got {len(google_tools)}: {google_tools}"

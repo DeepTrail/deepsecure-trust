@@ -22,11 +22,13 @@ class OAuthProvider(str, Enum):
     - NOTION: Requires PKCE (code_challenge)
     - SLACK: Standard OAuth 2.0
     - HUBSPOT: Standard OAuth 2.0
+    - GOOGLE: Standard OAuth 2.0 (shared by gdrive, gcalendar, gmail)
     """
 
     NOTION = "notion"
     SLACK = "slack"
     HUBSPOT = "hubspot"
+    GOOGLE = "google"
 
 
 @dataclass
