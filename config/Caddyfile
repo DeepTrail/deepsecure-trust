@@ -1,0 +1,8 @@
+{
+	auto_https off
+}
+
+:443 {
+	tls /etc/caddy/certs/localhost.pem /etc/caddy/certs/localhost-key.pem
+	reverse_proxy deeptrail-control:8001
+}

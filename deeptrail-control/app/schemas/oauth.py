@@ -69,6 +69,7 @@ class AuthorizationRequest:
     provider: OAuthProvider
     user_id: str
     requested_scopes: Optional[list[str]] = None
+    post_connect_redirect: Optional[str] = None
 
 
 @dataclass
@@ -158,6 +159,7 @@ class OAuthState:
     created_at: datetime
     expires_at: datetime
     code_verifier: Optional[str] = None
+    post_connect_redirect: Optional[str] = None
 
 
 # =============================================================================

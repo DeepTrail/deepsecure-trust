@@ -1,4 +1,21 @@
 policies:
+  # Domain-level fallback: any user from deeptrail.com gets admin role
+  # when Directory API groups aren't available (hd claim used as synthetic group)
+  - group: "deeptrail.com"
+    role: "admin"
+    default_permissions:
+      - "notion:pages:search"
+      - "notion:pages:read"
+      - "slack:channels:list"
+      - "slack:messages:send"
+      - "gdrive:files:search"
+      - "gdrive:files:list"
+      - "gcalendar:events:list"
+      - "gcalendar:events:read"
+      - "gmail:messages:search"
+      - "gmail:messages:list"
+
+  # Google Workspace group-level policies (when Directory API is available)
   - group: "engineering@deeptrail.com"
     role: "engineer"
     default_permissions:
@@ -13,8 +30,32 @@ policies:
       - "slack:channels:list"
       - "slack:messages:search"
       - "gcalendar:events:list"
-  - group: "acme-org"
-    role: "user"
+
+  # Keycloak group mappings (dev environment — mirrors Google Workspace groups)
+  - group: "engineering"
+    role: "engineer"
+    default_permissions:
+      - "github:repos:read"
+      - "jira:issues:read"
+      - "gdrive:files:read"
+  - group: "sales"
+    role: "sales"
     default_permissions:
       - "notion:pages:search"
       - "notion:pages:read"
+      - "slack:channels:list"
+      - "slack:messages:search"
+      - "gcalendar:events:list"
+  - group: "platform-team"
+    role: "engineer"
+    default_permissions:
+      - "notion:pages:search"
+      - "notion:pages:read"
+      - "slack:channels:list"
+      - "slack:messages:send"
+      - "gdrive:files:search"
+      - "gdrive:files:list"
+      - "gcalendar:events:list"
+      - "gcalendar:events:read"
+      - "gmail:messages:search"
+      - "gmail:messages:list"

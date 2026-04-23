@@ -28,14 +28,34 @@
         "composites": {
           "realm": ["user"]
         }
+      },
+      {
+        "name": "engineer",
+        "description": "Engineering team access",
+        "composite": false
+      },
+      {
+        "name": "sales",
+        "description": "Sales team access",
+        "composite": false
       }
     ]
   },
   "groups": [
     {
-      "name": "acme-org",
-      "path": "/acme-org",
-      "realmRoles": ["user"]
+      "name": "engineering",
+      "path": "/engineering",
+      "realmRoles": ["user", "engineer"]
+    },
+    {
+      "name": "sales",
+      "path": "/sales",
+      "realmRoles": ["user", "sales"]
+    },
+    {
+      "name": "platform-team",
+      "path": "/platform-team",
+      "realmRoles": ["user", "engineer"]
     }
   ],
   "defaultRoles": ["user"],
@@ -49,11 +69,14 @@
       "secret": "control-secret",
       "redirectUris": [
         "http://localhost:8000/api/v1/auth/sso/*/callback",
-        "http://localhost:8000/*"
+        "http://localhost:8000/*",
+        "https://localhost:8443/api/v1/auth/sso/*/callback",
+        "https://localhost:8443/*"
       ],
       "webOrigins": [
         "http://localhost:8000",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "https://localhost:8443"
       ],
       "publicClient": false,
       "protocol": "openid-connect",
@@ -119,17 +142,20 @@
   ],
   "users": [
     {
-      "username": "sarah@acme.com",
-      "email": "sarah@acme.com",
+      "username": "mahendra@deeptrail.com",
+      "email": "mahendra@deeptrail.com",
       "emailVerified": true,
       "enabled": true,
-      "firstName": "Sarah",
-      "lastName": "Chen",
+      "firstName": "Mahendra",
+      "lastName": "Kutare",
       "groups": [
-        "/acme-org"
+        "/engineering",
+        "/platform-team"
       ],
       "realmRoles": [
-        "user"
+        "user",
+        "admin",
+        "engineer"
       ],
       "credentials": [
         {
@@ -140,23 +166,23 @@
       ]
     },
     {
-      "username": "admin@acme.com",
-      "email": "admin@acme.com",
+      "username": "sarah@deeptrail.com",
+      "email": "sarah@deeptrail.com",
       "emailVerified": true,
       "enabled": true,
-      "firstName": "Admin",
-      "lastName": "User",
+      "firstName": "Sarah",
+      "lastName": "Chen",
       "groups": [
-        "/acme-org"
+        "/sales"
       ],
       "realmRoles": [
         "user",
-        "admin"
+        "sales"
       ],
       "credentials": [
         {
           "type": "password",
-          "value": "admin_password",
+          "value": "test_password",
           "temporary": false
         }
       ]

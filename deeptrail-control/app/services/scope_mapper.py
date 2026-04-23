@@ -83,13 +83,16 @@ class ScopeMapper:
             ],
         },
         "slack": {
-            # Official Slack OAuth scopes
+            # Official Slack OAuth scopes (exact names returned by Slack API)
             "channels:read": ["slack:channels:list"],
-            "channels:history": ["slack:messages:search", "slack:channels:history"],
+            "channels:history": ["slack:channels:history", "slack:messages:search"],
+            "channels:join": ["slack:channels:join"],
             "chat:write": ["slack:messages:send"],
             "users:read": ["slack:users:list"],
             "reactions:write": ["slack:reactions:write"],
             "search:read": ["slack:messages:search"],
+            "search:read.public": ["slack:messages:search"],
+            "search:read.users": ["slack:users:search"],
             # User-friendly aliases
             "read_messages": ["slack:messages:search"],
             "send_messages": ["slack:messages:send"],
@@ -102,6 +105,7 @@ class ScopeMapper:
                 "slack:messages:search",
                 "slack:messages:send",
                 "slack:users:list",
+                "slack:users:search",
                 "slack:reactions:write",
                 "slack:channels:join",
             ],
@@ -129,8 +133,14 @@ class ScopeMapper:
             ],
         },
         "gdrive": {
-            # Google Drive API scopes (short names, without googleapis.com prefix)
+            # Google Drive API scopes — both short and full URL forms
             "drive.readonly": [
+                "gdrive:files:search",
+                "gdrive:files:read",
+                "gdrive:files:list",
+                "gdrive:files:metadata",
+            ],
+            "https://www.googleapis.com/auth/drive.readonly": [
                 "gdrive:files:search",
                 "gdrive:files:read",
                 "gdrive:files:list",
@@ -142,10 +152,21 @@ class ScopeMapper:
                 "gdrive:files:list",
                 "gdrive:files:metadata",
             ],
+            "https://www.googleapis.com/auth/drive.file": [
+                "gdrive:files:search",
+                "gdrive:files:read",
+                "gdrive:files:list",
+                "gdrive:files:metadata",
+            ],
         },
         "gcalendar": {
-            # Google Calendar API scopes
+            # Google Calendar API scopes — both short and full URL forms
             "calendar.readonly": [
+                "gcalendar:calendars:list",
+                "gcalendar:events:list",
+                "gcalendar:events:read",
+            ],
+            "https://www.googleapis.com/auth/calendar.readonly": [
                 "gcalendar:calendars:list",
                 "gcalendar:events:list",
                 "gcalendar:events:read",
@@ -155,10 +176,21 @@ class ScopeMapper:
                 "gcalendar:events:read",
                 "gcalendar:events:search",
             ],
+            "https://www.googleapis.com/auth/calendar.events.readonly": [
+                "gcalendar:events:list",
+                "gcalendar:events:read",
+                "gcalendar:events:search",
+            ],
         },
         "gmail": {
-            # Gmail API scopes
+            # Gmail API scopes — both short and full URL forms
             "gmail.readonly": [
+                "gmail:messages:list",
+                "gmail:messages:read",
+                "gmail:messages:search",
+                "gmail:labels:list",
+            ],
+            "https://www.googleapis.com/auth/gmail.readonly": [
                 "gmail:messages:list",
                 "gmail:messages:read",
                 "gmail:messages:search",

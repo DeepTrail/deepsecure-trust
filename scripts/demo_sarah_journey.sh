@@ -45,6 +45,7 @@ GATEWAY_URL="http://localhost:8002"
 KEYCLOAK_URL="http://localhost:8080"
 IDP_NAME="${IDP_NAME:-keycloak}"
 LISTENER_PORT=9876
+OAUTH_LISTENER_PORT=9877
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -93,6 +94,135 @@ show_json() {
   echo "$1" | python3 -m json.tool 2>/dev/null || echo "$1"
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# OAuth service connection via browser redirect
+#   Usage: connect_service_oauth <service_id> <display_name> <user_token>
+# ─────────────────────────────────────────────────────────────────────────────
+connect_service_oauth() {
+  local service_id="$1"
+  local display_name="$2"
+  local token="$3"
+
+  lsof -ti :$OAUTH_LISTENER_PORT 2>/dev/null | xargs kill -9 2>/dev/null || true
+  sleep 0.5
+  rm -f /tmp/oauth_connected_${service_id}.txt
+
+  python3 -c "
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+import html as html_mod
+
+class ReusableServer(HTTPServer):
+    allow_reuse_address = True
+    allow_reuse_port = True
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        params = parse_qs(urlparse(self.path).query)
+        svc = params.get('service_id', [''])[0]
+        status_val = params.get('status', [''])[0]
+        scopes = params.get('scopes', [''])[0]
+        safe_svc = html_mod.escape(svc.title())
+        safe_scopes = html_mod.escape(scopes).replace(',', ', ')
+
+        page = '''<!DOCTYPE html>
+<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
+<title>DeepTrail — Service Connected</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:#0a0e17;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;color:#e2e8f0}
+.card{background:linear-gradient(145deg,#131a2b 0%%,#0f1520 100%%);
+  border:1px solid rgba(59,130,246,.2);border-radius:16px;padding:48px 56px;
+  max-width:520px;width:90%%;text-align:center;
+  box-shadow:0 0 60px rgba(59,130,246,.06),0 20px 40px rgba(0,0,0,.4)}
+.logo{font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#3b82f6;
+  margin-bottom:32px;font-weight:600}
+h1{font-size:24px;font-weight:600;margin-bottom:6px}
+.badge{display:inline-block;background:rgba(16,185,129,.15);color:#10b981;
+  font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;
+  margin-left:8px;letter-spacing:.5px;vertical-align:middle}
+.subtitle{color:#94a3b8;font-size:15px;margin-top:12px;line-height:1.5}
+.scopes{margin:20px auto 0;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 20px;
+  font-size:13px;color:#cbd5e1;line-height:1.6;
+  word-wrap:break-word;overflow-wrap:break-word;word-break:break-all}
+.footer{margin-top:32px;font-size:12px;color:#475569}
+</style></head><body>
+<div class=\"card\">
+  <div class=\"logo\">DeepTrail</div>
+  <h1>''' + safe_svc + '''<span class=\"badge\">Connected</span></h1>
+  <p class=\"subtitle\">OAuth tokens securely stored in the vault.<br>
+     The script never touched the raw token.</p>
+  ''' + (f'<div class=\"scopes\">Scopes:<br>{safe_scopes}</div>' if safe_scopes else '') + '''
+  <p class=\"footer\">You may close this tab and return to the terminal.</p>
+</div></body></html>'''
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(page.encode())
+        with open('/tmp/oauth_connected_${service_id}.txt', 'w') as f:
+            f.write(status_val or 'connected')
+        raise SystemExit(0)
+    def log_message(self, *a): pass
+
+ReusableServer(('127.0.0.1', $OAUTH_LISTENER_PORT), Handler).handle_request()
+" &
+  local listener_pid=$!
+
+  local redirect_url="http://localhost:${OAUTH_LISTENER_PORT}/connected"
+  local auth_result
+  auth_result=$(curl -s "$CONTROL_URL/api/v1/oauth/${service_id}/authorize?redirect=false&post_connect_redirect=${redirect_url}" \
+    -H "Authorization: Bearer $token")
+
+  local auth_url
+  auth_url=$(echo "$auth_result" | jq -r '.authorization_url // empty')
+
+  if [ -z "$auth_url" ]; then
+    kill $listener_pid 2>/dev/null || true
+    warn "Failed to get authorization URL for $display_name: $(echo "$auth_result" | jq -c .)"
+    return 1
+  fi
+
+  info "Opening browser for $display_name OAuth consent..."
+  if command -v open &>/dev/null; then
+    open "$auth_url"
+  elif command -v xdg-open &>/dev/null; then
+    xdg-open "$auth_url"
+  else
+    info "Open this URL in your browser:"
+    echo "  $auth_url"
+  fi
+
+  info "Waiting for OAuth callback..."
+  local waited=0
+  while [ $waited -lt 120 ]; do
+    if [ -f "/tmp/oauth_connected_${service_id}.txt" ]; then
+      break
+    fi
+    if ! kill -0 $listener_pid 2>/dev/null; then
+      break
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+
+  wait $listener_pid 2>/dev/null || true
+  local connect_status
+  connect_status=$(cat /tmp/oauth_connected_${service_id}.txt 2>/dev/null || echo "")
+  rm -f /tmp/oauth_connected_${service_id}.txt
+
+  if [ "$connect_status" = "connected" ]; then
+    ok "$display_name connected via OAuth redirect"
+    insight "Token acquired by control plane — script never saw the raw OAuth token"
+    return 0
+  else
+    warn "$display_name OAuth connection timed out or failed"
+    return 1
+  fi
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # PRE-DEMO SETUP
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -102,24 +232,92 @@ if [ "$SKIP_SETUP" = false ] && [ "$START_ACT" -eq 0 ]; then
 
   step "Starting services (clean slate)"
   cd "$(git rev-parse --show-toplevel 2>/dev/null || echo /Users/imaxxs/repositories/deepsecure-mvp)"
-  docker compose down -v 2>/dev/null || true
-  docker compose up -d --build
-  echo ""
 
-  if [ "$IDP_NAME" = "keycloak" ]; then
-    info "Waiting 25s for Keycloak + Control Plane + Gateway + DB + Redis..."
-    sleep 25
+  # Source service OAuth credentials (Notion, Slack)
+  if [ -f ".env.services" ]; then
+    # shellcheck disable=SC1091
+    source .env.services
+    ok "Loaded service OAuth credentials from .env.services"
   else
-    info "Waiting 15s for Control Plane + Gateway + DB + Redis..."
-    sleep 15
+    warn ".env.services not found — Notion/Slack will use test credentials"
+    info "Run: cp .env.services.example .env.services  and fill in your values"
   fi
 
-  step "Verifying all services"
-  curl -sf "$CONTROL_URL/health" > /dev/null && ok "Control Plane healthy" || { fail "Control Plane unavailable"; exit 1; }
-  curl -sf "$GATEWAY_URL/health" > /dev/null && ok "Gateway healthy" || { fail "Gateway unavailable"; exit 1; }
+  # Build the docker compose command — add Google override when IDP_NAME=google
+  COMPOSE_CMD="docker compose -f docker-compose.yml"
+  if [ "$IDP_NAME" = "google" ]; then
+    if [ -f ".env.google" ]; then
+      # shellcheck disable=SC1091
+      source .env.google
+      ok "Loaded Google credentials from .env.google"
+      info "Client ID: ${GOOGLE_CLIENT_ID:0:20}..."
+      info "HD domain: ${GOOGLE_HD:-<not set>}"
+    else
+      fail ".env.google not found — required for IDP_NAME=google"
+      info "Run: cp .env.google.example .env.google  and fill in your values"
+      exit 1
+    fi
+    if [ -f "docker-compose.google.yml" ]; then
+      COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.google.yml"
+      ok "Using docker-compose.google.yml override"
+    else
+      fail "docker-compose.google.yml not found"
+      exit 1
+    fi
+  fi
 
+  $COMPOSE_CMD down -v 2>/dev/null || true
+  $COMPOSE_CMD up -d --build
+  echo ""
+
+  step "Waiting for services to become healthy"
+  MAX_WAIT=120
+  ELAPSED=0
+  INTERVAL=3
+
+  # Wait for Control Plane
+  info "Waiting for Control Plane ($CONTROL_URL/health)..."
+  while ! curl -sf "$CONTROL_URL/health" > /dev/null 2>&1; do
+    ELAPSED=$((ELAPSED + INTERVAL))
+    if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+      fail "Control Plane did not become healthy within ${MAX_WAIT}s"
+      docker compose logs deeptrail-control --tail 20
+      exit 1
+    fi
+    printf "  %${#MAX_WAIT}ds / ${MAX_WAIT}s ...\r" "$ELAPSED"
+    sleep $INTERVAL
+  done
+  ok "Control Plane healthy (${ELAPSED}s)"
+
+  # Wait for Gateway
+  info "Waiting for Gateway ($GATEWAY_URL/health)..."
+  while ! curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; do
+    ELAPSED=$((ELAPSED + INTERVAL))
+    if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+      fail "Gateway did not become healthy within ${MAX_WAIT}s"
+      docker compose logs deeptrail-gateway --tail 20
+      exit 1
+    fi
+    printf "  %${#MAX_WAIT}ds / ${MAX_WAIT}s ...\r" "$ELAPSED"
+    sleep $INTERVAL
+  done
+  ok "Gateway healthy (${ELAPSED}s)"
+
+  # Wait for Keycloak if needed
   if [ "$IDP_NAME" = "keycloak" ]; then
-    curl -sf "$KEYCLOAK_URL/health/ready" > /dev/null && ok "Keycloak healthy" || warn "Keycloak not ready (SSO will be skipped)"
+    info "Waiting for Keycloak ($KEYCLOAK_URL/health/ready)..."
+    while ! curl -sf "$KEYCLOAK_URL/health/ready" > /dev/null 2>&1; do
+      ELAPSED=$((ELAPSED + INTERVAL))
+      if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+        warn "Keycloak not ready after ${MAX_WAIT}s (SSO may not work)"
+        break
+      fi
+      printf "  %${#MAX_WAIT}ds / ${MAX_WAIT}s ...\r" "$ELAPSED"
+      sleep $INTERVAL
+    done
+    if curl -sf "$KEYCLOAK_URL/health/ready" > /dev/null 2>&1; then
+      ok "Keycloak healthy (${ELAPSED}s)"
+    fi
   else
     info "Skipping Keycloak health check (IDP_NAME=$IDP_NAME)"
   fi
@@ -146,10 +344,84 @@ if [ "$START_ACT" -le 1 ]; then
   fi
 
   if [ "$IDP_NAME" = "keycloak" ]; then
-    # ── Keycloak flow (automated via curl) ──────────────────────────────────
+    # ── Keycloak flow (browser-based, same pattern as Google SSO) ─────────
 
-    step "1.1 — Initiate SSO Authorization (PKCE + OIDC)"
-    SSO_RESULT=$(curl -s "$CONTROL_URL/api/v1/auth/sso/keycloak/authorize")
+    step "1.1 — Start local token listener"
+    lsof -ti :$LISTENER_PORT 2>/dev/null | xargs kill -9 2>/dev/null || true
+    sleep 1
+    rm -f /tmp/sso_token.txt
+    python3 -c "
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+import html as html_mod
+
+class ReusableServer(HTTPServer):
+    allow_reuse_address = True
+    allow_reuse_port = True
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        params = parse_qs(urlparse(self.path).query)
+        token = params.get('token', [None])[0]
+        name = params.get('name', [None])[0] or ''
+        email = params.get('email', [None])[0] or ''
+        safe_name = html_mod.escape(name) if name else ''
+        safe_email = html_mod.escape(email) if email else ''
+        display = safe_name or safe_email or 'User'
+
+        page = '''<!DOCTYPE html>
+<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
+<title>DeepTrail — Login Complete</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:#0a0e17;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;color:#e2e8f0}
+.card{background:linear-gradient(145deg,#131a2b 0%,#0f1520 100%);
+  border:1px solid rgba(16,185,129,.2);border-radius:16px;padding:48px 56px;
+  max-width:480px;width:90%;text-align:center;
+  box-shadow:0 0 60px rgba(16,185,129,.06),0 20px 40px rgba(0,0,0,.4)}
+.logo{font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#10b981;
+  margin-bottom:32px;font-weight:600}
+.logo span{color:#6ee7b7}
+h1{font-size:26px;font-weight:600;margin-bottom:6px}
+h1 .name{color:#fff}
+.badge{display:inline-block;background:rgba(16,185,129,.15);color:#10b981;
+  font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;
+  margin-left:8px;letter-spacing:.5px;vertical-align:middle}
+.subtitle{color:#94a3b8;font-size:15px;margin-top:12px;line-height:1.5}
+.email-tag{display:inline-block;margin-top:20px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 18px;
+  font-size:13px;color:#cbd5e1;letter-spacing:.3px}
+.footer{margin-top:32px;font-size:12px;color:#475569}
+.dot{display:inline-block;width:6px;height:6px;background:#10b981;
+  border-radius:50%;margin-right:6px;vertical-align:middle;
+  animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style></head><body>
+<div class=\"card\">
+  <div class=\"logo\">Deep<span>Trail</span></div>
+  <h1>Welcome, <span class=\"name\">''' + display + '''</span><span class=\"badge\">Authenticated</span></h1>
+  <p class=\"subtitle\">Your DeepTrail workspace is successfully initialized.</p>
+  ''' + (f'<div class=\"email-tag\">{safe_email}</div>' if safe_email else '') + '''
+  <p class=\"footer\"><span class=\"dot\"></span>You may close this tab and return to the terminal.</p>
+</div></body></html>'''
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(page.encode())
+        with open('/tmp/sso_token.txt', 'w') as f:
+            f.write(token or '')
+        raise SystemExit(0)
+    def log_message(self, *a): pass
+
+ReusableServer(('127.0.0.1', $LISTENER_PORT), Handler).handle_request()
+" &
+    LISTENER_PID=$!
+    ok "Token listener started on port $LISTENER_PORT (PID $LISTENER_PID)"
+
+    step "1.2 — Initiate SSO Authorization (PKCE + OIDC)"
+    SSO_RESULT=$(curl -s "$CONTROL_URL/api/v1/auth/sso/keycloak/authorize?post_login_redirect=http://localhost:$LISTENER_PORT/done")
 
     if echo "$SSO_RESULT" | jq -e '.authorization_url' > /dev/null 2>&1; then
       ok "Authorization URL generated"
@@ -158,46 +430,43 @@ if [ "$START_ACT" -le 1 ]; then
       info "State (CSRF): ${SSO_STATE:0:20}..."
       info "Auth URL points to Keycloak OIDC /auth with code_challenge_method=S256"
 
-      step "1.2 — Automated Keycloak Login (simulating browser flow)"
-      LOGIN_PAGE=$(curl -s -c /tmp/kc_cookies.txt -L "$AUTH_URL")
-      FORM_ACTION=$(echo "$LOGIN_PAGE" | sed -n 's/.*action="\([^"]*\)".*/\1/p' | head -1)
-      FORM_ACTION=$(echo "$FORM_ACTION" | sed 's/&amp;/\&/g')
-
-      if [ -n "$FORM_ACTION" ]; then
-        SSO_CALLBACK_RESPONSE=$(curl -s -b /tmp/kc_cookies.txt -c /tmp/kc_cookies.txt -L \
-          -d "username=sarah@acme.com" \
-          -d "password=test_password" \
-          "$FORM_ACTION")
-
-        USER_TOKEN=$(echo "$SSO_CALLBACK_RESPONSE" | jq -r '.token')
-
-        if [ -n "$USER_TOKEN" ] && [ "$USER_TOKEN" != "null" ]; then
-          ok "SSO login complete!"
-          info "User:    $(echo "$SSO_CALLBACK_RESPONSE" | jq -r '.user.email')"
-          info "Name:    $(echo "$SSO_CALLBACK_RESPONSE" | jq -r '.user.name')"
-          info "IdP:     $(echo "$SSO_CALLBACK_RESPONSE" | jq -r '.idp')"
-          info "Org:     $(echo "$SSO_CALLBACK_RESPONSE" | jq -r '.user.organization_id')"
-          info "Expires: $(echo "$SSO_CALLBACK_RESPONSE" | jq -r '.expires_in')s"
-
-          step "1.3 — Decode User Session JWT (Layer 2)"
-          decode_jwt "$USER_TOKEN"
-          echo ""
-          insight "KEY POINTS:"
-          insight "  • sub = sarah@acme.com (user identity)"
-          insight "  • session_id = usess-... (session tracking)"
-          insight "  • idp = keycloak (proves SSO provenance)"
-          insight "  • This token authorizes user-facing APIs, NOT gateway tool calls"
-        else
-          warn "SSO callback did not return a token, falling back to password login"
-          USER_TOKEN=""
-        fi
+      step "1.3 — Opening browser for Keycloak login"
+      info "A browser window will open. Log in with your Keycloak credentials."
+      info "  Users: sarah@deeptrail.com / mahendra@deeptrail.com  (password: test_password)"
+      if command -v open &>/dev/null; then
+        open "$AUTH_URL"
+      elif command -v xdg-open &>/dev/null; then
+        xdg-open "$AUTH_URL"
       else
-        warn "Could not extract Keycloak form, falling back to password login"
+        info "Open this URL in your browser:"
+        echo "  $AUTH_URL"
+      fi
+
+      step "1.4 — Waiting for Keycloak login to complete..."
+      info "Waiting for redirect to local listener on port $LISTENER_PORT..."
+      wait $LISTENER_PID 2>/dev/null || true
+      USER_TOKEN=$(cat /tmp/sso_token.txt 2>/dev/null || echo "")
+      rm -f /tmp/sso_token.txt
+
+      if [ -n "$USER_TOKEN" ] && [ "$USER_TOKEN" != "null" ] && [ "$USER_TOKEN" != "" ]; then
+        ok "SSO login complete via Keycloak!"
+
+        step "1.5 — Decode User Session JWT (Layer 2)"
+        decode_jwt "$USER_TOKEN"
+        echo ""
+        insight "KEY POINTS:"
+        insight "  • sub = <keycloak-user-email> (user identity)"
+        insight "  • session_id = usess-... (session tracking)"
+        insight "  • idp = keycloak (proves Keycloak SSO provenance)"
+        insight "  • groups = engineering/sales/platform-team (from Keycloak)"
+        insight "  • This token authorizes user-facing APIs, NOT gateway tool calls"
+      else
+        warn "Keycloak SSO did not return a token, falling back to password login"
         USER_TOKEN=""
       fi
-      rm -f /tmp/kc_cookies.txt
     else
       warn "Keycloak unavailable, falling back to password login"
+      kill $LISTENER_PID 2>/dev/null || true
       USER_TOKEN=""
     fi
 
@@ -332,7 +601,7 @@ ReusableServer(('127.0.0.1', $LISTENER_PORT), Handler).handle_request()
     step "1.F — Fallback: Password Login"
     LOGIN_RESP=$(curl -s -X POST "$CONTROL_URL/api/v1/auth/login" \
       -H "Content-Type: application/json" \
-      -d '{"email":"sarah@acme.com","password":"test_password"}')
+      -d '{"email":"sarah@deeptrail.com","password":"test_password"}')
     USER_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token')
     ok "Password login successful (token: ${USER_TOKEN:0:30}...)"
 
@@ -357,53 +626,14 @@ if [ "$START_ACT" -le 2 ]; then
   if [ -z "${USER_TOKEN:-}" ]; then
     USER_TOKEN=$(curl -s -X POST "$CONTROL_URL/api/v1/auth/login" \
       -H "Content-Type: application/json" \
-      -d '{"email":"sarah@acme.com","password":"test_password"}' | jq -r '.token')
+      -d '{"email":"sarah@deeptrail.com","password":"test_password"}' | jq -r '.token')
   fi
 
-  step "2.1 — Connect Notion"
-  NOTION_TOKEN="${NOTION_API_KEY:-test_notion_token_12345}"
-  NOTION_EXPIRES="${NOTION_EXPIRES:-2027-01-01T00:00:00.000000+00:00}"
-  CONNECT_NOTION=$(curl -s -X POST "$CONTROL_URL/api/v1/users/me/services/connect" \
-    -H "Authorization: Bearer $USER_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"service_id\": \"notion\",
-      \"oauth_token\": {
-        \"access_token\": \"$NOTION_TOKEN\",
-        \"token_type\": \"bearer\",
-        \"scope\": \"read_pages search_content update_content\",
-        \"expires_at\": \"$NOTION_EXPIRES\"
-      }
-    }")
-  if echo "$CONNECT_NOTION" | jq -e '.success == true' > /dev/null 2>&1; then
-    ok "Notion connected (scopes: read_pages, search_content, update_content)"
-    if [ "$NOTION_TOKEN" != "test_notion_token_12345" ]; then
-      info "Using REAL Notion API key"
-    else
-      info "Using mock token (set NOTION_API_KEY for real API)"
-    fi
-  else
-    warn "Notion connect: $(echo "$CONNECT_NOTION" | jq -c .)"
-  fi
+  step "2.1 — Connect Notion (OAuth redirect)"
+  connect_service_oauth "notion" "Notion" "$USER_TOKEN" || true
 
-  step "2.2 — Connect Slack"
-  SLACK_TOKEN="${SLACK_BOT_TOKEN:-test_slack_token_67890}"
-  CONNECT_SLACK=$(curl -s -X POST "$CONTROL_URL/api/v1/users/me/services/connect" \
-    -H "Authorization: Bearer $USER_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"service_id\": \"slack\",
-      \"oauth_token\": {
-        \"access_token\": \"$SLACK_TOKEN\",
-        \"token_type\": \"bearer\",
-        \"scope\": \"channels:read channels:history chat:write search:read\"
-      }
-    }")
-  if echo "$CONNECT_SLACK" | jq -e '.success == true' > /dev/null 2>&1; then
-    ok "Slack connected (scopes: channels:read, channels:history, chat:write, search:read)"
-  else
-    warn "Slack connect: $(echo "$CONNECT_SLACK" | jq -c .)"
-  fi
+  step "2.2 — Connect Slack (OAuth redirect)"
+  connect_service_oauth "slack" "Slack" "$USER_TOKEN" || true
 
   step "2.3 — Discover Available Permissions (monotonic attenuation boundary)"
   AVAIL_PERMS=$(curl -s "$CONTROL_URL/api/v1/users/me/available-permissions" \
@@ -430,7 +660,7 @@ if [ "$START_ACT" -le 3 ]; then
   if [ -z "${USER_TOKEN:-}" ]; then
     USER_TOKEN=$(curl -s -X POST "$CONTROL_URL/api/v1/auth/login" \
       -H "Content-Type: application/json" \
-      -d '{"email":"sarah@acme.com","password":"test_password"}' | jq -r '.token')
+      -d '{"email":"sarah@deeptrail.com","password":"test_password"}' | jq -r '.token')
   fi
 
   step "3.1 — Generate Ed25519 Keypair (agent cryptographic identity)"
@@ -482,7 +712,9 @@ print(f'export PUBLIC_KEY_B64={base64.b64encode(public_key.encode()).decode()}')
       }
     }")
   show_json "$DELEGATION_RESULT"
+  DELEGATION_ID=$(echo "$DELEGATION_RESULT" | jq -r '.delegation_id')
   ok "Delegation created with 7 permissions"
+  info "Delegation ID: $DELEGATION_ID"
   info "Delegation token is Macaroon-based with embedded constraints"
   info "Permissions: notion:{search,read,blocks,update} + slack:{list,history,send}"
 
@@ -545,7 +777,8 @@ print(base64.urlsafe_b64encode(signed.signature).decode())
     -d "{
       \"agent_id\": \"$AGENT_ID\",
       \"challenge\": \"$CHALLENGE\",
-      \"signature\": \"$SIGNATURE\"
+      \"signature\": \"$SIGNATURE\",
+      \"delegation_id\": \"$DELEGATION_ID\"
     }")
 
   AGENT_JWT=$(echo "$VERIFY_RESP" | jq -r '.access_token')
@@ -559,7 +792,7 @@ print(base64.urlsafe_b64encode(signed.signature).decode())
     echo ""
     insight "KEY DIFFERENCES from User Token:"
     insight "  • sub = $AGENT_ID (agent identity, not user)"
-    insight "  • owner = sarah@acme.com (human accountability)"
+    insight "  • owner = sarah@deeptrail.com (human accountability)"
     insight "  • delegated_permissions = [7 permissions] (embedded in JWT)"
     insight "  • delegation_id = reference to active delegation"
     insight "  • Gateway uses these claims for tool filtering + credential injection"
@@ -656,7 +889,7 @@ except: print('  (could not parse page details)')
     elif echo "$RESULT_TEXT" | grep -q "Unauthorized" 2>/dev/null; then
       warn "Notion returned 401 — token may have expired. Re-connect in ACT 2."
     else
-      info "Mock/empty response (set NOTION_API_KEY for real API data)"
+      info "Mock/empty response (re-connect Notion via OAuth in ACT 2 for real API data)"
     fi
   else
     warn "RESPONSE ← ERROR"
@@ -856,7 +1089,7 @@ except Exception as e:
   fi
 
   step "5.7 — Execute Tool Call: slack.list_channels"
-  SLACK_REQ='{"jsonrpc":"2.0","method":"tools/call","id":5,"params":{"name":"slack.list_channels","arguments":{"limit":10,"types":"public_channel,private_channel"}}}'
+  SLACK_REQ='{"jsonrpc":"2.0","method":"tools/call","id":5,"params":{"name":"slack.list_channels","arguments":{"limit":10,"types":"public_channel"}}}'
   info "REQUEST → POST $GATEWAY_URL/mcp"
   info "  Auth: Bearer \$AGENT_JWT"
   echo -e "  ${CYAN}$(echo "$SLACK_REQ" | python3 -m json.tool 2>/dev/null)${NC}"
@@ -907,13 +1140,12 @@ except Exception as e:
       warn "Slack API: Token is missing required scopes"
       insight "FIX: Your Slack app needs the 'channels:read' scope."
       insight "  1. Go to https://api.slack.com/apps → your app → OAuth & Permissions"
-      insight "  2. Add Bot Token Scope: channels:read"
+      insight "  2. Add User Token Scope: channels:read"
       insight "  3. Reinstall the app to your workspace"
-      insight "  4. Copy the new xoxb- token and re-export SLACK_BOT_TOKEN"
+      insight "  4. Re-connect Slack via OAuth in ACT 2"
     elif echo "$SLACK_TEXT" | grep -qiE "invalid_auth|not_authed|token_revoked|Invalid authentication" 2>/dev/null; then
       warn "Slack API: Invalid or expired token"
-      insight "FIX: Set SLACK_BOT_TOKEN env var with a valid xoxb- token"
-      insight "  export SLACK_BOT_TOKEN=\"xoxb-your-token\""
+      insight "FIX: Re-connect Slack via OAuth in ACT 2 to get a fresh token"
     else
       info "Unexpected response — check token and scopes"
     fi
@@ -1282,7 +1514,7 @@ if [ "$START_ACT" -le 8 ]; then
   if [ -z "${USER_TOKEN:-}" ]; then
     USER_TOKEN=$(curl -s -X POST "$CONTROL_URL/api/v1/auth/login" \
       -H "Content-Type: application/json" \
-      -d '{"email":"sarah@acme.com","password":"test_password"}' | jq -r '.token')
+      -d '{"email":"sarah@deeptrail.com","password":"test_password"}' | jq -r '.token')
   fi
 
   step "8.1 — Query Audit Events for This Agent"
@@ -1293,10 +1525,10 @@ if [ "$START_ACT" -le 8 ]; then
   show_json "$AUDIT_RESULT"
 
   step "8.2 — Query by User (compliance view)"
-  USER_AUDIT=$(curl -s "$CONTROL_URL/api/v1/audit/events?on_behalf_of=sarah@acme.com&limit=5" \
+  USER_AUDIT=$(curl -s "$CONTROL_URL/api/v1/audit/events?on_behalf_of=sarah@deeptrail.com&limit=5" \
     -H "Authorization: Bearer $USER_TOKEN")
   USER_EVENT_COUNT=$(echo "$USER_AUDIT" | jq -r '.events | length')
-  ok "Events for sarah@acme.com: $USER_EVENT_COUNT"
+  ok "Events for sarah@deeptrail.com: $USER_EVENT_COUNT"
   echo ""
   insight "Each event contains:"
   insight "  • event_type: mcp_tool_call | permission_denied | prompt_injection_blocked"
@@ -1322,8 +1554,8 @@ if [ "$START_ACT" -le 9 ]; then
   echo -e "${BOLD}  ┌────────────────────┬─────────────────────────┬─────────────────────────┬─────────────────────────┐${NC}"
   echo -e "${BOLD}  │ Claim              │ User Token (L2)         │ Agent JWT (L3)          │ Task Token (L4)         │${NC}"
   echo -e "${BOLD}  ├────────────────────┼─────────────────────────┼─────────────────────────┼─────────────────────────┤${NC}"
-  echo -e "  │ ${CYAN}Primary ID${NC}         │ sub: sarah@acme.com     │ sub: $AGENT_ID │ agent_id: (same)        │"
-  echo -e "  │ ${CYAN}Owner/User${NC}         │ (self)                  │ owner: sarah@acme.com   │ owner: sarah@acme.com   │"
+  echo -e "  │ ${CYAN}Primary ID${NC}         │ sub: sarah@deeptrail.com     │ sub: $AGENT_ID │ agent_id: (same)        │"
+  echo -e "  │ ${CYAN}Owner/User${NC}         │ (self)                  │ owner: sarah@deeptrail.com   │ owner: sarah@deeptrail.com   │"
   echo -e "  │ ${CYAN}Session key${NC}        │ session_id: usess-...   │ session_id: asess-...   │ task_id: task-...        │"
   echo -e "  │ ${CYAN}Permissions${NC}        │ (none embedded)         │ delegated_permissions:7 │ scoped_permissions: 1   │"
   echo -e "  │ ${CYAN}Scope${NC}              │ All user APIs           │ All delegated tools     │ Single-task tools only   │"

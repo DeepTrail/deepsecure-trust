@@ -10,12 +10,18 @@ These endpoints enable real OAuth connections to backend services
 """
 
 import logging
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
 
+from app.api.deps import get_db
 from app.core.config import settings
+from app.models.connected_service import ConnectedService
 from app.schemas.oauth import (
     AuthorizationRequest,
     AuthorizeApiResponse,
@@ -133,15 +139,19 @@ async def oauth_authorize(
     service_id: str,
     scopes: Optional[str] = Query(None, description="Comma-separated scopes to request"),
     redirect: bool = Query(False, description="If true, redirect to auth URL"),
+    post_connect_redirect: Optional[str] = Query(
+        None, description="URL to redirect to after successful OAuth connection"
+    ),
     authorization: str = Header(...),
     oauth_service: OAuthService = Depends(get_oauth_service_dep),
 ):
     """Initiate OAuth authorization flow.
 
     Args:
-        service_id: Service to authorize (notion, slack, hubspot)
+        service_id: Service to authorize (notion, slack, hubspot, gdrive, gcalendar, gmail)
         scopes: Optional comma-separated scopes to request
         redirect: If true, redirect to auth URL instead of returning JSON
+        post_connect_redirect: URL to redirect to after successful connection
         authorization: Bearer token for user authentication
         oauth_service: OAuthService instance
 
@@ -169,6 +179,7 @@ async def oauth_authorize(
         provider=provider,
         user_id=current_user,
         requested_scopes=scope_list,
+        post_connect_redirect=post_connect_redirect,
     )
 
     try:
@@ -230,20 +241,16 @@ async def oauth_callback(
     error_description: Optional[str] = Query(None, description="Error description"),
     oauth_service: OAuthService = Depends(get_oauth_service_dep),
     vault_client: VaultClient = Depends(get_vault_client),
+    db: Session = Depends(get_db),
 ):
     """Handle OAuth callback from provider.
 
-    Args:
-        service_id: Service that sent the callback
-        code: Authorization code from provider
-        state: State token for CSRF validation
-        error: Error code from provider (if authorization failed)
-        error_description: Error description from provider
-        oauth_service: OAuthService instance
-        vault_client: VaultClient for storing tokens
+    Exchanges the authorization code for tokens, persists them in the vault
+    (DB-backed), and creates/updates a ConnectedService row so the gateway
+    can retrieve the token via GET /vault/tokens/{service_id}.
 
-    Returns:
-        CallbackApiResponse indicating success and scopes granted
+    If post_connect_redirect was set during authorize, redirects there after
+    storing the token (used by the demo script to detect completion).
     """
     # Handle OAuth error from provider
     if error:
@@ -266,14 +273,15 @@ async def oauth_callback(
         )
 
     # Validate service
-    if service_id.lower() not in SUPPORTED_SERVICES:
+    sid = service_id.lower()
+    if sid not in SUPPORTED_SERVICES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": "invalid_service", "message": f"Unknown service: {service_id}"},
         )
 
     # Map to OAuthProvider enum
-    provider = SERVICE_TO_PROVIDER[service_id.lower()]
+    provider = SERVICE_TO_PROVIDER[sid]
 
     # Validate state and get associated data
     oauth_state = oauth_service.get_pending_state(state)
@@ -285,6 +293,7 @@ async def oauth_callback(
         )
 
     user_id = oauth_state.user_id
+    post_redirect = oauth_state.post_connect_redirect
 
     # Build token exchange request
     exchange_request = TokenExchangeRequest(
@@ -297,7 +306,7 @@ async def oauth_callback(
     # Exchange code for tokens
     try:
         tokens = await oauth_service.exchange_code_for_tokens(
-            exchange_request, service_id=service_id.lower()
+            exchange_request, service_id=sid
         )
     except OAuthStateError as e:
         logger.warning(f"OAuth state validation failed: {e}")
@@ -312,33 +321,72 @@ async def oauth_callback(
             detail={"error": "token_exchange_failed", "message": str(e)},
         )
 
-    # Store tokens in vault
+    # Store tokens in vault — with DB persistence
     token_data = {
         "access_token": tokens.access_token,
-        "token_type": tokens.token_type,
-        "refresh_token": tokens.refresh_token,
-        "scope": tokens.scope,
+        "token_type": tokens.token_type or "bearer",
+        "stored_at": datetime.now(timezone.utc).isoformat(),
     }
+    if tokens.refresh_token:
+        token_data["refresh_token"] = tokens.refresh_token
+    if tokens.scope:
+        token_data["scope"] = tokens.scope
 
-    vault_client.store_token(
+    token_ref = vault_client.store_token(
         user_id=user_id,
-        service_id=service_id.lower(),
+        service_id=sid,
         token_data=token_data,
         expires_in=tokens.expires_in,
+        db=db,
     )
 
-    logger.info(
-        "OAuth connection completed: service=%s user=%s",
-        service_id,
-        user_id,
-    )
-
-    # Parse scopes
+    # Create or update ConnectedService row
     scopes_granted = tokens.scope.split() if tokens.scope else []
+    connected_at = datetime.now(timezone.utc)
+
+    existing = db.query(ConnectedService).filter(
+        ConnectedService.user_id == user_id,
+        ConnectedService.service_id == sid,
+    ).first()
+
+    if existing:
+        existing.oauth_token_ref = token_ref
+        existing.scopes_granted = scopes_granted
+        existing.disconnected_at = None
+        existing.connected_at = connected_at
+        db.commit()
+        db.refresh(existing)
+        logger.info("OAuth reconnected: service=%s user=%s", sid, user_id)
+    else:
+        connection = ConnectedService(
+            id=f"conn-{uuid.uuid4()}",
+            user_id=user_id,
+            service_id=sid,
+            service_name=sid,
+            oauth_token_ref=token_ref,
+            scopes_granted=scopes_granted,
+            connected_at=connected_at,
+        )
+        db.add(connection)
+        db.commit()
+        db.refresh(connection)
+        logger.info("OAuth connected: service=%s user=%s", sid, user_id)
+
+    # Redirect to post_connect_redirect if set (demo script pattern)
+    if post_redirect:
+        redirect_params = {
+            "service_id": sid,
+            "status": "connected",
+            "scopes": ",".join(scopes_granted),
+        }
+        return RedirectResponse(
+            url=f"{post_redirect}?{urlencode(redirect_params)}",
+            status_code=302,
+        )
 
     return CallbackApiResponse(
         success=True,
-        service_id=service_id.lower(),
+        service_id=sid,
         connected=True,
         scopes_granted=scopes_granted,
     )

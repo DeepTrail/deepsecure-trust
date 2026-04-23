@@ -367,6 +367,19 @@ async def sso_callback(
                 exc_info=True,
             )
 
+    # Fallback: use the hosted domain (hd) as a synthetic group when
+    # Directory API returned nothing.  This lets group_policies.yaml
+    # map domain-level roles (e.g. "deeptrail.com" → engineer).
+    if idp == "google" and not claims.groups:
+        hd = (claims.raw_claims or {}).get("hd")
+        if hd:
+            claims.groups = [hd]
+            logger.info(
+                "No Directory API groups for %s — using hd=%s as synthetic group",
+                claims.email,
+                hd,
+            )
+
     # Provision user (applies static _GROUP_TO_ROLE_MAP as a baseline)
     user_data = await provision_user_from_claims(claims)
 

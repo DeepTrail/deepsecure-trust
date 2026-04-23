@@ -93,7 +93,7 @@ class SessionNotFoundError(AgentSessionError):
 @dataclass
 class MVPSession:
     """Simplified session for MVP (no database).
-    
+
     Represents an agent session without requiring database tables.
     """
     id: str
@@ -103,6 +103,7 @@ class MVPSession:
     scoped_permissions: List[str]
     owner_email: str
     organization_id: Optional[str] = None
+    delegation_id: Optional[str] = None
 
 
 @dataclass
@@ -264,7 +265,7 @@ class AgentSessionService:
         # Production would validate delegation and create database session
         
         # 5. Create in-memory session
-        session = self._create_mvp_session(agent_id, party_type)
+        session = self._create_mvp_session(agent_id, party_type, delegation_id)
 
         # 6. Generate JWT
         token = self._generate_mvp_jwt(agent_id, session)
@@ -329,12 +330,12 @@ class AgentSessionService:
         self,
         agent_id: str,
         party_type: PartyType = PartyType.FIRST_PARTY,
+        delegation_id: Optional[str] = None,
     ) -> "MVPSession":
         """Create an in-memory session for MVP (no database).
         
         This bypasses the database tables that don't exist yet.
         """
-        # Import here to avoid circular imports
         from app.api.v1.endpoints.delegation import get_delegation_for_agent
         
         session_id = f"asess-{uuid.uuid4().hex[:12]}"
@@ -344,13 +345,17 @@ class AgentSessionService:
         
         # MVP: Get actual permissions from in-memory delegation storage
         delegation = get_delegation_for_agent(agent_id)
+        resolved_delegation_id = delegation_id
         if delegation:
             scoped_permissions = delegation.get("permissions", [])
             owner_email = delegation.get("user_id", "sarah@acme.com")
             organization_id = delegation.get("organization_id")
+            if not resolved_delegation_id:
+                resolved_delegation_id = delegation.get("id")
             logger.info(
                 f"Found delegation for agent {agent_id} with "
-                f"{len(scoped_permissions)} permissions, org={organization_id}"
+                f"{len(scoped_permissions)} permissions, "
+                f"delegation_id={resolved_delegation_id}, org={organization_id}"
             )
         else:
             scoped_permissions = []
@@ -368,6 +373,7 @@ class AgentSessionService:
             scoped_permissions=scoped_permissions,
             owner_email=owner_email,
             organization_id=organization_id,
+            delegation_id=resolved_delegation_id,
         )
 
     def _generate_mvp_jwt(self, agent_id: str, session: "MVPSession") -> str:
@@ -385,7 +391,7 @@ class AgentSessionService:
             "session_id": session.id,
             "owner": session.owner_email,
             "delegated_permissions": session.scoped_permissions,
-            "delegation_id": "mvp-delegation",
+            "delegation_id": session.delegation_id,
             "organization_id": session.organization_id,
         }
         

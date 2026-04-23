@@ -8,7 +8,7 @@ This service manages the complete OAuth lifecycle for external services:
 
 Supported providers:
 - Notion (requires PKCE)
-- Slack (standard OAuth 2.0)
+- Slack (requires PKCE for localhost redirect URIs)
 - HubSpot (standard OAuth 2.0)
 
 Security features:
@@ -86,7 +86,7 @@ class OAuthRefreshError(OAuthError):
 # Default scopes for each provider
 DEFAULT_SCOPES = {
     OAuthProvider.NOTION: [],  # Notion uses integration-level permissions
-    OAuthProvider.SLACK: ["chat:write", "channels:read", "users:read"],
+    OAuthProvider.SLACK: ["channels:read", "channels:history", "chat:write"],
     OAuthProvider.HUBSPOT: ["crm.objects.contacts.read", "crm.objects.contacts.write"],
     OAuthProvider.GOOGLE: [],  # Service-specific scopes used instead
 }
@@ -108,7 +108,7 @@ PROVIDER_URLS = {
     OAuthProvider.SLACK: {
         "authorization_url": "https://slack.com/oauth/v2/authorize",
         "token_url": "https://slack.com/api/oauth.v2.access",
-        "uses_pkce": False,
+        "uses_pkce": True,
     },
     OAuthProvider.HUBSPOT: {
         "authorization_url": "https://app.hubspot.com/oauth/authorize",
@@ -241,8 +241,8 @@ class OAuthService:
 
         # Use service-specific scopes if available, otherwise provider defaults
         scopes = (
-            SERVICE_DEFAULT_SCOPES.get(service_id, [])
-            if service_id
+            SERVICE_DEFAULT_SCOPES.get(service_id)
+            if service_id and service_id in SERVICE_DEFAULT_SCOPES
             else DEFAULT_SCOPES.get(provider, [])
         )
 
@@ -292,6 +292,7 @@ class OAuthService:
             user_id=request.user_id,
             provider=request.provider.value,
             code_verifier=code_verifier,
+            post_connect_redirect=request.post_connect_redirect,
         )
 
         # Build authorization URL
@@ -303,10 +304,14 @@ class OAuthService:
             "state": state_token,
         }
 
-        # Add scopes (Notion uses different parameter name)
+        # Add scopes (provider-specific parameter names)
         if request.provider == OAuthProvider.NOTION:
-            # Notion doesn't use scopes in OAuth URL
             params["owner"] = "user"
+        elif request.provider == OAuthProvider.SLACK:
+            # Slack requires user_scope (not scope) for non-web redirect URIs
+            # like https://localhost. Bot scopes are rejected for localhost.
+            if scopes:
+                params["user_scope"] = " ".join(scopes)
         elif scopes:
             params["scope"] = " ".join(scopes)
 
@@ -559,6 +564,7 @@ class OAuthService:
         user_id: str,
         provider: str,
         code_verifier: Optional[str] = None,
+        post_connect_redirect: Optional[str] = None,
     ) -> str:
         """Generate and store a state token.
 
@@ -566,6 +572,7 @@ class OAuthService:
             user_id: User initiating authorization.
             provider: OAuth provider name.
             code_verifier: PKCE verifier to store with state.
+            post_connect_redirect: URL to redirect to after successful connection.
 
         Returns:
             The state token (to include in authorization URL).
@@ -581,6 +588,7 @@ class OAuthService:
             created_at=now,
             expires_at=now + timedelta(seconds=ttl),
             code_verifier=code_verifier,
+            post_connect_redirect=post_connect_redirect,
         )
 
         self._pending_states[state_token] = state
@@ -685,21 +693,37 @@ class OAuthService:
         Returns:
             Normalized OAuthTokenResponse.
         """
-        # Slack has nested structure
+        # Slack v2 nests user token data under "authed_user" when user_scope is used.
+        # We must prefer authed_user fields over top-level fields because user scopes,
+        # user token, refresh_token, and expires_in are ALL inside authed_user.
         if provider == OAuthProvider.SLACK:
-            access_token = data.get("access_token") or data.get("authed_user", {}).get(
-                "access_token"
-            )
-            scope = data.get("scope")
+            authed_user = data.get("authed_user", {})
+            access_token = authed_user.get("access_token") or data.get("access_token")
+            refresh_token = authed_user.get("refresh_token") or data.get("refresh_token")
+            expires_in = authed_user.get("expires_in") or data.get("expires_in")
+            # Slack's authed_user.token_type = "user" (meaning user token vs bot token),
+            # NOT the OAuth standard "Bearer". Always use "Bearer" for API calls.
+            token_type = "Bearer"
+            raw_scope = authed_user.get("scope") or data.get("scope", "")
+            scope = raw_scope.replace(",", " ") if raw_scope else None
+        elif provider == OAuthProvider.NOTION:
+            access_token = data.get("access_token")
+            refresh_token = data.get("refresh_token")
+            expires_in = data.get("expires_in")
+            token_type = data.get("token_type", "Bearer")
+            scope = "read_content update_content insert_content"
         else:
             access_token = data.get("access_token")
+            refresh_token = data.get("refresh_token")
+            expires_in = data.get("expires_in")
+            token_type = data.get("token_type", "Bearer")
             scope = data.get("scope")
 
         return OAuthTokenResponse(
             access_token=access_token,
-            token_type=data.get("token_type", "Bearer"),
-            expires_in=data.get("expires_in"),
-            refresh_token=data.get("refresh_token"),
+            token_type=token_type,
+            expires_in=expires_in,
+            refresh_token=refresh_token,
             scope=scope,
         )
 

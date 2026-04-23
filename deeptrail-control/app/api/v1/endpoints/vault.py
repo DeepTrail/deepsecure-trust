@@ -226,6 +226,9 @@ SERVICE_TO_PROVIDER = {
     "notion": OAuthProvider.NOTION,
     "slack": OAuthProvider.SLACK,
     "hubspot": OAuthProvider.HUBSPOT,
+    "gdrive": OAuthProvider.GOOGLE,
+    "gcalendar": OAuthProvider.GOOGLE,
+    "gmail": OAuthProvider.GOOGLE,
 }
 
 

@@ -298,7 +298,9 @@ def create_oidc_provider(config: IdPConfig | None = None) -> OIDCProvider:
 # in sso.py runs *after* provision_user_from_claims and merges
 # additional roles and permissions on top.
 _GROUP_TO_ROLE_MAP = {
-    "acme-org": "user",
+    "engineering": "engineer",
+    "sales": "sales",
+    "platform-team": "engineer",
     "admin-org": "admin",
 }
 
@@ -328,22 +330,27 @@ async def provision_user_from_claims(claims: OIDCClaims) -> dict:
     user_record = _provisioned_users.get(claims.sub)
     is_new = user_record is None
 
+    # Derive organization_id: prefer hd claim (Google Workspace domain),
+    # then email domain, then first group (Keycloak legacy).
+    org_id = None
+    if claims.raw_claims:
+        org_id = claims.raw_claims.get("hd")
+    if not org_id and claims.email and "@" in claims.email:
+        org_id = claims.email.split("@", 1)[1]
+    if not org_id and claims.groups:
+        org_id = claims.groups[0]
+
     user_data = {
         "user_id": claims.sub,
         "email": claims.email,
         "name": claims.name or claims.email,
         "roles": mapped_roles,
         "groups": claims.groups or [],
-        "organization_id": (claims.groups[0] if claims.groups else None),
+        "organization_id": org_id,
         "is_new_user": is_new,
         "idp_issuer": claims.issuer,
         "last_login": datetime.now(tz=None).isoformat(),
     }
-
-    if not user_data["organization_id"] and claims.raw_claims:
-        hd = claims.raw_claims.get("hd")
-        if hd:
-            user_data["organization_id"] = hd
 
     _provisioned_users[claims.sub] = user_data
     logger.info(
