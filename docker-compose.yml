@@ -111,6 +111,8 @@ services:
       - NOTION_CLIENT_SECRET=${NOTION_CLIENT_SECRET:-test-notion-client-secret}
       - SLACK_CLIENT_ID=${SLACK_CLIENT_ID:-test-slack-client-id}
       - SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET:-test-slack-client-secret}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - HUBSPOT_CLIENT_ID=test-hubspot-client-id
       - HUBSPOT_CLIENT_SECRET=test-hubspot-client-secret
       
