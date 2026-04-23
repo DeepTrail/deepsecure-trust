@@ -196,6 +196,57 @@ class GmailDirectClient:
         )
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Internal helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _enrich_message_list(
+        self,
+        messages: list[dict[str, Any]],
+        auth_token: str,
+    ) -> list[dict[str, Any]]:
+        """Fetch metadata (Subject, From, Date, snippet) for a list of message stubs.
+
+        Gmail's list/search endpoints only return ``{id, threadId}``.
+        This helper does individual ``GET messages/{id}?format=metadata``
+        calls to populate each entry with human-readable fields.
+        """
+        if not messages:
+            return messages
+
+        enriched: list[dict[str, Any]] = []
+        headers_to_fetch = ["Subject", "From", "Date"]
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            for msg in messages:
+                msg_id = msg.get("id", "")
+                try:
+                    resp = await client.get(
+                        f"{self.base_url}/users/me/messages/{msg_id}",
+                        params={
+                            "format": "metadata",
+                            "metadataHeaders": headers_to_fetch,
+                        },
+                        headers=self._get_headers(auth_token),
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        header_map: dict[str, str] = {}
+                        for h in data.get("payload", {}).get("headers", []):
+                            header_map[h["name"]] = h["value"]
+                        enriched.append({
+                            "id": msg_id,
+                            "threadId": msg.get("threadId", ""),
+                            "subject": header_map.get("Subject", ""),
+                            "from": header_map.get("From", ""),
+                            "date": header_map.get("Date", ""),
+                            "snippet": data.get("snippet", ""),
+                        })
+                    else:
+                        enriched.append(msg)
+                except Exception:
+                    enriched.append(msg)
+        return enriched
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Tool Methods
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -205,11 +256,11 @@ class GmailDirectClient:
         max_results: int = 10,
         label_ids: list[str] | None = None,
     ) -> ToolResult:
-        """List messages in the user's mailbox.
+        """List recent messages in the user's mailbox with metadata.
 
-        Calls ``GET /users/me/messages``. Returns only
-        ``{id, threadId}`` per message — full content requires
-        :meth:`read_message`.
+        Calls ``GET /users/me/messages`` with a ``newer_than:30d`` filter
+        then enriches each result with Subject, From, Date, and snippet
+        so the response is human-readable.
 
         ``label_ids`` is forwarded as repeated ``labelIds`` query params, e.g.
         ``?labelIds=INBOX&labelIds=UNREAD``.
@@ -220,10 +271,9 @@ class GmailDirectClient:
             )
 
         url = f"{self.base_url}/users/me/messages"
-        # httpx serialises a list value into repeated params, which matches
-        # Gmail's API expectation for `labelIds`.
         params: dict[str, Any] = {
             "maxResults": min(max(int(max_results), 1), 500),
+            "q": "newer_than:30d",
         }
         if label_ids:
             params["labelIds"] = list(label_ids)
@@ -237,7 +287,26 @@ class GmailDirectClient:
                     params=params,
                     headers=self._get_headers(auth_token),
                 )
-            return self._transform_response("list_messages", response, start_time)
+
+            if response.status_code >= 400:
+                return self._transform_response("list_messages", response, start_time)
+
+            data = response.json()
+            messages = data.get("messages", [])
+            enriched = await self._enrich_message_list(messages, auth_token)
+
+            duration_ms = (
+                datetime.now(timezone.utc) - start_time
+            ).total_seconds() * 1000
+
+            result_data = {"messages": enriched, "resultSizeEstimate": data.get("resultSizeEstimate", len(enriched))}
+            return ToolResult(
+                status=ToolCallStatus.SUCCESS,
+                is_error=False,
+                content=[{"type": "text", "text": json.dumps(result_data)}],
+                raw=result_data,
+                duration_ms=duration_ms,
+            )
 
         except httpx.TimeoutException:
             return ToolResult.from_error(
@@ -304,9 +373,12 @@ class GmailDirectClient:
         auth_token: str | None = None,
         max_results: int = 10,
     ) -> ToolResult:
-        """Search messages using Gmail's ``q`` query syntax.
+        """Search messages using Gmail's ``q`` query syntax, with metadata.
 
-        Calls ``GET /users/me/messages?q={query}&maxResults={n}``.
+        Calls ``GET /users/me/messages?q={query}&maxResults={n}`` then enriches
+        each result with Subject, From, Date, and snippet so the response is
+        human-readable.
+
         See https://support.google.com/mail/answer/7190 for the full query
         syntax (e.g., ``from:alice subject:meeting newer_than:7d``).
         """
@@ -314,6 +386,11 @@ class GmailDirectClient:
             return ToolResult.from_error(
                 ToolCallStatus.UNAUTHORIZED, "No auth token provided"
             )
+
+        # Default to recent emails unless the query already has a time filter
+        _TIME_KEYWORDS = ("newer_than:", "older_than:", "after:", "before:")
+        if not any(kw in query for kw in _TIME_KEYWORDS):
+            query = f"newer_than:30d {query}"
 
         url = f"{self.base_url}/users/me/messages"
         params: dict[str, Any] = {
@@ -330,8 +407,27 @@ class GmailDirectClient:
                     params=params,
                     headers=self._get_headers(auth_token),
                 )
-            return self._transform_response(
-                "search_messages", response, start_time
+
+            if response.status_code >= 400:
+                return self._transform_response(
+                    "search_messages", response, start_time
+                )
+
+            data = response.json()
+            messages = data.get("messages", [])
+            enriched = await self._enrich_message_list(messages, auth_token)
+
+            duration_ms = (
+                datetime.now(timezone.utc) - start_time
+            ).total_seconds() * 1000
+
+            result_data = {"messages": enriched, "resultSizeEstimate": data.get("resultSizeEstimate", len(enriched))}
+            return ToolResult(
+                status=ToolCallStatus.SUCCESS,
+                is_error=False,
+                content=[{"type": "text", "text": json.dumps(result_data)}],
+                raw=result_data,
+                duration_ms=duration_ms,
             )
 
         except httpx.TimeoutException:
@@ -409,6 +505,7 @@ class GmailDirectClient:
         max_results = (
             args.get("max_results")
             or args.get("maxResults")
+            or args.get("limit")
             or 10
         )
         # Tolerate both snake_case (`label_ids`) and Gmail-native (`labelIds`).
@@ -446,6 +543,7 @@ class GmailDirectClient:
         max_results = (
             args.get("max_results")
             or args.get("maxResults")
+            or args.get("limit")
             or 10
         )
         return await self.search_messages(

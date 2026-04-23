@@ -162,6 +162,13 @@ class GCalendarDirectClient:
                 ToolCallStatus.ERROR, f"Request failed: {e}"
             )
 
+    # Compact field mask for list_events / search_events so responses
+    # include event names and times without all the verbose metadata.
+    _EVENT_LIST_FIELDS = (
+        "summary,timeZone,"
+        "items(summary,start,end,status,location,htmlLink,organizer/email)"
+    )
+
     async def list_events(
         self,
         calendar_id: str,
@@ -173,6 +180,9 @@ class GCalendarDirectClient:
 
         Calls GET /calendars/{calendarId}/events with singleEvents=true
         and orderBy=startTime for expanded recurring event instances.
+
+        Uses a ``fields`` mask so the response is compact enough for the
+        demo display to show event summaries instead of being truncated.
         """
         if auth_token is None:
             return ToolResult.from_error(
@@ -180,13 +190,16 @@ class GCalendarDirectClient:
             )
 
         url = f"{self.base_url}/calendars/{calendar_id}/events"
+        # Default to "now" so results show upcoming events, not years-old ones.
+        if not time_min:
+            time_min = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         params: dict[str, Any] = {
             "maxResults": max_results,
             "singleEvents": "true",
             "orderBy": "startTime",
+            "timeMin": time_min,
+            "fields": self._EVENT_LIST_FIELDS,
         }
-        if time_min:
-            params["timeMin"] = time_min
 
         start_time = datetime.now(timezone.utc)
 
@@ -264,6 +277,7 @@ class GCalendarDirectClient:
             "maxResults": max_results,
             "singleEvents": "true",
             "orderBy": "startTime",
+            "fields": self._EVENT_LIST_FIELDS,
         }
         start_time = datetime.now(timezone.utc)
 
@@ -322,10 +336,16 @@ class GCalendarDirectClient:
         self, args: dict[str, Any], auth_token: str | None
     ) -> ToolResult:
         calendar_id = args.get("calendar_id", "primary")
+        max_results = (
+            args.get("max_results")
+            or args.get("maxResults")
+            or args.get("limit")
+            or 10
+        )
         return await self.list_events(
             calendar_id=calendar_id,
             auth_token=auth_token,
-            max_results=args.get("max_results", 10),
+            max_results=int(max_results),
             time_min=args.get("time_min"),
         )
 
