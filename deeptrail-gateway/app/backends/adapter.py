@@ -284,8 +284,7 @@ def create_backend_adapter() -> BackendClientAdapter:
     """
     Create a fully configured BackendClientAdapter.
 
-    Creates an adapter with all backend clients (Notion, Slack, HubSpot)
-    registered and ready to use.
+    Creates an adapter with all backend clients registered and ready to use.
 
     Returns:
         BackendClientAdapter ready for use in tools_call handler
@@ -302,6 +301,9 @@ def create_backend_adapter() -> BackendClientAdapter:
     from .notion_client import NotionDirectClient
     from .slack_client import SlackDirectClient
     from .hubspot_client import HubSpotDirectClient
+    from .gdrive_client import GDriveDirectClient
+    from .gcalendar_client import GCalendarDirectClient
+    from .gmail_client import GmailDirectClient
 
     adapter = BackendClientAdapter()
 
@@ -309,6 +311,9 @@ def create_backend_adapter() -> BackendClientAdapter:
     adapter.register_client("notion", NotionDirectClient())
     adapter.register_client("slack", SlackDirectClient())
     adapter.register_client("hubspot", HubSpotDirectClient())
+    adapter.register_client("gdrive", GDriveDirectClient())
+    adapter.register_client("gcalendar", GCalendarDirectClient())
+    adapter.register_client("gmail", GmailDirectClient())
 
     logger.info(
         "BackendClientAdapter created with backends: %s",

@@ -184,6 +184,12 @@ class GDriveDirectClient:
             duration_ms=duration_ms,
         )
 
+    # Compact field mask for search_files / list_files so responses include
+    # file names, types, and sizes without all verbose metadata.
+    _FILE_LIST_FIELDS = (
+        "files(id,name,mimeType,modifiedTime,size,webViewLink,owners/displayName)"
+    )
+
     # ─────────────────────────────────────────────────────────────────────────
     # Tool Methods
     # ─────────────────────────────────────────────────────────────────────────
@@ -209,6 +215,8 @@ class GDriveDirectClient:
         params: dict[str, Any] = {
             "q": query,
             "pageSize": min(max(int(max_results), 1), 1000),
+            "orderBy": "modifiedTime desc",
+            "fields": self._FILE_LIST_FIELDS,
         }
 
         start_time = datetime.now(timezone.utc)
@@ -290,6 +298,7 @@ class GDriveDirectClient:
         params: dict[str, Any] = {
             "pageSize": min(max(int(page_size), 1), 1000),
             "orderBy": order_by,
+            "fields": self._FILE_LIST_FIELDS,
         }
 
         start_time = datetime.now(timezone.utc)
@@ -389,10 +398,20 @@ class GDriveDirectClient:
         query = args.get("query") or args.get("q") or ""
         max_results = (
             args.get("max_results")
+            or args.get("limit")
             or args.get("page_size")
             or args.get("pageSize")
             or 10
         )
+
+        # Google Drive q parameter requires its own query syntax
+        # (e.g. "fullText contains 'budget'"). If the caller passed a plain
+        # text string, wrap it automatically so the API doesn't reject it.
+        _DRIVE_OPERATORS = ("contains", "=", "!=", "<", ">", "<=", ">=", " in ")
+        if query and not any(op in query for op in _DRIVE_OPERATORS):
+            escaped = query.replace("\\", "\\\\").replace("'", "\\'")
+            query = f"fullText contains '{escaped}'"
+
         return await self.search_files(
             query=query,
             auth_token=auth_token,
