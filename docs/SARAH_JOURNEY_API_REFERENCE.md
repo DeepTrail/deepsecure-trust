@@ -1,5 +1,13 @@
 # Sarah's Journey — API Reference for UI Implementation
 
+> **Note:** For the canonical HTTP API reference, see [API_REFERENCE.md](API_REFERENCE.md).
+> For a 15-minute quickstart, see [QUICKSTART.md](QUICKSTART.md).
+> For the Python SDK, see [SDK_REFERENCE.md](SDK_REFERENCE.md).
+>
+> This document is tailored for **UI/frontend implementation** and walks through
+> the demo script step-by-step with UI-specific guidance. For backend integration,
+> use the canonical API Reference instead.
+
 > Every command below has been verified end-to-end against the running MVP.
 > Source script: `scripts/demo_sarah_journey.sh`
 
