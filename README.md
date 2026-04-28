@@ -3,8 +3,13 @@
 <div align="center">
   <h1 style="display: flex; align-items: center;">
     <img src="assets/deeptrail_logo.png" alt="DeepSecure Logo" height="24" style="transform: translateY(2px);" />
-    <span style="margin-left: 15px;">DeepSecure: Effortless Identity & Auth for AI Agents</span>
+    <span style="margin-left: 15px;">DeepSecure</span>
   </h1>
+
+  **A Virtual MCP Server that gives every AI agent a cryptographic identity,
+  fine-grained permissions, and audited access to external tools — without
+  exposing a single API key.**
+
   <a href="https://pypi.org/project/deepsecure/">
     <img src="https://img.shields.io/pypi/v/deepsecure?style=flat-square" alt="PyPI version"/>
   </a>
@@ -37,281 +42,327 @@
   <a href="https://www.linkedin.com/company/deeptrail">
     <img src="https://img.shields.io/badge/Follow-DeepTrail-blue?style=flat-square&logo=linkedin" alt="Follow on LinkedIn"/>
   </a>
-</div>
-<br/>
 
-<div align="center">
+  <br/><br/>
 
-  **Give every AI agent a cryptographic identity and authenticated ephemeral credentials.
-  Handle auth, delegation, policy enforcement, and secure proxying automatically. Effortlessly add identity and auth to any AI agent -- regardless of any platform, any framework, and any model.**
-
-[**📖 Documentation**](docs/) [**🎯 Examples**](examples/) [**💬 Community**](https://discord.gg/SUbswk8T)
+  [Quickstart](docs/QUICKSTART.md) &middot; [API Reference](docs/API_REFERENCE.md) &middot; [SDK Reference](docs/SDK_REFERENCE.md) &middot; [Examples](examples/) &middot; [Community](https://discord.gg/SUbswk8T)
 
 </div>
-
-## 🎯 Why DeepSecure?
-
-### The Problem: AI Agents Are Security Nightmares
-
-```python
-# ❌ Current state: Security chaos
-# 🔑 API keys scattered everywhere
-os.environ["OPENAI_API_KEY"] = "sk-..." # Same key shared across all agents
-
-# 🤖 No agent identity - who did what? which actions?
-agent1 = YourFavoriteFramework()  # Anonymous agent
-agent2 = AnotherFramework()  # Another anonymous agent
-
-# 🚫 All-or-nothing permissions
-agent.call_internal_api()  # Full admin access to everything
-agent.call_external_api()  # Full admin access to everything
-
-# No delegation, no policy enforcement, no audit trail
-# Result: One breach = Complete system compromise
-```
-
-### The Solution: Comprehensive Zero-Trust for AI Agents
-
-```python
-# ✅ With DeepSecure: Complete security transformation
-# 🔐 Cryptographic identity per agent  
-client = deepsecure.Client()
-agent = client.agent("financial-analyst", auto_create=True)  # Ed25519 identity
-
-# 📋 Fine-grained policy enforcement happens automatically
-# When agent fetches secrets, gateway validates JWT claims and enforces policy
-secret = client.get_secret(
-    agent_id=agent.id, 
-    secret_name="openai-api", 
-    path="/v1/chat/completions"
-)
-# Gateway enforces: Does agent have OpenAI access? Rate limits? Business hours?
-# Policy controls which agents can access which APIs, when, and how often
-
-# 🔄 Secure delegation between agents
-delegation_token = client.delegate_access(
-    delegator_agent_id=agent.id, 
-    target_agent_id="data-processor", 
-    resource="financial-data", 
-    permissions=["read"], 
-    ttl_seconds=1800)
-
-# 📊 Complete audit trail + policy enforcement
-# Every action logged, every access controlled, every delegation tracked
-# Result: Zero-trust security with full visibility and control
-```
-
-## 🔥 From Security Nightmare to Zero-Trust Security
-
-| **Without DeepSecure** | **With DeepSecure** |
-|---|---|
-| 🔑 **Shared API keys** | 🛡️ **AI Agents don't have access to API keys** |
-| 🤖 **No Agent Identity** | 🔐 **AI Agents get Ed25519 Cryptographic Identity** |
-| 🚫 **No Access Control** | 📋 **AI Agents with Fine-Grained Policies** |
-| 📊 **No delegation and tracking** | 📊 **AI Agents with crypotographic delegation and audit trail** |
-| 🏭 **Production Blockers** | 🚀 **Enterprise-Ready** |
-
-## ⚙️ Getting Started
-
-Get fully set up with DeepSecure in under 5 minutes—secure your AI agents instantly!
-
-### Prerequisites
-- **Python 3.9+**
-- **pip** (Python package installer) 
-- **Access to an OS keyring** (macOS Keychain, Windows Credential Store, or Linux keyring) for secure agent private key storage
-- **Docker and Docker Compose** for running the backend services
-
-### 1. Install DeepSecure
-```bash
-pip install deepsecure
-```
-
-### 2. Backend Services Setup
-
-DeepSecure uses a dual-service architecture:
-- **`deeptrail-control`** - Control Plane (manages agents, policies, credentials)  
-- **`deeptrail-gateway`** - Data Plane (enforces policies, injects secrets)
-
-#### Quick Start with Docker Compose
-```bash
-# Clone the repository
-git clone https://github.com/DeepTrail/deepsecure.git
-cd deepsecure
-
-# Start both services
-docker-compose up -d
-
-# Verify services are running
-docker-compose ps
-```
-
-This will start:
-- **Control Plane** at `http://localhost:8000`
-- **Gateway** at `http://localhost:8001`
-- **PostgreSQL** database for persistent storage
-
-### 3. Configure DeepSecure CLI
-```bash
-# Set the control plane URL
-deepsecure configure set-url http://localhost:8000
-
-# Verify connection
-deepsecure health
-```
-
-### 4. Verify Installation
-```bash
-# Check version
-deepsecure --version
-
-# Test agent creation
-deepsecure agent create --name "test-agent"
-```
-
-🎉 **You're all set!** Your secure AI agent infrastructure is now running.
-
-**Next Steps:**
-- Try the [30-second quickstart](#-30-second-quickstart) below
-- Explore our [examples](#-examples) for real-world use cases
-- Read the [Architecture Guide](docs/design/deepsecure-technical-overview.md) to understand the system
 
 ---
 
-## ⚡ 30-Second Quickstart
+## The Problem
 
-```bash
-# 1. Install DeepSecure
-pip install deepsecure
+AI agents today operate with shared static API keys, no identity, all-or-nothing
+permissions, and zero audit trail. One compromised agent means full system
+compromise.
 
-# 2. Connect to your security control plane
-# For local development:
-deepsecure configure set-url http://localhost:8001
+```python
+# Status quo: every agent gets the master key
+os.environ["NOTION_API_KEY"]  = "secret_abc..."   # shared across all agents
+os.environ["SLACK_BOT_TOKEN"] = "xoxb-..."         # no per-agent scoping
+agent.call_tool("notion.delete_page", ...)         # who authorized this?
+```
 
-# For production (your deployed instance):  
-# deepsecure configure set-url https://deepsecure.yourcompany.com
+## The Solution
 
-# 3. Create your first AI agent identity
-deepsecure agent create --name "my-ai-agent"
+DeepSecure sits between your agents and external services as a **Virtual MCP
+Server**. Agents authenticate with Ed25519 cryptographic identities, receive
+only the permissions they've been delegated, and never see raw API keys. Every
+action is logged with full human attribution.
 
-# 4. Use in your AI code
+```python
 import deepsecure
 
 client = deepsecure.Client()
-agent = client.agent("my-ai-agent", auto_create=True)
-secret = client.get_secret(name="openai-api", agent_name=agent.name)
 
-# That's it! Your agent now has secure, audited access to OpenAI
+# Each agent gets a unique Ed25519 identity stored in the OS keyring
+agent = client.agent("research-assistant", auto_create=True)
+
+# Authenticate via challenge-response — no passwords, no API keys
+client.authenticate(agent.id)
+
+# Agent calls tools through the MCP Gateway
+# The gateway enforces permissions, injects credentials, and logs everything
+response = client.gateway.call_tool(
+    "notion.search_pages",
+    arguments={"query": "Q3 planning"}
+)
 ```
 
-**🎯 What you just achieved:**
-- ✅ **Centralized Security**: All your AI agents use one security control plane
-- ✅ **Zero Hardcoded Secrets**: Agents get ephemeral credentials automatically  
-- ✅ **Unique Identity**: Each agent has cryptographic identity (Ed25519)
-- ✅ **Complete Audit Trail**: Every action is logged for compliance and debugging
-- 🛡️ **Policy Enforcement Ready**: Fine-grained access control available via `deepsecure policy` commands
+---
 
-## 🏗️ Architecture: Control Plane + Data Plane
+## Key Capabilities
 
-DeepSecure implements a **dual-service architecture** designed for production scale:
+| Capability | What it does |
+|---|---|
+| **Cryptographic Agent Identity** | Every agent gets an Ed25519 keypair. Authentication via challenge-response — no shared secrets. |
+| **Virtual MCP Server** | One MCP endpoint exposing 34 tools across 6 services. Agents see only the tools they're allowed to use. |
+| **Fine-Grained Delegation** | Users delegate specific permissions to agents. Agents can sub-delegate to other agents. Permissions only shrink, never grow. |
+| **Task Tokens** | Short-lived, task-scoped JWTs that further narrow an agent's permissions to exactly what one task requires. |
+| **Prompt Injection Detection** | Gateway scans tool arguments for injection patterns before forwarding to external services. |
+| **PII Result Filtering** | Sensitive data in tool responses is detected and redacted before reaching the agent. |
+| **Fail-Closed Security** | If the Control Plane is unreachable, the Gateway denies all requests. No silent degradation. |
+| **Full Audit Trail** | Every authentication, delegation, tool call, and policy decision is logged with human attribution. |
+| **SSO Integration** | Authenticate users via Keycloak or Google. Map IdP groups to DeepSecure policies automatically. |
 
-### 🧠 Control Plane (`deeptrail-control`)
-- **Agent Identity Management**: Ed25519 cryptographic identities
-- **Policy Engine**: Fine-grained RBAC with delegation support
-- **Credential Issuance**: Ephemeral, time-bound access tokens
-- **Audit Logging**: Immutable security event tracking
+---
 
-### 🚀 Data Plane (`deeptrail-gateway`)
-- **Secret Injection**: Automatic API key insertion at runtime
-- **Policy Enforcement**: Real-time access control decisions
-- **Split-Key Security**: Client/backend key reassembly for ultimate protection
-- **Request Proxying**: Transparent handling of all agent tool calls
+## Supported Services
+
+The Gateway acts as a unified MCP endpoint for these backends:
+
+| Service | Tools | Examples |
+|---|---|---|
+| **Notion** | 8 | `search_pages`, `create_page`, `query_database`, `read_page`, ... |
+| **Slack** | 7 | `send_message`, `list_channels`, `search_messages`, `list_users`, ... |
+| **HubSpot** | 7 | `search_contacts`, `create_deal`, `list_deals`, `update_contact`, ... |
+| **Google Drive** | 4 | `search_files`, `read_file`, `list_files`, `get_file_metadata` |
+| **Google Calendar** | 4 | `list_events`, `search_events`, `list_calendars`, `read_event` |
+| **Gmail** | 4 | `list_messages`, `read_message`, `search_messages`, `list_labels` |
+
+Each tool maps to a permission URN (e.g., `notion:pages:read`). Agents can only
+call tools they've been explicitly delegated.
+
+---
+
+## How It Works
+
+```
+  User                    Control Plane              Gateway                External APIs
+   │                         │                          │                       │
+   │  1. Login (SSO/creds)   │                          │                       │
+   │────────────────────────>│                          │                       │
+   │  <── User JWT ──────────│                          │                       │
+   │                         │                          │                       │
+   │  2. Delegate perms      │                          │                       │
+   │     to agent            │                          │                       │
+   │────────────────────────>│                          │                       │
+   │                         │                          │                       │
+   │                   Agent │ 3. Challenge-response    │                       │
+   │                         │     auth (Ed25519)       │                       │
+   │                         │<─────────────────────────│                       │
+   │                         │──── Agent JWT ──────────>│                       │
+   │                         │                          │                       │
+   │                         │  4. MCP tools/call       │                       │
+   │                         │     (with Agent JWT)     │                       │
+   │                         │     ┌────────────────────│                       │
+   │                         │     │ • Validate JWT     │                       │
+   │                         │     │ • Check permissions│                       │
+   │                         │     │ • Scan for inject. │                       │
+   │                         │     │ • Inject secret    │                       │
+   │                         │     └────────────────────│── API call ──────────>│
+   │                         │                          │<── response ──────────│
+   │                         │                          │── filter PII ────>    │
+   │                         │     5. Audit logged      │                       │
+   │                         │<─────────────────────────│                       │
+```
+
+### Architecture
+
+DeepSecure implements a **dual-service architecture** separating policy decisions
+from policy enforcement:
+
+**Control Plane** (`deeptrail-control`) — the brain. Manages agent identities,
+issues JWTs, stores policies, handles delegation, runs the audit log, and
+manages the encrypted credential vault.
+
+**Gateway** (`deeptrail-gateway`) — the enforcer. Exposes a single MCP endpoint,
+validates every request against the agent's JWT claims, injects credentials at
+the last mile, and forwards calls to external service APIs.
 
 ```mermaid
 graph TB
-    A[AI Agent/Developer] --> B[DeepSecure SDK]
-    
-    %% Management Flow - Direct to Control
-    B -->|Management Operations<br/>Agent/Policy CRUD| D[Control Plane<br/>deeptrail-control]
-    
-    %% Runtime Flow - Through Gateway  
-    B -->|Runtime Operations<br/>Tool Calls| C[Gateway<br/>deeptrail-gateway]
-    C --> D
-    C --> E[External APIs<br/>OpenAI, AWS, etc.]
-    
-    D --> F[Policy Engine]
-    D --> G[Split-Key Store] 
-    D --> H[Audit Log]
-    
-    %% Labels for clarity
-    B -.->|"deepsecure agent create<br/>deepsecure policy create"| D
-    B -.->|"agent.call_openai()<br/>with secret injection"| C
-    
+    A[AI Agent] -->|MCP JSON-RPC| C[Gateway :8002]
+
+    C -->|Validate JWT & Permissions| D[Control Plane :8000]
+    C -->|Inject Credentials| E[Notion API]
+    C --> F[Slack API]
+    C --> G[HubSpot API]
+    C --> H[Google APIs]
+
+    D --> I[(PostgreSQL)]
+    D --> J[Policy Engine]
+    D --> K[Audit Log]
+    D --> L[Credential Vault]
+
+    C --> M[(Redis — split-key store)]
+
     style A fill:#e1f5fe
-    style C fill:#f3e5f5  
+    style C fill:#f3e5f5
     style D fill:#e8f5e8
-    style E fill:#fff3e0
 ```
-## 🔬 Examples
 
-Explore our comprehensive example collection:
+---
 
-| Example | Description | Framework |
-|---|---|---|
-| [**Basic Agent Creation**](examples/01_create_agent_and_issue_credential.py) | Create your first secure agent | Core SDK |
-| [**LangChain Integration**](examples/05_langchain_secure_tools.py) | Secure LangChain agents | LangChain |
-| [**CrewAI Team Security**](examples/03_crewai_secure_tools.py) | Multi-agent crew with delegation | CrewAI |
-| [**Gateway Injection**](examples/08_gateway_secret_injection_demo.py) | Automatic secret injection | Core SDK |
-| [**Advanced Delegation**](examples/11_advanced_delegation_patterns.py) | Complex delegation workflows | Core SDK |
-| [**Platform Bootstrap**](examples/12_platform_expansion_bootstrap.py) | Kubernetes/AWS agent bootstrapping | Infrastructure |
+## Quick Start
 
-## 🚀 What's Next?
+### Prerequisites
 
-You've now seen the core workflow! Ready to dive deeper?
+- **Docker** and **Docker Compose**
+- **Python 3.9+** and **pip**
 
-### 📚 Documentation
+### 1. Start the backend
+
+```bash
+git clone https://github.com/DeepTrail/deepsecure.git
+cd deepsecure
+
+docker compose up -d
+```
+
+This starts the Control Plane (`:8000`), Gateway (`:8002`), PostgreSQL,
+Redis, and Keycloak.
+
+### 2. Install the SDK
+
+```bash
+pip install deepsecure
+```
+
+### 3. Run the end-to-end demo
+
+The Sarah's Journey demo walks through the full flow — user login, agent
+creation, delegation, OAuth service connection, MCP tool calls, security
+enforcement, and audit trail:
+
+```bash
+# Full automated demo with all steps
+./scripts/demo_sarah_journey.sh
+```
+
+Or use the interactive Python demo:
+
+```bash
+python demos/demo_sarah_journey_interactive.py
+```
+
+### 4. Next steps
+
+For a step-by-step HTTP walkthrough with curl commands, see the
+[Quickstart Guide](docs/QUICKSTART.md).
+
+---
+
+## Using the Python SDK
+
+```python
+import deepsecure
+
+# Connect to your DeepSecure instance
+client = deepsecure.Client(
+    deeptrail_control_url="http://localhost:8000",
+    deeptrail_gateway_url="http://localhost:8002",
+)
+
+# Create an agent with a cryptographic identity
+agent = client.agent("my-agent", auto_create=True)
+
+# Authenticate (Ed25519 challenge-response)
+client.authenticate(agent.id)
+
+# Delegate permissions from user to agent
+client.delegate(
+    agent_id=agent.id,
+    permissions=["notion:pages:read", "slack:messages:write"],
+    ttl_seconds=3600,
+)
+
+# Call tools through the MCP Gateway
+result = client.gateway.call_tool(
+    "slack.send_message",
+    arguments={"channel": "#updates", "text": "Report ready."}
+)
+
+# Check the audit trail
+events = client.get_audit_trail(agent_id=agent.id)
+```
+
+### Framework Integrations
+
+DeepSecure integrates with LangChain, CrewAI, OpenAI, and Anthropic:
+
+```python
+# LangChain
+from deepsecure.integrations.langchain import SecureLangChainTools
+tools = SecureLangChainTools(client, agent_id=agent.id)
+
+# CrewAI
+from deepsecure.integrations.crewai import SecureCrewAITools
+tools = SecureCrewAITools(client, agent_id=agent.id)
+
+# OpenAI (gateway-proxied)
+response = client.openai.chat_completion(
+    model="gpt-4",
+    messages=[{"role": "user", "content": "Summarize the Q3 report"}],
+)
+```
+
+---
+
+## Examples
+
+| # | Example | Description | Framework |
+|---|---|---|---|
+| 01 | [Create Agent & Issue Credential](examples/01_create_agent_and_issue_credential.py) | Agent identity and credential lifecycle | Core SDK |
+| 02 | [SDK Secret Fetch](examples/02_sdk_secret_fetch.py) | Retrieve secrets via the vault | Core SDK |
+| 03 | [CrewAI Secure Tools](examples/03_crewai_secure_tools.py) | Multi-agent crew with fine-grained control | CrewAI |
+| 04 | [CrewAI Without Fine-Grain](examples/04_crewai_secure_tools_without_finegrain_control.py) | CrewAI with simplified permissions | CrewAI |
+| 05 | [LangChain Secure Tools](examples/05_langchain_secure_tools.py) | Secure LangChain agent tools | LangChain |
+| 06 | [LangChain Without Fine-Grain](examples/06_langchain_secure_tools_without_finegrain_control.py) | LangChain with simplified permissions | LangChain |
+| 07 | [Multi-Agent Communication](examples/07_multi_agent_communication.py) | Agent-to-agent delegation patterns | Core SDK |
+| 08 | [Gateway Secret Injection](examples/08_gateway_secret_injection_demo.py) | Automatic credential injection at the gateway | Core SDK |
+| 09 | [LangChain Delegation](examples/09_langchain_delegation_workflow.py) | Delegation workflows in LangChain | LangChain |
+| 10 | [CrewAI Delegation](examples/10_crewai_delegation_workflow.py) | Delegation workflows in CrewAI | CrewAI |
+| 11 | [Advanced Delegation](examples/11_advanced_delegation_patterns.py) | Complex multi-hop delegation chains | Core SDK |
+| 12 | [Platform Bootstrap](examples/12_platform_expansion_bootstrap.py) | Kubernetes/AWS/Azure agent bootstrapping | Infrastructure |
+| 13 | [OpenAI Quickstart](examples/13_quickstart_openai_list_models.py) | Gateway-proxied OpenAI calls | OpenAI |
+| 14 | [OpenAI Policy Enforcement](examples/14_quickstart_openai_policy_enforcement.py) | Policy enforcement on model access | OpenAI |
+| 15 | [LangChain + Composio + Notion](examples/15_langchain_composio_notion_integration.py) | End-to-end Notion integration via LangChain | LangChain |
+
+---
+
+## Documentation
+
 | Resource | Description |
 |---|---|
-| [**🚀 Getting Started**](docs/getting-started.md) | Complete setup guide with examples |
-| [**🔧 CLI Reference**](docs/cli-reference.md) | All commands and options |
-| [**📖 SDK Documentation**](docs/sdk/) | Python SDK with full API reference |
-| [**🏗️ Architecture Guide**](docs/design/deepsecure-technical-overview.md) | Deep dive into system design |
-| [**🔒 Security Model**](docs/security-model.md) | Cryptographic foundations |
-| [**🚀 Deployment Guide**](docs/deployment/) | Production deployment patterns |
+| [Quickstart Guide](docs/QUICKSTART.md) | 15-minute walkthrough with curl commands |
+| [HTTP API Reference](docs/API_REFERENCE.md) | All Control Plane and Gateway endpoints |
+| [Python SDK Reference](docs/SDK_REFERENCE.md) | Client API, integrations, and CLI |
+| [CLI Reference](docs/cli_reference.md) | All CLI commands and options |
+| [Product Features](docs/PRODUCT_FEATURES.md) | Comprehensive feature list |
+| [Product Use Cases](docs/PRODUCT_USE_CASES_BY_PERSONA.md) | Workflows by persona (IT Admin, Engineer, Security) |
+| [Developer Workflow](docs/DEVELOPER_WORKFLOW.md) | Development setup and contribution workflow |
+| [Sarah's Journey Demo](docs/SARAH_JOURNEY_API_REFERENCE.md) | Step-by-step UI implementation walkthrough |
 
-For hands-on examples, explore our [`examples/`](examples/) directory with LangChain, CrewAI, and multi-agent patterns.
+---
 
-## 🤝 Contributing
+## Contributing
 
-DeepSecure is open source, and your contributions are vital! Help us build the future of AI agent security.
+DeepSecure is open source and contributions are welcome.
 
-🌟 **Star our GitHub Repository!**  
-🐛 **Report Bugs or Feature Requests**: Use [GitHub Issues](https://github.com/yourusername/deepsecure-cli/issues).  
-💡 **Suggest Features**: Share ideas on [GitHub Issues](https://github.com/yourusername/deepsecure-cli/issues) or [GitHub Discussions](https://github.com/yourusername/deepsecure-cli/discussions).  
-📝 **Improve Documentation**: Help us make our guides clearer.  
-💻 **Write Code**: Tackle bugs, add features, improve integrations.
+- **Report bugs or request features**: [GitHub Issues](https://github.com/DeepTrail/deepsecure/issues)
+- **Ask questions or share ideas**: [GitHub Discussions](https://github.com/DeepTrail/deepsecure/discussions)
+- **Submit code**: See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines
 
-For details on how to set up your development environment and contribute, please see our [Contributing Guide](CONTRIBUTING.md).
+## Community & Support
 
-## 🫂 Community & Support
+- **GitHub Discussions** — questions, use cases, and community conversations
+- **GitHub Issues** — bug reports and actionable feature requests
+- **Discord** — [Join us](https://discord.gg/SUbswk8T)
 
-**GitHub Discussions**: The primary forum for questions, sharing use cases, brainstorming ideas, and general discussions about DeepSecure and AI agent security. This is where we want to build our community!
+## License
 
-**GitHub Issues**: For bug reports and specific, actionable feature requests.
-
-We're committed to fostering an open and welcoming community.
-
-## 📜 License
-
-This project is licensed under the terms of the [Apache 2.0 License](LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
 
-**⭐ Star us on GitHub if DeepSecure helps secure your AI agents!**
+**Star us on GitHub if DeepSecure helps secure your AI agents.**
 
-[**🚀 Get Started**](#-30-second-quickstart) • [**📖 Documentation**](docs/) • [**💬 Join Discord**](https://discord.gg/deepsecure)
+[Quickstart](docs/QUICKSTART.md) &middot; [API Reference](docs/API_REFERENCE.md) &middot; [Discord](https://discord.gg/SUbswk8T)
 
-*Built with ❤️ for the AI agent developer community*
+*Built for the AI agent developer community by [DeepTrail](https://www.deeptrail.ai)*
 
 </div>
