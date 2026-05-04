@@ -6,7 +6,7 @@
     <span style="margin-left: 15px;">DeepSecure</span>
   </h1>
 
-  **A Virtual MCP Server that gives every AI agent a cryptographic identity,
+  **A Virtual Trust Layer that gives every AI agent a cryptographic identity,
   fine-grained permissions, and audited access to external tools — without
   exposing a single API key.**
 

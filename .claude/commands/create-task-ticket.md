@@ -148,17 +148,72 @@ ls [WORKTREE_PATH]/docs/workstreams/[feature]/tasks/[WS-ID]-*.md
 
 ### 5. Fill in Template Details
 
-Fill in the template with:
+**MANDATORY SECTIONS** - Every task ticket MUST include ALL of these sections:
+
+| Section | Required Content |
+|---------|------------------|
+| **Metadata** | Task ID, Workstream, Phase, Dependencies, Complexity, Service, Validates |
+| **Specification** | Reference to spec file, Key Contracts table |
+| **API Contracts** | Full endpoint details OR "no API" note (NEVER omit this section) |
+| **Pre-Conditions** | Checklist of dependencies and requirements |
+| **Task Description** | Objective + Background + What to Implement (all 3 subsections) |
+| **Files to Create/Modify** | Table with File, Action, Description columns |
+| **Acceptance Criteria** | Functional + Security + Integration criteria checklists |
+| **Test Cases** | Table with Test Case, Method, Endpoint/Module, Expected Status, Notes |
+| **Post-Conditions** | Checklist of what this task enables/unblocks |
+| **Validation** | Unit Tests + Manual Verification (both subsections with code blocks) |
+| **References** | Spec link, Design doc, Upstream/Downstream tasks, Related code |
+| **Execution** | Commands to run and complete the task |
+
+**API Contracts Section Format:**
+
+For tasks **WITH** API endpoints:
+```markdown
+## API Contracts
+
+### Endpoint: [Name]
+| Field | Value |
+|-------|-------|
+| **Method** | `GET` / `POST` |
+| **Path** | `/api/v1/path` |
+...
+```
+
+For tasks **WITHOUT** API endpoints:
+```markdown
+## API Contracts
+
+> **Note:** This task implements an internal module/service, not API endpoints.
+> [Brief explanation of what the task creates.]
+> See [WS-XX] for related API endpoints.
+```
+
+**Validation Section Format:**
+```markdown
+## Validation
+
+### Unit Tests
+\`\`\`bash
+cd [service-directory]
+pytest tests/[module]/test_[file].py -v
+\`\`\`
+
+### Manual Verification
+\`\`\`bash
+# 1. [Step description]
+[command]
+# Expected: [output]
+\`\`\`
+```
+
+**Additional Details to Include:**
 - All metadata fields (status: `ready`, dependencies, complexity)
 - Pre-conditions based on dependencies
-- Detailed task description
-- **Explicit file paths** (e.g., `deeptrail-control/models/user_session.py` not just "models")
-- Specific acceptance criteria (not generic), categorized by type:
-  - Protocol criteria (if applicable)
-  - Security criteria (if applicable)
-  - Integration criteria (if applicable)
-- **Validation mapping** (which demo/milestone and user journey step this validates)
-- Post-conditions
+- Detailed task description with Objective, Background, and What to Implement
+- **Explicit file paths** (e.g., `deeptrail-control/app/models/user_session.py` not just "models")
+- Specific acceptance criteria (not generic), categorized by type
+- **Test Cases table** with all expected scenarios
+- Post-conditions listing what gets unblocked
 - References to design doc and related code
 
 ### 6. Update Workstream Tracker

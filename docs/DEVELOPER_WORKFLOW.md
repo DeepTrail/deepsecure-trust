@@ -1,6 +1,6 @@
 # Developer Workflow Guide
 
-> **Last Updated:** February 2026
+> **Last Updated:** May 2026
 >
 > This document describes the end-to-end workflow for implementing features using Cursor commands.
 
@@ -10,10 +10,12 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                      DESIGN PHASE (Plan Mode - Conversational)              │
+│                    DEFINE PHASE (Plan Mode / Agent Mode)                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  0. Design Doc Creation   →  Conversational design in Plan Mode            │
-│                              (No command - creates .cursor/plans/*.plan.md)│
+│  0a. /spec                →  Structured requirements & spec creation        │
+│                              Output: docs/design/[feature].md              │
+│  0b. /create-design-doc   →  Convert plan file to formal design doc        │
+│                              Input: plans/*.plan.md → docs/design/*.md     │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
@@ -32,6 +34,7 @@
 │  1. /breakdown-design     →  Analyze design doc, create workstreams/tasks  │
 │  2. /create-workstream    →  Create folder structure (WORKSTREAM.md, etc.) │
 │  3. /create-batch-execution-plan → Create batched execution plan           │
+│  3.5 /setup-worktrees     →  Create parallel worktrees from batch plan     │
 │  4. /create-task-spec     →  Define contracts/interfaces ⚠️ PLAN MODE      │
 │  5. /create-task-ticket   →  Create detailed executable tickets            │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -41,6 +44,7 @@
 │                          EXECUTION PHASE (Agent Mode)                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  6. /execute-task         →  Implement the task (reads ticket, codes)      │
+│     /debug                →  Use when execution hits errors (triage)       │
 │  7. /complete-task        →  Auto-runs after execute; generates report     │
 │                                                                             │
 │  [Repeat 6-7 for each task in the batch]                                   │
@@ -49,33 +53,82 @@
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          FINALIZATION PHASE (Agent Mode)                    │
+│                        REVIEW & FINALIZATION PHASE (Agent Mode)             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  8. /run-checks           →  Run linting, tests, type checks               │
-│  9. /commit-push-pr       →  Commit changes and create PR                  │
+│  9. /review               →  Five-axis code review (+ subagent reviews)    │
+│ 9.5 /security-audit       →  OWASP/STRIDE security audit (auth changes)   │
+│ 10. /commit-push-pr       →  Commit changes and create PR                  │
 └─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          SHIP PHASE (Agent Mode)                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 11. /ship                 →  Deploy, smoke test, monitor, rollback plan    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Subagent Definitions (for /review and parallel execution)
+
+Specialist subagent roles are defined in `.cursor/agents/`:
+
+| Agent | File | Role | Use With |
+|-------|------|------|----------|
+| Code Reviewer | `.cursor/agents/code-reviewer.md` | Senior staff engineer five-axis review | `/review`, PR review |
+| Test Engineer | `.cursor/agents/test-engineer.md` | QA specialist, coverage analysis, Prove-It pattern | `/review`, test gaps |
+| Security Auditor | `.cursor/agents/security-auditor.md` | OWASP assessment, threat modeling, token verification | `/review`, security changes |
+
+To invoke a subagent review:
+```
+Use Task tool with subagent_type="generalPurpose" and include
+the agent definition content from .cursor/agents/[agent-name].md
 ```
 
 ---
 
-## Phase 0: Design (Plan Mode)
+## Phase 0: Define (/spec)
 
-Use **Cursor Plan Mode** for initial design document creation. This is conversational - no command exists.
+Use the `/spec` command to create structured requirements before any design or implementation.
 
-### Step 0: Create Design Document
+### Step 0: Create Specification
 
-**Mode:** Plan Mode (conversational)
+**Mode:** Agent Mode (or Plan Mode for collaborative iteration)
 
-**What you do:**
-- Describe the feature/system you want to build
-- Iterate with Claude to refine the design
-- Claude creates the design document
+```
+/spec [feature-name]
+```
 
-**Output:** `.cursor/plans/[feature]_[hash].plan.md`
+**What it does:**
+- Surfaces assumptions explicitly (technology, architecture, scope)
+- Asks targeted clarification questions grouped by category
+- Creates a structured spec covering: Objective, API Contracts, Data Models, Architecture Decisions, Testing Strategy, Boundaries, and Demo Scenarios
+- Reframes vague requirements into testable success criteria
+- Saves the spec to `docs/design/[feature-name].md`
 
-**How to enter Plan Mode:**
-- Use Cursor's mode switcher or keyboard shortcut
-- Or Claude will suggest switching via `SwitchMode` tool
+**Output:** `docs/design/[feature-name].md`
+
+**When to use /spec vs Plan Mode:**
+- `/spec` — When you need a formal, structured specification with all sections
+- Plan Mode — When you're still exploring ideas and need open-ended conversation
+- Both — Start in Plan Mode to explore, then `/spec` to formalize
+
+**Conversion:** If you already have a `.cursor/plans/*.plan.md` or `plans/*.plan.md`, use `/create-design-doc` to convert it into a formal design doc in `docs/design/`, then optionally enrich with `/spec`.
+
+### Step 0b: Convert Plan to Design Doc (Optional)
+
+```
+/create-design-doc plans/[feature]_[hash].plan.md
+```
+
+**What it does:**
+- Reads the plan file's YAML frontmatter (name, overview, todos) and body content
+- Transforms into the formal design doc structure (7 sections)
+- Applies DeepSecure path conventions and testing patterns
+- Flags sections needing human input
+- Saves to `docs/design/[feature-name].md`
+
+**When to use:** When you created a plan in Plan Mode and want to formalize it before breakdown. The plan's informal structure gets converted into the canonical design doc format that `/breakdown-design` expects.
 
 ---
 
@@ -239,6 +292,28 @@ docs/workstreams/[feature-name]/
 
 **Output:** `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md`
 
+### Step 3.5: Setup Worktrees (For Parallel Execution)
+
+**Mode:** Agent Mode
+
+```
+/setup-worktrees [feature-name]
+```
+
+**When to use:** When the feature spans multiple services and you want to parallelize execution across agent sessions (Boris Cherny-style parallel worktree workflow).
+
+**What it does:**
+- Reads the batch execution plan to understand service boundaries
+- Maps workstreams to worktrees by service (Control → worktree-1, Gateway → worktree-2)
+- Creates git worktrees with feature branches
+- Copies `.cursor/`, `.claude/`, `CLAUDE.md`, and workstream files to each worktree
+- Verifies setup and generates ready-to-run execution commands per worktree
+- Documents merge points and cleanup commands
+
+**Output:** Worktrees at `../[feature]-control/`, `../[feature]-gateway/`, etc.
+
+**Skip if:** Feature is single-service only or has fewer than 4 tasks.
+
 ### Step 4: Create Task Specifications
 
 **Mode:** ⚠️ Plan Mode (switch from Agent Mode)
@@ -312,7 +387,7 @@ All execution commands run in **Agent Mode**.
 
 ---
 
-## Phase 3: Finalization
+## Phase 3: Review & Finalization
 
 ### Step 8: Run Checks
 
@@ -327,7 +402,55 @@ All execution commands run in **Agent Mode**.
 - Tests (`pytest`)
 - Security scanning (`bandit`)
 
-### Step 9: Commit and Create PR
+### Step 8.5: Debug (If Checks Fail)
+
+```
+/debug
+```
+
+**When to use:** When `/run-checks` or `/execute-task` encounters failures.
+
+**What it does:**
+- Follows the Stop-the-Line Rule (stop, preserve, diagnose, fix, guard, resume)
+- Triage checklist: Reproduce → Localize → Reduce → Fix Root Cause → Guard → Verify
+- DeepSecure-specific error patterns (token types, async fixtures, MCP protocol)
+- Requires a regression test before declaring the bug fixed
+
+### Step 9: Code Review
+
+```
+/review
+```
+
+**What it does:**
+- Five-axis review: Correctness, Readability, Architecture, Security, Performance
+- Severity-labeled findings (Critical / Required / Nit / Consider / FYI)
+- Contract verification (endpoints match spec, correct token types)
+- Dead code check and dependency review
+- Can invoke subagent specialists for deep review:
+  - `.cursor/agents/code-reviewer.md` — Staff engineer review
+  - `.cursor/agents/test-engineer.md` — Test coverage analysis
+  - `.cursor/agents/security-auditor.md` — Security-focused audit
+
+### Step 9.5: Security Audit (If Security-Relevant)
+
+```
+/security-audit
+```
+
+**When to use:** When the changeset touches authentication, authorization, JWT/token handling, cryptographic operations, gateway middleware, or new external dependencies.
+
+**What it does:**
+- STRIDE threat modeling (Spoofing, Tampering, Repudiation, Information Disclosure, DoS, Elevation of Privilege)
+- Full OWASP Top 10 assessment against changed code
+- Token type verification (User Token vs Agent JWT vs Internal Token per endpoint)
+- Secrets scan (source code, logs, error responses, git history)
+- Dependency audit (`pip audit`, `safety check`)
+- Generates structured audit report with severity-labeled findings
+
+**Output:** Security audit report with STRIDE model, OWASP assessment, and verdict (Secure / Needs Fixes / Design Review Required)
+
+### Step 10: Commit and Create PR
 
 ```
 /commit-push-pr
@@ -337,6 +460,29 @@ All execution commands run in **Agent Mode**.
 - Creates git commit with descriptive message
 - Pushes to remote branch
 - Creates pull request with summary
+
+---
+
+## Phase 4: Ship (Agent Mode)
+
+### Step 11: Deploy to Production
+
+```
+/ship
+```
+
+**When to use:** After PR is merged and ready for deployment.
+
+**What it does:**
+- Pre-flight checks (branch, tests, lint, security audit status)
+- Generates changelog from commits since last deployment
+- Creates rollback plan with trigger conditions and step-by-step instructions
+- Executes deployment (docker compose or SDK release)
+- Runs smoke tests (health checks, auth flow, API responsiveness, DB/Redis connectivity)
+- Monitors for 15 minutes post-deploy (error rates, response times)
+- Generates ship report with deployment status and verdict
+
+**Output:** Ship report with pre-flight results, changelog, rollback plan, smoke test results, and monitoring status
 
 ---
 
@@ -404,13 +550,13 @@ For Batch N:
 
 | Mode | When to Use | Commands/Actions |
 |------|-------------|------------------|
-| **Plan Mode** | Design & specification creation | Design doc creation (conversational), `/create-task-spec` |
-| **Agent Mode** | Exploration and execution | `/explore-codebase`, `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/create-task-ticket`, `/execute-task`, `/complete-task`, `/run-checks`, `/commit-push-pr` |
+| **Plan Mode** | Collaborative spec iteration, task spec design | `/spec` (optional), `/create-task-spec` |
+| **Agent Mode** | Everything else — exploration, execution, review, shipping | `/spec`, `/create-design-doc`, `/explore-codebase`, `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/setup-worktrees`, `/create-task-ticket`, `/execute-task`, `/debug`, `/complete-task`, `/run-checks`, `/review`, `/security-audit`, `/commit-push-pr`, `/ship` |
 
 ### Mode Switching Pattern
 
 ```
-Plan Mode:  Design doc creation (Step 0)
+Agent Mode: /spec (Step 0) ◄── Structured requirements first
                      │
                      ▼
 Agent Mode: /explore-codebase (Step 0.5) ◄── ⚠️ CRITICAL: Don't skip!
@@ -419,10 +565,16 @@ Agent Mode: /explore-codebase (Step 0.5) ◄── ⚠️ CRITICAL: Don't skip!
 Agent Mode: /breakdown-design → /create-workstream → /create-batch-execution-plan
                      │
                      ▼
-Plan Mode:  /create-task-spec (Step 4) ◄── Switch to Plan Mode
+Agent Mode: /setup-worktrees (Step 3.5) ◄── Optional: parallel execution setup
                      │
                      ▼
-Agent Mode: /create-task-ticket → /execute-task → ... → /commit-push-pr
+Plan Mode:  /create-task-spec (Step 4) ◄── Switch to Plan Mode for specs
+                     │
+                     ▼
+Agent Mode: /create-task-ticket → /execute-task (/debug if errors) → ...
+                     │
+                     ▼
+Agent Mode: /run-checks → /review → /security-audit → /commit-push-pr → /ship
 ```
 
 ---
@@ -431,15 +583,21 @@ Agent Mode: /create-task-ticket → /execute-task → ... → /commit-push-pr
 
 | Stage | Command | Mode | Artifacts Created |
 |-------|---------|------|-------------------|
-| Design | (conversational) | Plan | `.cursor/plans/[feature]_[hash].plan.md` |
+| **Define** | `/spec` | Agent/Plan | `docs/design/[feature].md` |
+| **Define** | `/create-design-doc` | Agent | Convert `plans/*.plan.md` → `docs/design/*.md` |
 | **Explore** | `/explore-codebase` | Agent | `CODEBASE_ANALYSIS.md` (in workstream folder) |
 | Breakdown | `/breakdown-design` | Agent | `[feature]-breakdown.md` |
 | Workstream | `/create-workstream` | Agent | `WORKSTREAM.md`, `STATUS.md`, directories |
 | Batch Plan | `/create-batch-execution-plan` | Agent | `BATCH_EXECUTION_PLAN.md` |
+| **Parallel** | `/setup-worktrees` | Agent | Git worktrees + copied config per service |
 | Task Specs | `/create-task-spec` | **Plan** | `specs/[WS-ID]-spec.md` |
 | Task Tickets | `/create-task-ticket` | Agent | `tasks/[WS-ID]-[name].md` |
 | Execution | `/execute-task` | Agent | Code files |
+| **Debug** | `/debug` | Agent | Fix + regression test |
 | Completion | `/complete-task` | Agent | `reports/[WS-ID]-completion.md` |
+| **Review** | `/review` | Agent | Review report with findings |
+| **Security** | `/security-audit` | Agent | STRIDE + OWASP audit report |
+| **Ship** | `/ship` | Agent | Ship report (smoke tests, rollback plan) |
 
 ---
 
@@ -447,16 +605,33 @@ Agent Mode: /create-task-ticket → /execute-task → ... → /commit-push-pr
 
 For features spanning multiple services (e.g., Control Plane + Gateway):
 
-### Setup Worktrees
+### Automated Setup (Recommended)
+
+```
+/setup-worktrees [feature-name]
+```
+
+This command automates the entire worktree setup process:
+- Reads the batch execution plan to determine service boundaries
+- Creates worktrees with appropriate branches
+- Copies `.cursor/`, `.claude/`, `CLAUDE.md`, workstream files, tickets, and specs
+- Verifies setup and generates ready-to-run execution commands
+- See `.cursor/commands/setup-worktrees.md` for full details
+
+### Manual Setup (Alternative)
 
 ```bash
 # Create worktrees from dev branch
 git worktree add ../vmcp-control -b feature/vmcp-control dev
 git worktree add ../vmcp-gateway -b feature/vmcp-gateway dev
 
-# Copy commands to worktrees
-cp -r .cursor/commands ../vmcp-control/.cursor/
-cp -r .cursor/commands ../vmcp-gateway/.cursor/
+# Copy ALL configuration to worktrees (not just commands)
+cp -r .cursor ../vmcp-control/
+cp -r .cursor ../vmcp-gateway/
+cp -r .claude ../vmcp-control/ 2>/dev/null
+cp -r .claude ../vmcp-gateway/ 2>/dev/null
+cp CLAUDE.md ../vmcp-control/
+cp CLAUDE.md ../vmcp-gateway/
 ```
 
 ### Worktree-to-Workstream Mapping
@@ -480,47 +655,81 @@ Consolidates status from all worktrees back to main repo.
 ## Quick Reference: Command Flow
 
 ```
-[PLAN MODE] Design Doc Creation (conversational)
+═══════════════════════════════════════════════════
+ DEFINE
+═══════════════════════════════════════════════════
+       │
+/spec ◄──────────────── Structured requirements → docs/design/[feature].md
        │
        ▼
 ═══════════════════════════════════════════════════
-[AGENT MODE]
+ EXPLORE
 ═══════════════════════════════════════════════════
        │
-       ▼
-/explore-codebase ◄─── ⚠️ CRITICAL: Inventory existing implementations
+/explore-codebase ◄──── ⚠️ CRITICAL: Inventory existing implementations
        │
        ▼
-/breakdown-design ◄─── Cross-references exploration results
+═══════════════════════════════════════════════════
+ PLAN
+═══════════════════════════════════════════════════
        │
-       ▼
+/breakdown-design ◄──── Cross-references exploration results
+       │
 /create-workstream
        │
-       ▼
 /create-batch-execution-plan
        │
        ▼
 ┌──────────────────────────┐
 │   For each batch:        │
 │   ┌────────────────────┐ │
-│   │ /create-task-spec  │ │◄─── ⚠️ Switch to PLAN MODE
+│   │ /create-task-spec  │ │◄── ⚠️ Switch to PLAN MODE
 │   └─────────┬──────────┘ │
 │             ▼            │
 │   ┌────────────────────┐ │
-│   │ /create-task-ticket│ │◄─── Back to AGENT MODE
-│   └─────────┬──────────┘ │     Repeat for each task
+│   │ /create-task-ticket│ │◄── Back to AGENT MODE
+│   └─────────┬──────────┘ │
 │             ▼            │
+│ ═════════════════════════│═══
+│  BUILD                   │
+│ ═════════════════════════│═══
 │   ┌────────────────────┐ │
-│   │ /execute-task      │ │◄─── Repeat for each task
-│   │ (/complete-task)   │ │     (auto-completes)
+│   │ /execute-task      │ │◄── Repeat for each task
+│   │  └─ /debug (error) │ │    (/debug if things break)
+│   │ (/complete-task)   │ │    (auto-completes)
 │   └────────────────────┘ │
 └──────────────────────────┘
        │
        ▼
-/run-checks
+═══════════════════════════════════════════════════
+ REVIEW
+═══════════════════════════════════════════════════
+       │
+/run-checks ◄─────────── Lint, typecheck, tests
+       │
+/review ◄─────────────── Five-axis review (+ subagent specialists)
+       │
+/security-audit ◄──────── OWASP/STRIDE audit (if auth/security changes)
+       │
+/commit-push-pr ◄──────── Commit, push, create PR
        │
        ▼
-/commit-push-pr
+═══════════════════════════════════════════════════
+ SHIP
+═══════════════════════════════════════════════════
+       │
+/ship ◄───────────────── Deploy, smoke test, monitor, rollback
+```
+
+### Subagent Review Pattern (Optional)
+
+For complex changes, invoke specialist subagents during `/review`:
+
+```
+/review triggers:
+    ├── .cursor/agents/code-reviewer.md    → Correctness + Architecture
+    ├── .cursor/agents/test-engineer.md    → Test quality + Coverage
+    └── .cursor/agents/security-auditor.md → OWASP + Token verification
 ```
 
 ---
@@ -555,12 +764,56 @@ If using `questionary` with `asyncio`, use `.ask_async()` instead of `.ask()` in
 
 ## Related Documents
 
-- [CLAUDE.md](../CLAUDE.md) - Project-specific guidance
+- [CLAUDE.md](../CLAUDE.md) - Project-specific guidance and self-verification
 - [.cursorrules](../.cursorrules) - Project rules and patterns
 - [Task Ticket Template](./workstreams/TASK_TICKET_TEMPLATE.md)
 - [Completion Report Template](./workstreams/COMPLETION_REPORT_TEMPLATE.md)
 
----
+### Commands (`.cursor/commands/`)
+
+| Phase | Command | Description |
+|-------|---------|-------------|
+| Define | `/spec` | Structured requirements before design |
+| Define | `/create-design-doc` | Convert plan file to formal design doc |
+| Explore | `/explore-codebase` | Inventory existing implementations |
+| Plan | `/breakdown-design` | Create workstreams and tasks from spec |
+| Plan | `/create-workstream` | Create folder structure |
+| Plan | `/create-batch-execution-plan` | Create batched execution plan |
+| Plan | `/setup-worktrees` | Create parallel worktrees from batch plan |
+| Plan | `/create-task-spec` | Define contracts/interfaces (Plan Mode) |
+| Plan | `/create-task-ticket` | Create executable tickets |
+| Build | `/execute-task` | Implement a task |
+| Build | `/debug` | Systematic root-cause debugging |
+| Build | `/complete-task` | Generate completion report |
+| Verify | `/verify-batch-completion` | Verify batch status consistency |
+| Verify | `/sync-worktree-status` | Sync worktree status to main repo |
+| Review | `/run-checks` | Lint, typecheck, tests |
+| Review | `/review` | Five-axis code review |
+| Review | `/security-audit` | OWASP/STRIDE security audit |
+| Review | `/commit-push-pr` | Commit, push, create PR |
+| Ship | `/ship` | Deploy, smoke test, monitor, rollback |
+| Learn | `/update-claude-md` | Capture learnings |
+| Meta | `/pipeline` | Orchestrate full DEFINE→EXPLORE→PLAN→EXECUTE→REVIEW→SHIP |
+
+### Subagent Definitions (`.cursor/agents/`)
+
+| Agent | File | Perspective |
+|-------|------|-------------|
+| Code Reviewer | `code-reviewer.md` | Senior staff engineer, five-axis review |
+| Test Engineer | `test-engineer.md` | QA specialist, coverage + Prove-It pattern |
+| Security Auditor | `security-auditor.md` | Security engineer, OWASP + threat modeling |
+
+### Hooks (`.cursor/hooks.json` + `.cursor/hooks/`)
+
+Quality gates that run deterministically at agent lifecycle events:
+
+| Hook | Script | What It Does |
+|------|--------|-------------|
+| `afterFileEdit` | `hooks/after-file-edit.sh` | Lint Python files immediately after edit (Micro Verification) |
+| `beforeShellExecution` | `hooks/before-shell.sh` | Block force-push to main/dev, dangerous `rm -rf`, `--no-verify` |
+| `stop` | `hooks/on-task-stop.sh` | macOS notification + lint summary on task completion |
+
+Hooks are deterministic (unlike rules) and run outside the LLM loop, making them faster and more reliable for safety gates. See [Deep Dive into Cursor Hooks](https://blog.gitbutler.com/cursor-hooks-deep-dive) for details.
 
 ---
 
@@ -607,6 +860,17 @@ If using `questionary` with `asyncio`, use `.ask_async()` instead of `.ask()` in
 
 | Date | Change |
 |------|--------|
+| May 2026 | Added `/security-audit` — OWASP/STRIDE security audit with token verification and secrets scan |
+| May 2026 | Added `/ship` — production deployment with smoke tests, rollback plan, and monitoring |
+| May 2026 | Renamed `/orchestrate-feature` → `/pipeline` — full state machine: DEFINE→EXPLORE→PLAN→EXECUTE→REVIEW→SHIP |
+| May 2026 | Added `/setup-worktrees` — automated parallel worktree creation from batch plan |
+| May 2026 | Added `/create-design-doc` — convert plan files to formal design docs |
+| May 2026 | Added Cursor hooks system — quality gates for file edits, shell commands, task completion |
+| May 2026 | Added `/spec` command — structured requirements before design (Phase 0: Define) |
+| May 2026 | Added `/review` command — five-axis code review with anti-rationalization tables |
+| May 2026 | Added `/debug` command — systematic root-cause debugging with triage checklist |
+| May 2026 | Added subagent definitions: code-reviewer, test-engineer, security-auditor |
+| May 2026 | Updated pipeline: Define → Explore → Plan → Build → Review → Ship |
 | Feb 2026 | Added Phase 0.5 (Codebase Exploration) after learning from MVP Production Readiness over-scoping |
 | Feb 2026 | Added Lessons Learned section documenting process improvements |
 | Feb 2026 | Corrected mode assignments: Plan Mode only for design doc + `/create-task-spec`; Agent Mode for all other commands |

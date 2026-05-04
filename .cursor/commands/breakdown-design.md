@@ -1,6 +1,29 @@
-# Breakdown Design Document into Workstreams and Tasks
+# Breakdown Design: Analyze Design Doc into Workstreams, Tasks, and Batches
 
-Analyze the provided design document and create a complete task breakdown.
+Analyze a design document, cross-reference against actual codebase state, and create a complete task breakdown with workstreams, dependency graphs, merge points, and batch execution model.
+
+## Workflow Position
+
+```
+/spec → /explore-codebase → /breakdown-design → /create-workstream → /create-batch-execution-plan → ...
+                                   ↑
+                              (YOU ARE HERE)
+```
+
+## When to Use
+
+- After `/explore-codebase` has completed and `CODEBASE_ANALYSIS.md` exists
+- When a formal design doc exists at `docs/design/[feature-name].md`
+- When the feature requires multi-task implementation across services
+- When parallel execution planning is needed
+
+**When NOT to use:**
+- Codebase exploration hasn't been done — run `/explore-codebase` first (MANDATORY)
+- No design doc exists — run `/spec` or `/create-design-doc` first
+- Single-task changes that don't need workstream structure
+- Quick bug fixes or documentation updates
+
+---
 
 ## ⚠️ CRITICAL: Explore Codebase BEFORE Breakdown
 
@@ -652,3 +675,60 @@ Before finalizing task breakdown, verify all file paths follow conventions:
 | "Create user login endpoint" | Endpoint EXISTS at /api/v1/auth/login | "Verify login response format matches E2E" |
 | "Create UserAuthService" | Service EXISTS | "Verify UserAuthService handles all cases" |
 | "Create delegation token model" | Model EXISTS with macaroons | "Verify delegation response includes required fields" |
+
+---
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|-----------------|---------|
+| "I don't need to explore first, the design doc is accurate" | Design docs describe intent, not current state. The Feb 2026 lesson proved 60% of "missing" items already existed. Explore first. |
+| "I'll classify task types later during execution" | Wrong task types (Create vs Verify) lead to wildly inaccurate effort estimates and over-scoped work. Classify now. |
+| "This feature is simple enough for one workstream" | Even simple features benefit from service-boundary workstreams when they cross Control/Gateway/SDK. Parallelization pays off. |
+| "Merge points add unnecessary overhead" | Without merge points, parallel worktrees diverge until conflicts are unresolvable. Merge points are insurance. |
+| "I'll figure out the batches as I go" | Ad-hoc batching misses dependency chains and creates blocked tasks. Plan batches explicitly. |
+| "The breakdown is close enough, let me start coding" | Over-scoped breakdowns waste hours on unnecessary tasks. Under-scoped breakdowns miss critical work. Get it right before execution. |
+| "I don't need to auto-run /create-workstream and /create-batch-execution-plan" | Manual creation leads to forgotten files and inconsistent structure. Always chain the follow-up commands. |
+
+## Red Flags
+
+- Running `/breakdown-design` without `CODEBASE_ANALYSIS.md` existing
+- All tasks classified as `Create` (suggests exploration was skipped)
+- No `Verify` or `Modify` tasks in a mature codebase (something's wrong)
+- More than 30 tasks (likely over-scoped — split into phases)
+- No merge points defined for multi-service features
+- Worktree setup referenced but file paths not using canonical conventions
+- Tasks with `tests/unit/` paths instead of correct `tests/[module]/` paths
+- E2E tests placed inside service directories instead of root `tests/e2e/`
+- Missing post-breakdown verification (all 8 required files must exist)
+
+## Verification
+
+Before declaring breakdown complete:
+
+- [ ] `CODEBASE_ANALYSIS.md` was consulted (not just the design doc)
+- [ ] Tasks correctly classified (Create / Modify / Verify / Wire / Skip)
+- [ ] Workstreams align with service boundaries
+- [ ] Dependencies form a valid DAG (no circular dependencies)
+- [ ] Batches respect dependency ordering
+- [ ] Merge points defined for parallel tracks
+- [ ] Critical path identified
+- [ ] All 8 required files exist (BREAKDOWN.md, WORKSTREAM.md, STATUS.md, BATCH_EXECUTION_PLAN.md, MERGE_POINTS.md, CODEBASE_ANALYSIS.md, tasks/, reports/)
+- [ ] File paths follow canonical conventions (see path tables above)
+
+---
+
+## Reference
+
+This command integrates with:
+- `/explore-codebase` → Must run before this (produces `CODEBASE_ANALYSIS.md`)
+- `/create-workstream` → Automatically called after breakdown
+- `/create-batch-execution-plan` → Automatically called after workstream creation
+- `/setup-worktrees` → Optional next step for parallel execution
+- `/create-task-spec` → Next step for tasks requiring specifications
+
+See also:
+- `CLAUDE.md` → "Codebase Exploration Before Breakdown (CRITICAL)"
+- `CLAUDE.md` → "Backend Service File Path Conventions"
+- `CLAUDE.md` → "Task Ticket Structure Requirements"
+- `docs/DEVELOPER_WORKFLOW.md` → Phase 1: Planning
