@@ -3,7 +3,7 @@
 Orchestrate the full development lifecycle from idea to production deployment. This is the top-level command that chains all other commands into a coherent, checkpoint-gated pipeline.
 
 ```
-DEFINE → EXPLORE → PLAN → EXECUTE → REVIEW → SHIP
+DEFINE → PLAN → EXECUTE → REVIEW → SHIP
 ```
 
 Each phase invokes the appropriate sub-commands, pauses at human checkpoints, and maintains a persistent state file so the pipeline can be resumed after interruptions.
@@ -13,17 +13,19 @@ Each phase invokes the appropriate sub-commands, pauses at human checkpoints, an
 ```
 (This IS the workflow — it orchestrates everything else)
 
-DEFINE ──── EXPLORE ──── PLAN ──── EXECUTE ──── REVIEW ──── SHIP
-/spec       /explore-    /breakdown-  /execute-    /review      /ship
-/create-     codebase     design       task        /security-
- design-doc              /create-     /run-checks   audit
-                          workstream  /complete-   /commit-
-                         /create-      task         push-pr
-                          task-ticket /setup-
-                         /create-      worktrees
-                          batch-
-                          execution-
-                          plan
+DEFINE ──────── PLAN ──────────── EXECUTE ────────── REVIEW ────── SHIP
+/spec           /breakdown-       /execute-task      /review       /ship
+/create-         design           /complete-task     /security-
+ design-doc     (runs /explore-   /run-checks         audit
+                 codebase         /setup-worktrees   /commit-
+                 internally)      /sync-worktree-     push-pr
+                /create-           status
+                 workstream       /verify-batch-
+                /create-           completion
+                 batch-
+                 execution-plan
+                /create-task-spec
+                /create-task-ticket
 ```
 
 ## When to Use
@@ -52,7 +54,7 @@ The pipeline maintains state in `docs/workstreams/[feature]/PIPELINE_STATE.md`:
 |-------|-------|
 | **Feature** | [feature-name] |
 | **Started** | [timestamp] |
-| **Current Phase** | [DEFINE/EXPLORE/PLAN/EXECUTE/REVIEW/SHIP] |
+| **Current Phase** | [DEFINE/PLAN/EXECUTE/REVIEW/SHIP] |
 | **Design Doc** | [path to design doc] |
 | **Workstream Dir** | [path to workstream] |
 
@@ -61,8 +63,7 @@ The pipeline maintains state in `docs/workstreams/[feature]/PIPELINE_STATE.md`:
 | Phase | Status | Started | Completed | Notes |
 |-------|--------|---------|-----------|-------|
 | DEFINE | ✅ Complete | [ts] | [ts] | Spec + design doc created |
-| EXPLORE | ✅ Complete | [ts] | [ts] | Codebase analysis done |
-| PLAN | 🔄 In Progress | [ts] | — | 3 workstreams, 12 tasks |
+| PLAN | 🔄 In Progress | [ts] | — | Codebase explored, 3 workstreams, 12 tasks |
 | EXECUTE | ⏳ Pending | — | — | |
 | REVIEW | ⏳ Pending | — | — | |
 | SHIP | ⏳ Pending | — | — | |
@@ -122,7 +123,7 @@ The pipeline maintains state in `docs/workstreams/[feature]/PIPELINE_STATE.md`:
 |-------|--------|
 | Plain text idea | Run `/spec` to create structured requirements |
 | Plan file (`.plan.md`) | Run `/create-design-doc` to formalize |
-| Design doc (already exists) | Skip to Phase 2 |
+| Design doc (already exists) | Skip to PLAN phase |
 | No input | Ask user what they want to build |
 
 ### Step 1.2: Create Spec (if starting from idea)
@@ -133,11 +134,11 @@ Invoke `/spec` workflow:
 3. VALIDATE — Cross-check for completeness
 4. OUTPUT — Write spec to `docs/specs/[feature-name].md`
 
-### Step 1.3: Create Design Doc (if starting from plan or spec)
+### Step 1.3: Create Design Doc (mandatory after spec)
 
 Invoke `/create-design-doc` workflow:
-1. Read plan/spec file
-2. Generate 7-section design document
+1. Read spec (or plan file)
+2. Generate 15-section design document (500–800+ lines)
 3. Apply DeepSecure conventions
 4. Flag sections needing human input
 5. Write to `docs/design/[feature-name].md`
@@ -163,59 +164,24 @@ Ask: "Approve this definition? (yes / modify / cancel)"
 
 ---
 
-## PHASE 2: EXPLORE
+## PHASE 2: PLAN
 
-**Goal:** Validate design assumptions against the actual codebase.
+**Goal:** Explore the codebase, break the design into executable workstreams, tasks, and batches.
 
-**Sub-commands invoked:** `/explore-codebase`
+**Sub-commands invoked:** `/breakdown-design` (internally runs `/explore-codebase`), `/create-workstream`, `/create-batch-execution-plan`, `/create-task-ticket`, `/create-task-spec`
 
-### Step 2.1: Run Codebase Exploration
-
-Invoke `/explore-codebase @design-doc.md`:
-1. IDENTIFY — Extract components claimed in design doc
-2. EXPLORE — Search codebase for existing implementations
-3. CROSS-REFERENCE — Compare design claims vs actual state
-4. DOCUMENT — Write `CODEBASE_ANALYSIS.md`
-5. REPORT — Summarize what exists, what's missing, what needs modification
-
-### Step 2.2: Adjust Design Doc
-
-Based on exploration findings:
-- Remove tasks for components that already exist
-- Add tasks for gaps the design doc missed
-- Change "Create" tasks to "Modify" or "Verify" tasks where appropriate
-- Update the design doc with a "Codebase State" section
-
-**CHECKPOINT 2**: Present exploration findings
-```
-Show:
-- Components found vs claimed missing
-- True gaps requiring implementation
-- Modified task list
-
-Ask: "Proceed with adjusted scope? (yes / re-explore / modify)"
-```
-
-**Update pipeline state → EXPLORE ✅**
-
----
-
-## PHASE 3: PLAN
-
-**Goal:** Break the design into executable workstreams, tasks, and batches.
-
-**Sub-commands invoked:** `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/create-task-ticket`, `/create-task-spec`
-
-### Step 3.1: Breakdown Design
+### Step 2.1: Breakdown Design (includes codebase exploration)
 
 Invoke `/breakdown-design @design-doc.md`:
-1. Identify external dependencies
-2. Map data flow and shared state
-3. Group into parallel workstreams
-4. Order tasks by dependency within each workstream
-5. Calculate critical path
+1. Run `/explore-codebase` internally — inventory existing implementations, cross-reference against design doc claims
+2. Classify tasks by codebase state (Create / Modify / Verify / Skip)
+3. Identify external dependencies
+4. Map data flow and shared state
+5. Group into parallel workstreams
+6. Order tasks by dependency within each workstream
+7. Calculate critical path
 
-### Step 3.2: Create Workstream Structure
+### Step 2.2: Create Workstream Structure
 
 Invoke `/create-workstream [feature-name]`:
 1. Create `docs/workstreams/[feature-name]/` directory
@@ -223,7 +189,7 @@ Invoke `/create-workstream [feature-name]`:
 3. Create `STATUS.md` tracking file
 4. Create `tasks/` and `reports/` directories
 
-### Step 3.3: Generate Batch Execution Plan
+### Step 2.3: Generate Batch Execution Plan
 
 Invoke `/create-batch-execution-plan [feature-name]`:
 1. Organize tasks into dependency-ordered batches
@@ -231,7 +197,7 @@ Invoke `/create-batch-execution-plan [feature-name]`:
 3. Map parallelizable vs sequential batches
 4. Output `BATCH_EXECUTION_PLAN.md`
 
-### Step 3.4: Generate Task Tickets
+### Step 2.4: Generate Task Tickets
 
 For each task identified, invoke `/create-task-ticket`:
 1. Create task ticket with full metadata
@@ -239,7 +205,7 @@ For each task identified, invoke `/create-task-ticket`:
 3. Link dependencies
 4. Include test requirements
 
-### Step 3.5: Setup Worktrees (if parallel execution planned)
+### Step 2.5: Setup Worktrees (if parallel execution planned)
 
 If multiple workstreams can execute in parallel, invoke `/setup-worktrees`:
 1. Map workstreams to services
@@ -247,7 +213,7 @@ If multiple workstreams can execute in parallel, invoke `/setup-worktrees`:
 3. Copy configuration to each worktree
 4. Output execution commands
 
-**CHECKPOINT 3**: Present plan to user
+**CHECKPOINT 2**: Present plan to user
 ```
 Show:
 - Workstream count and task count
@@ -263,13 +229,13 @@ Ask: "Approve this plan? (yes / modify / cancel)"
 
 ---
 
-## PHASE 4: EXECUTE
+## PHASE 3: EXECUTE
 
 **Goal:** Implement all tasks, batch by batch, with quality gates.
 
-**Sub-commands invoked:** `/execute-task`, `/complete-task`, `/run-checks`, `/setup-worktrees`
+**Sub-commands invoked:** `/execute-task`, `/complete-task`, `/run-checks`, `/setup-worktrees`, `/sync-worktree-status`, `/verify-batch-completion`
 
-### Step 4.1: Batch Loop
+### Step 3.1: Batch Loop
 
 ```
 for batch in BATCH_EXECUTION_PLAN:
@@ -291,6 +257,12 @@ for batch in BATCH_EXECUTION_PLAN:
         run_checks(task)  # /run-checks
         complete_task(task)  # /complete-task
     
+    # Sync and verify (MANDATORY before next batch)
+    if using_worktrees:
+        sync_worktree_status(feature)  # /sync-worktree-status
+    verify_batch_completion(batch, feature)  # /verify-batch-completion
+    # DO NOT proceed if verification fails
+    
     # CHECKPOINT: After each batch
     present_batch_results()
     ask("Proceed to next batch?")
@@ -302,7 +274,7 @@ for batch in BATCH_EXECUTION_PLAN:
         cleanup_worktrees()
 ```
 
-### Step 4.2: Executing a Single Task
+### Step 3.2: Executing a Single Task
 
 For each task, run `/execute-task [WS-ID] [feature-name]`:
 
@@ -315,7 +287,7 @@ For each task, run `/execute-task [WS-ID] [feature-name]`:
 7. Verify acceptance criteria from task ticket
 8. Run `/complete-task` — generate completion report
 
-### Step 4.3: Worktree Coordination
+### Step 3.3: Worktree Coordination
 
 When using worktrees for parallel execution:
 
@@ -335,7 +307,7 @@ cd ../[feature]-ws-b
 cp STATUS.md $MAIN_REPO/docs/workstreams/[feature]/STATUS.md
 ```
 
-### Step 4.4: Merge Points
+### Step 3.4: Merge Points
 
 When parallel tracks converge:
 
@@ -354,7 +326,7 @@ git worktree remove ../[feature]-ws-a
 # 5. Create new worktrees for next phase if needed
 ```
 
-**CHECKPOINT 4**: After each batch
+**CHECKPOINT 3**: After each batch
 ```
 Show:
 - Completed tasks and their status
@@ -364,7 +336,7 @@ Show:
 Ask: "Proceed to next batch? (yes / review-failures / pause)"
 ```
 
-### Step 4.5: Error Recovery
+### Step 3.5: Error Recovery
 
 | Failure Type | Action | Resumption |
 |-------------|--------|------------|
@@ -378,13 +350,13 @@ Ask: "Proceed to next batch? (yes / review-failures / pause)"
 
 ---
 
-## PHASE 5: REVIEW
+## PHASE 4: REVIEW
 
 **Goal:** Multi-axis code review and security audit before merge.
 
 **Sub-commands invoked:** `/review`, `/security-audit`, `/commit-push-pr`
 
-### Step 5.1: Code Review
+### Step 4.1: Code Review
 
 Invoke `/review` on the complete changeset:
 1. Correctness — Does it do what the spec says?
@@ -393,7 +365,7 @@ Invoke `/review` on the complete changeset:
 4. Security — Quick security check (detailed in 5.2)
 5. Performance — No N+1 queries, no memory leaks?
 
-### Step 5.2: Security Audit (if security-relevant changes)
+### Step 4.2: Security Audit (if security-relevant changes)
 
 Invoke `/security-audit` if the changeset touches:
 - Authentication or authorization code
@@ -402,7 +374,7 @@ Invoke `/security-audit` if the changeset touches:
 - Gateway middleware or request routing
 - New external dependencies
 
-### Step 5.3: Create PR
+### Step 4.3: Create PR
 
 Invoke `/commit-push-pr`:
 1. Stage changes with clear commit messages
@@ -410,7 +382,7 @@ Invoke `/commit-push-pr`:
 3. Create PR with structured description
 4. Link to design doc and workstream
 
-**CHECKPOINT 5**: Present review summary
+**CHECKPOINT 4**: Present review summary
 ```
 Show:
 - Review findings (Critical / High / Medium / Low)
@@ -424,35 +396,35 @@ Ask: "Merge and proceed to ship? (yes / address-findings / cancel)"
 
 ---
 
-## PHASE 6: SHIP
+## PHASE 5: SHIP
 
 **Goal:** Deploy to production/staging with smoke tests and rollback plan.
 
 **Sub-commands invoked:** `/ship`
 
-### Step 6.1: Pre-flight
+### Step 5.1: Pre-flight
 
 Run `/ship` Phase 1:
 - Verify branch merged, tests pass, security audit passed
 
-### Step 6.2: Changelog & Rollback Plan
+### Step 5.2: Changelog & Rollback Plan
 
 Run `/ship` Phase 2-3:
 - Generate changelog from commits
 - Write rollback plan with trigger conditions
 
-### Step 6.3: Deploy
+### Step 5.3: Deploy
 
 Run `/ship` Phase 4:
 - Execute deployment (docker compose or SDK release)
 
-### Step 6.4: Smoke Test & Monitor
+### Step 5.4: Smoke Test & Monitor
 
 Run `/ship` Phase 5-6:
 - Health checks, auth flow, API responsiveness
 - 15-minute monitoring window
 
-### Step 6.5: Learning Loop
+### Step 5.5: Learning Loop
 
 After successful deployment:
 1. Aggregate all completion reports from `reports/`
@@ -460,7 +432,7 @@ After successful deployment:
 3. Extract learnings and potential CLAUDE.md updates
 4. Run `/update-claude-md` with proposed additions
 
-**CHECKPOINT 6**: Present ship report and learnings
+**CHECKPOINT 5**: Present ship report and learnings
 ```
 Show:
 - Ship report (smoke test results, monitoring status)
@@ -485,7 +457,6 @@ After each phase, output:
 | Phase | Status |
 |-------|--------|
 | DEFINE | ✅ |
-| EXPLORE | ✅ |
 | PLAN | ✅ |
 | EXECUTE | 🔄 Batch 2/4 |
 | REVIEW | ⏳ |
@@ -599,7 +570,7 @@ The pipeline reads state and picks up at the last incomplete phase.
 
 | Rationalization | Reality |
 |-----------------|---------|
-| "I'll skip the explore phase, I know this codebase" | Exploration in Feb 2026 found 60% of "missing" components already existed. Always explore. |
+| "I'll skip codebase exploration, I know this codebase" | Exploration in Feb 2026 found 60% of "missing" components already existed. `/breakdown-design` runs it automatically — don't bypass it. |
 | "Let me just code it, planning takes too long" | Unplanned features take 3x longer due to rework, missing edge cases, and architecture mismatches. |
 | "Security audit is overkill for this feature" | Every feature that touches auth, tokens, or user input needs a security audit. The cost of not auditing is a vulnerability in production. |
 | "I'll write tests after shipping" | Tests written after shipping never get written. Pipeline enforces tests at execution time. |
@@ -609,8 +580,8 @@ The pipeline reads state and picks up at the last incomplete phase.
 
 ## Red Flags
 
-- Skipping Phase 2 (EXPLORE) to save time
-- Jumping straight to Phase 4 (EXECUTE) from a plan file without formal spec or exploration
+- Skipping codebase exploration (embedded in PLAN phase) to save time
+- Jumping straight to EXECUTE from a plan file without formal spec or design doc
 - Executing all tasks sequentially when the batch plan shows parallel opportunities
 - No PIPELINE_STATE.md being maintained
 - Merge points handled without verifying all contributing tasks completed
@@ -624,7 +595,7 @@ The pipeline reads state and picks up at the last incomplete phase.
 Before declaring the pipeline complete:
 
 - [ ] Each phase has corresponding artifacts (spec, design doc, workstream, reports)
-- [ ] PIPELINE_STATE.md shows all 6 phases ✅
+- [ ] PIPELINE_STATE.md shows all 5 phases ✅
 - [ ] All completion reports generated in `reports/`
 - [ ] STATUS.md consistent with completion reports
 - [ ] CLAUDE.md updated with learnings (if any)
@@ -641,9 +612,8 @@ This command orchestrates all other pipeline commands:
 | Phase | Commands Invoked |
 |-------|-----------------|
 | DEFINE | `/spec`, `/create-design-doc` |
-| EXPLORE | `/explore-codebase` |
-| PLAN | `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/create-task-ticket`, `/create-task-spec` |
-| EXECUTE | `/execute-task`, `/complete-task`, `/run-checks`, `/setup-worktrees` |
+| PLAN | `/breakdown-design` (internally runs `/explore-codebase`), `/create-workstream`, `/create-batch-execution-plan`, `/create-task-ticket`, `/create-task-spec` |
+| EXECUTE | `/execute-task`, `/complete-task`, `/run-checks`, `/setup-worktrees`, `/sync-worktree-status`, `/verify-batch-completion` |
 | REVIEW | `/review`, `/security-audit`, `/commit-push-pr` |
 | SHIP | `/ship`, `/update-claude-md` |
 

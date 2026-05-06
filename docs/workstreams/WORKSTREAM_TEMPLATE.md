@@ -1,7 +1,28 @@
-# Workstream: [Workstream Name]
+# Workstream: [Feature Name]
 
 > Copy this template to create a new workstream.
 > Save as: `docs/workstreams/[feature-name]/WORKSTREAM.md`
+>
+> **Quality bar:** Match the depth of proven gold-standard docs:
+> - `docs/workstreams/idp-selector/WORKSTREAM.md`
+> - `docs/workstreams/idp-enhanced-sso/WORKSTREAM.md`
+> - `docs/workstreams/virtual-mcp-server-mvp/WORKSTREAM.md`
+> - `docs/workstreams/mvp-production-readiness/WORKSTREAM.md`
+
+> **Design Doc**: [docs/design/[feature-name].md](../../design/[feature-name].md)
+> **Breakdown**: [BREAKDOWN.md](./BREAKDOWN.md)
+> **Codebase Analysis**: [CODEBASE_ANALYSIS.md](./CODEBASE_ANALYSIS.md)
+> **Execution Status**: [STATUS.md](./STATUS.md)
+> **Batch Execution Plan**: [BATCH_EXECUTION_PLAN.md](./BATCH_EXECUTION_PLAN.md)
+
+---
+
+## Executive Summary
+
+[2-4 bullet points: what this feature delivers and why it matters. Business-facing, not technical.]
+
+- **[Point 1]:** [Business value]
+- **[Point 2]:** [User impact]
 
 ---
 
@@ -10,17 +31,52 @@
 | Field | Value |
 |-------|-------|
 | **Design Doc** | [link to parent design doc] |
-| **Workstream ID** | WS-[A/B/C/...] |
+| **Breakdown Doc** | [link to BREAKDOWN.md] |
 | **Status** | `planning` / `in_progress` / `blocked` / `completed` |
-| **Owner** | [Person/Team] |
 | **Created** | [Date] |
-| **Target Completion** | [Date] |
+| **Target Completion** | [Date or —] |
+| **Total Workstreams** | [N] |
+| **Total Tasks** | [N] |
+| **Total Batches** | [N] |
+| **Merge Points** | [N] |
 
 ---
 
-## Description
+## Feature Summary
 
-[Brief description of what this workstream accomplishes and why it exists as a separate workstream]
+> Maps features to workstreams for multi-workstream features. For single-workstream features, note "N/A — single workstream" and skip the table.
+
+| Feature | Workstream | Tasks | Service |
+|---------|-----------|-------|---------|
+| [Feature 1 name] | WS-A | [N] (A1–AN) | deeptrail-control |
+| [Feature 2 name] | WS-B | [N] (B1–BN) | deeptrail-gateway |
+
+---
+
+## Workstreams
+
+| WS ID | Name | Status | Parallel With | Depends On | Tasks |
+|-------|------|--------|---------------|------------|-------|
+| WS-A | [Name] | `planning` | WS-B | None | A1–AN |
+| WS-B | [Name] | `planning` | WS-A | None | B1–BN |
+
+---
+
+## Workstream Dependencies
+
+```
+WS-A ([Service 1]) ──────────┐
+WS-B ([Service 2]) ──────────┤── MP1 ──→ WS-C (E2E)
+```
+
+### Can Run In Parallel With
+- Workstream B: [name] — [why parallel is safe]
+
+### Blocked By
+- [None or dependency list]
+
+### Blocks
+- Workstream C: [name] — [what this workstream produces that C needs]
 
 ---
 
@@ -30,10 +86,10 @@
 
 ### Worktree Assignment
 
-| Worktree | Branch | Services | Workstreams | This Workstream? |
-|----------|--------|----------|-------------|------------------|
-| `[feature]-control` | `feature/[feature]-control` | deeptrail-control | A, C, E (partial) | ✅ / ❌ |
-| `[feature]-gateway` | `feature/[feature]-gateway` | deeptrail-gateway | B, D, E (partial) | ✅ / ❌ |
+| Worktree | Branch | Services | Workstreams | Status |
+|----------|--------|----------|-------------|--------|
+| `[feature]-control` | `feature/[feature]-control` | deeptrail-control | A, C | ⏳ Pending |
+| `[feature]-gateway` | `feature/[feature]-gateway` | deeptrail-gateway | B, D | ⏳ Pending |
 
 ### Decision Rationale
 
@@ -45,117 +101,146 @@
 - Enables [X] Claude instances working simultaneously
 
 **Alternatives Considered:**
-- [X+1] worktrees (one per major workstream) - Rejected: overhead not worth it
-- 1 worktree (sequential) - Rejected: misses parallelization opportunity
-- Clones instead of worktrees - Rejected: worktrees sufficient, saves disk space
+- [X+1] worktrees (one per major workstream) — Rejected: overhead not worth it
+- 1 worktree (sequential) — Rejected: misses parallelization opportunity
+- Clones instead of worktrees — Rejected: worktrees sufficient, saves disk space
+
+### Worktree Lifecycle
+
+| Phase | Action | Commands |
+|-------|--------|----------|
+| **Setup** | Create worktrees | `git worktree add ../[name] -b feature/[name] dev` |
+| **Execution** | Work in worktrees | `/execute-task`, `/complete-task` |
+| **Merge** | Merge to dev | `git merge feature/[name] --no-ff` |
+| **Cleanup** | Remove worktrees | `git worktree remove ../[name]` |
 
 ---
 
-## Workstream Dependencies
+## Scope
 
-### Can Run In Parallel With
-- Workstream B: [name] - [why parallel is safe]
-- Workstream C: [name] - [why parallel is safe]
+### In Scope
+- [Bullet list of what IS included]
 
-### Blocked By
-- Workstream X: [name] - [why this dependency exists]
-
-### Blocks
-- Workstream Y: [name] - [what this workstream produces that Y needs]
+### Out of Scope
+- [Bullet list of what is explicitly NOT included and why]
 
 ---
 
-## Tasks
+## Key Decisions
 
-| Task ID | Task Name | Status | Dependencies | Complexity | Assignee |
-|---------|-----------|--------|--------------|------------|----------|
-| WS-A1 | [Task name] | `ready` | None | S | - |
-| WS-A2 | [Task name] | `draft` | WS-A1 | M | - |
-| WS-A3 | [Task name] | `draft` | WS-A1 | M | - |
-| WS-A4 | [Task name] | `draft` | WS-A2, WS-A3 | L | - |
+### [Decision 1 Name]
+**Decision:** [What was chosen]
+**Rationale:** [Why this choice over alternatives]
+
+### [Decision 2 Name]
+**Decision:** [What was chosen]
+**Rationale:** [Why]
+
+---
+
+## Batch Overview
+
+| Batch | Tasks | Focus | Status |
+|-------|-------|-------|--------|
+| 1 | A1, B1 | Foundation | ⏳ Pending |
+| 2 | A2, B2 | Core Logic | ⏳ Pending |
+| 3 | C1 | Integration | ⏳ Pending |
+
+---
+
+## Merge Points
+
+> Quick-reference table. Full details in [MERGE_POINTS.md](./MERGE_POINTS.md).
+
+| Point | After Batch | Converging Tasks | Enables | Status |
+|-------|-------------|------------------|---------|--------|
+| MP1 | Batch 2 | A8 + B3 | C1 (E2E) | ⏳ Pending |
+
+---
+
+## Critical Path
+
+```
+A1 → A2 → B1 → B6 → C2 → E2 → [MP1] → F1
+```
+
+[Brief explanation of what determines the critical path and what could extend it.]
+
+---
+
+## All Tasks
+
+### WS-A: [Workstream Name]
+
+| Task ID | Task Name | Status | Dependencies | Complexity | Batch |
+|---------|-----------|--------|--------------|------------|-------|
+| WS-A1 | [Task name] | `ready` | None | S | 1 |
+| WS-A2 | [Task name] | `draft` | WS-A1 | M | 2 |
+
+### WS-B: [Workstream Name]
+
+| Task ID | Task Name | Status | Dependencies | Complexity | Batch |
+|---------|-----------|--------|--------------|------------|-------|
+| WS-B1 | [Task name] | `ready` | None | S | 1 |
 
 ### Task Dependency Graph
 
 ```
-WS-A1
-  │
-  ├──► WS-A2 ──┐
-  │            │
-  └──► WS-A3 ──┴──► WS-A4
+WS-A1 ──→ WS-A2 ──→ WS-A3 ──┐
+                               ├──→ [MP1] ──→ WS-C1
+WS-B1 ──→ WS-B2 ──→ WS-B3 ──┘
 ```
 
 ---
 
-## Task Links
+## Task Tickets
 
-### Task Tickets
-- [WS-A1: Task Name](./tasks/WS-A1-task-name.md)
-- [WS-A2: Task Name](./tasks/WS-A2-task-name.md)
-- [WS-A3: Task Name](./tasks/WS-A3-task-name.md)
-- [WS-A4: Task Name](./tasks/WS-A4-task-name.md)
+### Batch 1 ⏳ Pending
+- [WS-A1: Task Name](./tasks/WS-A1-task-name.md) — ⏳ `pending`
+- [WS-B1: Task Name](./tasks/WS-B1-task-name.md) — ⏳ `pending`
 
-### Completion Reports
-- [WS-A1 Completion](./reports/WS-A1-completion.md) - ✅ Completed
-- [WS-A2 Completion](./reports/WS-A2-completion.md) - ⏳ In Progress
-- WS-A3 - Not started
-- WS-A4 - Not started
+### Batch 2 ⏳ Pending
+- [WS-A2: Task Name](./tasks/WS-A2-task-name.md) — ⏳ `pending`
+- [WS-B2: Task Name](./tasks/WS-B2-task-name.md) — ⏳ `pending`
 
----
-
-## Progress
-
-### Overall Progress: **[X]%**
-
-```
-[████████░░░░░░░░░░░░] 40% complete
-```
-
-| Metric | Value |
-|--------|-------|
-| **Total Tasks** | [X] |
-| **Completed** | [Y] |
-| **In Progress** | [Z] |
-| **Blocked** | [W] |
-
-### Milestone Tracking
-
-| Milestone | Target Date | Status | Notes |
-|-----------|-------------|--------|-------|
-| All task tickets created | [date] | ✅ / ⏳ / ❌ | |
-| Core implementation complete | [date] | ✅ / ⏳ / ❌ | |
-| **Contract verification passed** | [date] | ✅ / ⏳ / ❌ | Endpoints match spec |
-| **File locations verified** | [date] | ✅ / ⏳ / ❌ | E2E tests at root |
-| Unit tests passing | [date] | ✅ / ⏳ / ❌ | |
-| E2E tests passing | [date] | ✅ / ⏳ / ❌ | |
-| Ready for integration | [date] | ✅ / ⏳ / ❌ | |
-
-### Verification Checkpoints (BLOCKING)
-
-> These must pass before marking workstream complete.
-
-| Check | Command | Status |
-|-------|---------|--------|
-| Endpoints match spec | `grep -r "@router" \| grep "/api/v1"` | ✅ / ❌ |
-| Tests use correct endpoints | `grep -r '"/api/v1' tests/` | ✅ / ❌ |
-| Async fixtures correct | `grep "@pytest.fixture" tests/ -r` (should be empty for async) | ✅ / ❌ |
-| E2E tests at root | `ls tests/e2e/` | ✅ / ❌ |
-| Demos at root | `ls demos/` | ✅ / ❌ |
+### Batch 3 ⏳ Pending
+- [WS-C1: Task Name](./tasks/WS-C1-task-name.md) — ⏳ `pending`
 
 ---
 
-## Files Affected
+## Specifications
 
-This workstream will create or modify:
+| Task ID | Spec | Ticket | Status | Report |
+|---------|------|--------|--------|--------|
+| WS-A1 | [specs/WS-A1-spec.md](./specs/WS-A1-spec.md) | [tasks/WS-A1-*.md](./tasks/WS-A1-task-name.md) | ⏳ | — |
+| WS-A2 | [specs/WS-A2-spec.md](./specs/WS-A2-spec.md) | [tasks/WS-A2-*.md](./tasks/WS-A2-task-name.md) | ⏳ | — |
 
-### New Files
-- `path/to/new/file1.py`
-- `path/to/new/file2.py`
+---
 
-### Modified Files
-- `path/to/existing/file.py`
+## Completion Reports
 
-### Test Files
-- `tests/path/to/test_file.py`
+_Filed after each task completes._
+
+| Task ID | Report | Filed |
+|---------|--------|-------|
+| WS-A1 | [reports/WS-A1-completion.md](./reports/WS-A1-completion.md) | — |
+
+---
+
+## Key Files by Workstream
+
+### WS-A: [Workstream Name]
+
+| File | Action | Description |
+|------|--------|-------------|
+| `path/to/new/file1.py` | Create | [What it does] |
+| `path/to/existing/file.py` | Modify | [What changes] |
+
+### WS-B: [Workstream Name]
+
+| File | Action | Description |
+|------|--------|-------------|
+| `path/to/new/file2.py` | Create | [What it does] |
 
 ### File Location Rules
 
@@ -170,10 +255,32 @@ This workstream will create or modify:
 
 ---
 
+## Validation Criteria
+
+### MP1 Complete
+```bash
+# Run service-level tests
+pytest [service]/tests/ -v
+
+# Verify endpoints match spec
+grep -r "@router" [service]/app/api/ | grep "/api/v1"
+```
+
+### All Batches Complete
+```bash
+# Full E2E validation
+pytest tests/e2e/ -v
+
+# Contract verification
+curl -s http://localhost:8000/openapi.json | jq '.paths | keys'
+```
+
+---
+
 ## API Contracts (from Design Doc)
 
 > **CRITICAL**: Copy endpoints from design doc's "API Contracts" section.
-> These are CANONICAL - implementation and tests MUST match exactly.
+> These are CANONICAL — implementation and tests MUST match exactly.
 
 | Service | Method | Endpoint | Task |
 |---------|--------|----------|------|
@@ -200,9 +307,44 @@ This workstream will create or modify:
 
 ---
 
-## Notes
+## Progress
 
-[Any additional context, decisions made, or things to remember]
+### Overall Progress: **0%**
+
+```
+[░░░░░░░░░░░░░░░░░░░░] 0% complete
+```
+
+| Metric | Value |
+|--------|-------|
+| **Total Tasks** | [N] |
+| **Completed** | 0 |
+| **In Progress** | 0 |
+| **Blocked** | 0 |
+
+### Milestone Tracking
+
+| Milestone | Target Date | Status | Notes |
+|-----------|-------------|--------|-------|
+| All task tickets created | [date] | ⏳ | |
+| Core implementation complete | [date] | ⏳ | |
+| **Contract verification passed** | [date] | ⏳ | Endpoints match spec |
+| **File locations verified** | [date] | ⏳ | E2E tests at root |
+| Unit tests passing | [date] | ⏳ | |
+| E2E tests passing | [date] | ⏳ | |
+| Ready for integration | [date] | ⏳ | |
+
+### Verification Checkpoints (BLOCKING)
+
+> These must pass before marking workstream complete.
+
+| Check | Command | Status |
+|-------|---------|--------|
+| Endpoints match spec | `grep -r "@router" \| grep "/api/v1"` | ❌ |
+| Tests use correct endpoints | `grep -r '"/api/v1' tests/` | ❌ |
+| Async fixtures correct | `grep "@pytest.fixture" tests/ -r` (should be empty for async) | ❌ |
+| E2E tests at root | `ls tests/e2e/` | ❌ |
+| Demos at root | `ls demos/` | ❌ |
 
 ---
 
@@ -210,5 +352,17 @@ This workstream will create or modify:
 
 | Date | Event |
 |------|-------|
-| [date] | Workstream created |
+| [date] | Workstream created from breakdown |
 | [date] | [Event/decision/milestone] |
+
+---
+
+## Cross-References
+
+- **Design Doc:** [docs/design/[feature-name].md](../../design/[feature-name].md)
+- **Spec:** [docs/spec/[feature-name]-spec.md](../../spec/[feature-name]-spec.md)
+- **Breakdown:** [BREAKDOWN.md](./BREAKDOWN.md)
+- **Codebase Analysis:** [CODEBASE_ANALYSIS.md](./CODEBASE_ANALYSIS.md)
+- **Status:** [STATUS.md](./STATUS.md)
+- **Batch Execution Plan:** [BATCH_EXECUTION_PLAN.md](./BATCH_EXECUTION_PLAN.md)
+- **Merge Points:** [MERGE_POINTS.md](./MERGE_POINTS.md)

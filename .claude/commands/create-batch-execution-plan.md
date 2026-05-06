@@ -1,6 +1,6 @@
 # Create Batch Execution Plan
 
-Generate a comprehensive batch execution plan with wave analysis, dependency graphs, and commands for a design.
+Generate a comprehensive batch execution plan with wave analysis, dependency graphs, validation commands, and copy-paste execution scripts for a design.
 
 > **Note:** This command is automatically called by `/breakdown-design` after creating the workstream structure.
 
@@ -10,6 +10,9 @@ Generate a comprehensive batch execution plan with wave analysis, dependency gra
 /breakdown-design → /create-workstream → /create-batch-execution-plan → /create-task-spec → /create-task-ticket
                                                ↑
                                           (YOU ARE HERE)
+
+Downstream consumers of BATCH_EXECUTION_PLAN.md:
+  /execute-task, /complete-task, /verify-batch-completion, /sync-worktree-status
 ```
 
 ## Usage
@@ -26,13 +29,13 @@ Generate a comprehensive batch execution plan with wave analysis, dependency gra
 
 ---
 
-## 📁 Directory Structure Reference (CANONICAL)
+## Directory Structure Reference (CANONICAL)
 
 **IMPORTANT:** Use these EXACT paths when generating validation commands. Do NOT use `tests/unit/`.
 
-### Test Paths (⚠️ NO `unit/` subdirectory!)
+### Test Paths (NO `unit/` subdirectory!)
 
-| Service | Test Type | ✅ CORRECT Path | ❌ WRONG Path |
+| Service | Test Type | CORRECT Path | WRONG Path |
 |---------|-----------|-----------------|---------------|
 | Control | Schemas | `tests/schemas/` | `tests/unit/schemas/` |
 | Control | Services | `tests/services/` | `tests/unit/services/` |
@@ -42,28 +45,22 @@ Generate a comprehensive batch execution plan with wave analysis, dependency gra
 | Gateway | Middleware | `tests/middleware/` | `tests/unit/middleware/` |
 | Gateway | Security | `tests/security/` | `tests/unit/security/` |
 | Gateway | MCP | `tests/mcp/` | `tests/unit/mcp/` |
+| Frontend | Unit/Integration | `frontend/src/**/__tests__/` | `tests/` at root |
+| Frontend | E2E | `frontend/e2e/` | `tests/e2e/` at root |
 
 ### Absolute Path Templates
 
 ```bash
-# Main repo
 MAIN_REPO="/Users/imaxxs/repositories/deepsecure-mvp"
-
-# Control Plane
 CONTROL="${MAIN_REPO}/deeptrail-control"
-
-# Gateway
 GATEWAY="${MAIN_REPO}/deeptrail-gateway"
+FRONTEND="${MAIN_REPO}/frontend"
 
-# Worktrees (adjust per feature — use feature-specific names)
+# Worktrees (adjust per feature — use feature-specific names from BREAKDOWN.md)
 # Example: WORKTREE_CONTROL="/Users/imaxxs/repositories/idp-sso-control"
-WORKTREE_CONTROL="/Users/imaxxs/repositories/[feature]-control"
-WORKTREE_GATEWAY="/Users/imaxxs/repositories/[feature]-gateway"
 ```
 
 ### Validation Command Templates
-
-Always use absolute paths in generated commands:
 
 ```bash
 # Control Plane validation
@@ -75,6 +72,11 @@ pytest tests/services/ -v
 cd /Users/imaxxs/repositories/deepsecure-mvp/deeptrail-gateway
 pytest tests/backends/ -v
 pytest tests/middleware/ -v
+
+# Frontend validation
+cd /Users/imaxxs/repositories/deepsecure-mvp/frontend
+npm test
+npx playwright test
 
 # E2E validation
 cd /Users/imaxxs/repositories/deepsecure-mvp
@@ -88,25 +90,20 @@ pytest tests/e2e/ -v
 
 ### 1. Read the Breakdown Document
 
-Read the breakdown document to extract all task information:
+Read the breakdown document at:
 
 ```
-docs/[feature-name]-breakdown.md
-```
-
-or
-
-```
-docs/deepsecure-[feature-name]-breakdown.md
+docs/workstreams/[feature-name]/BREAKDOWN.md
 ```
 
 Extract:
 - All workstreams and their tasks
 - Task dependencies (the "Dependencies" column)
 - Task sizes (S, M, L)
-- Batch assignments
-- Worktree assignments (which service: control plane vs gateway)
-- Merge points
+- Batch assignments (from Batch Execution Model)
+- Parallelization decision (single worktree vs multi-worktree)
+- Merge points and critical path
+- Phase distribution (if multi-phase feature)
 
 ### 2. Read the Workstream File
 
@@ -119,7 +116,8 @@ docs/workstreams/[feature-name]/WORKSTREAM.md
 Extract:
 - Current batch status
 - Worktree paths and branches
-- Any completed tasks (to mark dependencies as ✅)
+- Any completed tasks (to mark dependencies as completed)
+- Key decisions (e.g., single-branch vs worktrees)
 
 ### 3. Build Dependency Graph
 
@@ -127,7 +125,7 @@ For each batch, analyze internal dependencies:
 
 1. **List all tasks in the batch**
 2. **For each task, check if any dependencies are ALSO in this batch**
-   - If dependency is in a previous batch → mark as ✅ (satisfied)
+   - If dependency is in a previous batch → mark as completed (satisfied)
    - If dependency is in THIS batch → creates a wave dependency
 3. **Group tasks into waves:**
    - Wave 1: All tasks whose dependencies are ALL satisfied (from prior batches)
@@ -135,224 +133,386 @@ For each batch, analyze internal dependencies:
    - Wave 3: Tasks that depend on Wave 2 tasks
    - Continue until all tasks assigned
 
-### 4. Determine Worktree Assignment
+### 4. Determine Worktree / Branch Assignment
 
-Map each task to its worktree based on workstream:
+Read the BREAKDOWN.md's "Parallelization Decision" section to determine the execution model:
 
-| Workstream | Typical Worktree | Service |
-|------------|------------------|---------|
-| A (Control Plane) | vmcp-control | deeptrail-control |
-| B (Gateway Core) | vmcp-gateway | deeptrail-gateway |
-| C (Auth) | Split - check each task | Both services |
-| D (Backend) | vmcp-gateway | deeptrail-gateway |
-| E (Audit) | Split - check each task | Both services |
-| F (Integration) | vmcp-gateway | Tests/examples |
+**Single-Branch Model** (e.g., frontend-architecture):
+- All tasks run in one branch on the main repo
+- Wave Analysis table uses a single column (e.g., "Main Repo" or "Frontend")
+- Visual Dependency Graphs show a single track
+- No `/sync-worktree-status` commands needed
+- Cleanup section is "Branch Cleanup" not "Worktree Cleanup"
 
-**For C and E workstreams, check the file paths in the task:**
-- Files in `deeptrail-control/` → vmcp-control
-- Files in `deeptrail-gateway/` → vmcp-gateway
+**Multi-Worktree Model** (e.g., idp-enhanced-sso, virtual-mcp-server-mvp):
+- Tasks split across worktrees by service (control, gateway)
+- Map each task based on file paths in the breakdown:
+  - Files in `deeptrail-control/` → control worktree
+  - Files in `deeptrail-gateway/` → gateway worktree
+  - Files in `frontend/` or root → main repo
+- Wave Analysis table has columns per worktree
+- Include `/sync-worktree-status` after each batch
 
 ### 5. Generate the Execution Plan
 
-Create `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md` with the following structure:
+Create `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md` with ALL required sections below.
 
 ---
 
 ## Output Template
 
-```markdown
-# Batch Execution Plan: [Feature Name]
+The quality bar is set by these proven gold-standard batch execution plans:
+- `docs/workstreams/idp-selector/BATCH_EXECUTION_PLAN.md` — 680 lines, single-branch, Quick Start
+- `docs/workstreams/idp-enhanced-sso/BATCH_EXECUTION_PLAN.md` — 942 lines, inline MP sections, Worktree Setup
+- `docs/workstreams/virtual-mcp-server-mvp/BATCH_EXECUTION_PLAN.md` — 1048 lines, Status+Complete columns, 4 MPs
+- `docs/workstreams/mvp-production-readiness/BATCH_EXECUTION_PLAN.md` — 2567 lines, Phase-organized, Optimal Execution, Troubleshooting
 
-> **Generated from:** [breakdown-doc-path]
->
-> **Design Doc:** [design-doc-path]
->
-> **Last Updated:** [date]
+**REQUIRED SECTIONS (all must be present):**
 
----
+### Section 0: Header with Cross-References
 
-## Quick Reference
+    # Batch Execution Plan: [Feature Name]
 
-| Batch | Total Tasks | Waves | Fully Parallel? | Worktrees |
-|-------|-------------|-------|-----------------|-----------|
-| [n] | [count] | [waves] | [✅ Yes / ❌ No] | [list] |
-...
+    > **Generated from:** [BREAKDOWN.md](./BREAKDOWN.md)
+    > **Design Doc:** [link to design doc]
+    > **Workstream:** [WORKSTREAM.md](./WORKSTREAM.md)
+    > **Status:** [STATUS.md](./STATUS.md)
+    > **Last Updated:** [date]
 
----
+### Section 1: Quick Reference Table
 
-## Worktree Reference
+Must include **Complete** and **Status** columns for execution tracking.
+Pattern from all 4 gold-standard docs.
 
-| Worktree | Path | Branch | Workstreams |
-|----------|------|--------|-------------|
-| [name] | [path] | [branch] | [workstreams] |
-...
+    ## Quick Reference
 
----
+    | Batch | Total Tasks | Complete | Waves | Status | Worktrees |
+    |-------|-------------|----------|-------|--------|-----------|
+    | 1 | [N] | 0 | [N] | ⏳ Pending | [list] |
+    | 2 | [N] | 0 | [N] | ⏳ Pending | [list] |
 
-## Batch [N]: [Description] ([X] tasks)
+    **Total Tasks:** [N] | **Completed:** 0 | **Remaining:** [N]
 
-### Dependencies
+### Section 2: Worktree / Branch Reference
 
-| Task | Description | Dependencies | Worktree |
-|------|-------------|--------------|----------|
-| [ID] | [desc] | [deps or None] | [worktree] |
-...
+For multi-worktree features, include path, branch, workstreams.
+For single-branch features, show the single branch with setup commands.
 
-### Wave Analysis
+    ## Worktree Reference
 
-| Wave | Control Plane | Gateway |
-|------|---------------|---------|
-| **1** | [tasks] | [tasks] |
-| **2** | [tasks] | [tasks] |
-...
+    | Worktree | Path | Branch | Workstreams |
+    |----------|------|--------|-------------|
+    | [name] | [path] | [branch] | [WS list] |
 
-### Visual Dependency Graph
+    ```bash
+    # Setup commands (concrete, not placeholders)
+    ```
 
-```
-CONTROL (worktree-control)      GATEWAY (worktree-gateway)
-──────────────────────          ─────────────────────────
+### Section 3: Worktree / Branch Setup
 
-Wave 1:    [task] ────┐              [task] ──────┐
-                      │                           │
-Wave 2:               ▼                           ▼
-           [task] ────┤              [task] ──────┤
-                      │                           │
-                      └─────────┬─────────────────┘
-                                │
-                        [Batch N Complete]
-```
+Full lifecycle commands: cleanup old → create fresh → verify.
+Pattern from idp-enhanced-sso (3-step).
+For single-branch features, show branch creation.
 
-### Execution Strategy
+    ## Worktree Setup (run once before Batch 1)
 
-[Description of parallel vs sequential requirements]
+    ### Step 1: Clean up old worktrees
+    ```bash
+    # concrete commands
+    ```
 
-### Commands
+    ### Step 2: Create fresh worktrees
+    ```bash
+    # concrete commands
+    ```
 
-```bash
-# ═══════════════════════════════════════════════════════════════
-# BATCH [N] - [WAVE DESCRIPTION]
-# ═══════════════════════════════════════════════════════════════
+### Section 4: Phase Distribution (for multi-phase features)
 
-# --- Create Task Specs (from main repo, in Plan mode) ---
-cd [main-repo-path]
-/create-task-spec [N] [feature-name]  # Creates specs for all tasks in this batch
+ASCII timeline showing batch-to-phase mapping.
+Pattern from mvp-production-readiness.
 
-# --- Create Task Tickets (after specs approved) ---
-/create-task-ticket WS-[ID] [feature-name]
-...
+    ## Phase Distribution
 
-# ───────────────────────────────────────────────────────────────
-# WAVE 1: [tasks]
-# ───────────────────────────────────────────────────────────────
+    ```
+    Phase 1 (Foundation)    Phase 2 (Core)    Phase 3 (Demo)    ...
+    ──────────────────     ──────────────     ──────────────
+    B1 │ B2 │ B3          B4 │ B5            B6 │ B7
+    ⏳   ⏳   ⏳           ⏳   ⏳             ⏳   ⏳
+                [MP1]                [MP2]                [MP3]
+    ```
 
-# Terminal 1: [worktree-1]
-cd [worktree-1-path]
-/execute-task WS-[ID] [feature-name]
-/complete-task WS-[ID] [feature-name]
-...
+    Skip this section for features with a single phase or <5 batches.
 
-# Terminal 2: [worktree-2]
-cd [worktree-2-path]
-/execute-task WS-[ID] [feature-name]
-/complete-task WS-[ID] [feature-name]
-...
+### Section 5: Per-Batch Sections (repeat for each batch)
 
-# ⏸️ WAIT: [description of what to wait for]
+Each batch MUST include ALL of these subsections:
 
-# ───────────────────────────────────────────────────────────────
-# WAVE 2: [tasks]
-# ───────────────────────────────────────────────────────────────
-...
+**5a. Batch Header with Focus**
 
-# --- Sync Status (from main repo) ---
-cd [main-repo-path]
-/sync-worktree-status [feature-name]
-```
+    ## Batch [N]: [Description] ([X] tasks)
 
-### ⚠️ Post-Batch Verification (MANDATORY)
+    **Focus:** [One-line description of what this batch accomplishes]
 
-**Before proceeding to the next batch, verify status consistency:**
+**5b. Dependencies Table**
 
-```bash
-# Run from main repo
-cd [main-repo-path]
+    ### Dependencies
 
-# Verify batch completion
-/verify-batch-completion [batch-id] [feature-name]
-```
+    | Task | Description | Dependencies | Complexity | Worktree |
+    |------|-------------|--------------|------------|----------|
+    | [ID] | [desc] | [deps or None] | [S/M/L] | [worktree] |
 
-**Verification Checklist:**
-- [ ] All batch tasks have completion reports in `reports/`
-- [ ] STATUS.md shows all tasks as "✅ Complete"
-- [ ] WORKSTREAM.md shows all tasks with correct status and report links
-- [ ] BATCH_EXECUTION_PLAN.md Quick Reference shows batch as "✅ Complete"
-- [ ] If batch triggers merge point, MERGE_POINTS.md shows it as "✅ Reached"
+**5c. Wave Analysis**
 
-**DO NOT proceed to next batch until verification passes.**
+For multi-worktree: columns per worktree.
+For single-branch: single column or columns by domain.
 
----
+    ### Wave Analysis
 
-### Summary
+    | Wave | Control Plane | Gateway |
+    |------|---------------|---------|
+    | **1** | [tasks] | [tasks] |
 
-| Metric | Value |
-|--------|-------|
-| **Parallelism** | [X]% ([description]) |
-| **Waves** | [count] |
-| **Bottleneck** | [task or None] |
-| **Merge Point** | [MP or None] |
-| **Unblocks** | [next batch tasks] |
+    OR (single-branch):
 
----
+    | Wave | Tasks |
+    |------|-------|
+    | **1** | [tasks] |
 
-[Repeat for each batch...]
+**5d. Visual Dependency Graph (ASCII)**
 
----
+    ### Visual Dependency Graph
 
-## Overall Execution Summary
+    ```
+    [ASCII diagram showing task flow, waves, and batch completion]
+    ```
 
-### Batch Parallelism Overview
+**5e. Execution Strategy**
 
-| Batch | Tasks | Waves | Parallel % | Cross-Worktree? |
-|-------|-------|-------|------------|-----------------|
-...
+    ### Execution Strategy
 
-### Merge Points Summary
+    [Text description of parallel vs sequential, which worktrees, bottlenecks]
 
-| Point | After Batch | Converging | Actions Required |
-|-------|-------------|------------|------------------|
-...
+**5f. Commands**
 
-### Total Commands Needed
+    ### Commands
 
-| Command Type | Count |
-|--------------|-------|
-| `/create-task-spec` | [total batches] (one per batch) |
-| `/create-task-ticket` | [total tasks] |
-| `/execute-task` | [total tasks] |
-| `/complete-task` | [total tasks] (auto after execute) |
-| `/sync-worktree-status` | [total batches] |
-| Merge Point actions | [count] |
-| **Total** | [sum] |
+    ```bash
+    # concrete /create-task-spec, /create-task-ticket, /execute-task, /complete-task
+    # organized by wave with WAIT markers between waves
+    ```
 
-### Critical Path
+**5g. Validation (Pre-Merge + Post-Merge)**
 
-```
-[task] → [task] → ... → [task]
-│                            │
-└────── [X] days minimum ────┘
-```
+This is REQUIRED per batch. Pattern from all gold-standard docs.
 
-### Worktree Distribution
+    ### Validation
 
-| Worktree | Tasks |
-|----------|-------|
-| **[worktree]** | [task list] ([count] tasks) |
-...
+    #### Pre-Merge Validation (Unit Tests)
 
----
+    ```bash
+    # concrete pytest / npm test commands for this batch's tasks
+    ```
 
-*Generated by `/create-batch-execution-plan` command*
-```
+    #### Post-Merge Validation (Integration Tests)
+
+    Only for batches at merge points. Include curl commands with expected status codes.
+
+    ```bash
+    # docker compose build/up, curl tests, cleanup
+    ```
+
+**5h. Post-Batch Verification (MANDATORY)**
+
+    ### Post-Batch Verification (MANDATORY)
+
+    ```bash
+    cd /Users/imaxxs/repositories/deepsecure-mvp
+    /verify-batch-completion [batch-id] [feature-name]
+    ```
+
+    **Checklist:**
+    - [ ] All batch tasks have completion reports
+    - [ ] STATUS.md updated
+    - [ ] If merge point, MERGE_POINTS.md updated
+
+**5i. Summary Table**
+
+    ### Summary
+
+    | Metric | Value |
+    |--------|-------|
+    | **Parallelism** | [X]% ([description]) |
+    | **Waves** | [count] |
+    | **Bottleneck** | [task or None] |
+    | **Merge Point** | [MP or None] |
+    | **Unblocks** | [next batch tasks] |
+
+### Section 6: Inline Merge Point Sections
+
+Between the batch that triggers a merge point and the next batch, include a
+standalone merge point section. Pattern from idp-enhanced-sso.
+
+    ## ── MERGE POINT [N] ──
+
+    ```
+    ┌─────────────────────────────────────────────────────────────┐
+    │                      MERGE POINT [N]                         │
+    │                                                             │
+    │  [branch/worktree 1] ──┐                                    │
+    │                        ├──→ dev ──→ Batch [N+1]             │
+    │  [branch/worktree 2] ──┘                                    │
+    │                                                             │
+    │  Prerequisites: Batches 1-[N] complete ([X]/[Y] tasks)      │
+    │  Action: [Merge/Tag/Rebuild description]                    │
+    └─────────────────────────────────────────────────────────────┘
+    ```
+
+    See [MERGE_POINTS.md](./MERGE_POINTS.md) for detailed merge actions.
+
+    ### Quick Merge Commands
+    ```bash
+    # concrete push, PR, merge, rebuild commands
+    ```
+
+### Section 7: Overall Execution Summary
+
+    ## Overall Execution Summary
+
+    ### Batch Parallelism Overview
+
+    | Batch | Tasks | Waves | Parallel % | Cross-Worktree? | Status |
+    |-------|-------|-------|------------|-----------------|--------|
+    | 1 | [N] | [N] | [N]% | [Yes/No] | ⏳ Pending |
+
+    ### Merge Points Summary
+
+    | Point | After Batch | Converging | Actions Required | Status |
+    |-------|-------------|------------|------------------|--------|
+
+    ### Total Commands Needed
+
+    | Command Type | Count |
+    |--------------|-------|
+    | `/create-task-spec` | [N] |
+    | `/create-task-ticket` | [N] |
+    | `/execute-task` | [N] |
+    | `/complete-task` | [N] |
+    | `/sync-worktree-status` | [N] |
+    | `/verify-batch-completion` | [N] |
+    | Merge Point actions | [N] |
+    | **Total** | [sum] |
+
+    ### Critical Path
+
+    ```
+    [task] → [task] → ... → [task]
+    │                            │
+    └────── [X] sessions min ────┘
+    ```
+
+    ### Worktree Distribution
+
+    | Worktree | Tasks | Count |
+    |----------|-------|-------|
+    | [name] | [task list] | [N] |
+
+### Section 8: Optimal Execution Strategy
+
+How to allocate developers/Claude instances. Pattern from mvp-production-readiness.
+
+    ## Optimal Execution Strategy
+
+    | Phase | Max Parallel Instances | Worktrees Needed |
+    |-------|------------------------|------------------|
+    | Phase 1 | [N] | [N] |
+
+    **Recommended:**
+    - [Phase/Batch range]: [description of developer allocation]
+
+### Section 9: Quick Start Commands
+
+Copy-paste-ready condensed script for the entire lifecycle.
+Pattern from all 4 gold-standard docs.
+
+    ## Quick Start Commands
+
+    ```bash
+    # ═══════════════════════════════════════════════════════════════
+    # QUICK START: [Feature Name]
+    # ═══════════════════════════════════════════════════════════════
+
+    # Setup
+    cd /Users/imaxxs/repositories/deepsecure-mvp
+    [branch/worktree creation commands]
+
+    # Batch 1
+    /create-task-spec 1 [feature]
+    /create-task-ticket WS-[ID] [feature]
+    ...
+    /execute-task WS-[ID] [feature] && /complete-task WS-[ID] [feature]
+    /verify-batch-completion 1 [feature]
+
+    # Batch 2
+    ...
+
+    # Merge
+    [merge commands]
+
+    # Cleanup
+    [cleanup commands]
+    ```
+
+### Section 10: Worktree Cleanup / Branch Cleanup
+
+For multi-worktree: full cleanup with pre-verification, remove, delete branches, troubleshooting.
+For single-branch: branch deletion after merge.
+
+    ## Worktree Cleanup (End of Workstream)
+
+    > **When to run:** After ALL phases are complete and merged to `dev` branch.
+    > **Prerequisites:** All merge points must be reached.
+
+    ### Pre-Cleanup Verification
+
+    ```bash
+    cd /Users/imaxxs/repositories/deepsecure-mvp
+    git checkout dev && git pull origin dev
+    git branch --merged dev | grep "[feature-prefix]"
+    ```
+
+    ### Remove Worktrees
+
+    ```bash
+    git worktree remove ../[worktree-1]
+    git worktree remove ../[worktree-2]
+    git worktree list
+    ```
+
+    ### Delete Feature Branches
+
+    ```bash
+    git branch -d feature/[branch-1]
+    git branch -d feature/[branch-2]
+    ```
+
+    ### Troubleshooting
+
+    | Issue | Solution |
+    |-------|----------|
+    | "worktree is dirty" | Commit or stash changes before removal |
+    | "branch still checked out" | Run from main repo, not from worktree |
+    | "worktree not found" | Already removed, or wrong path |
+    | "cannot delete branch" | Branch not fully merged; use `-D` (careful!) |
+
+    ### Cleanup Summary Checklist
+
+    | Step | Command | Verified |
+    |------|---------|----------|
+    | 1. All phases complete | Check STATUS.md | ☐ |
+    | 2. All merge points reached | Check MERGE_POINTS.md | ☐ |
+    | 3. Branches merged to dev | `git branch --merged dev` | ☐ |
+    | 4. E2E passes | `[test command]` | ☐ |
+    | 5. Worktrees/branches removed | `git worktree list` | ☐ |
 
 ---
 
@@ -360,51 +520,36 @@ cd [main-repo-path]
 
 ```python
 def calculate_waves(batch_tasks, completed_tasks):
-    """
-    Calculate which wave each task belongs to.
-    
-    Args:
-        batch_tasks: Dict[task_id, List[dependency_ids]]
-        completed_tasks: Set[task_id] - tasks completed in prior batches
-    
-    Returns:
-        Dict[wave_num, List[task_id]]
-    """
     waves = {}
     assigned = set()
     wave_num = 1
-    
+
     while len(assigned) < len(batch_tasks):
         current_wave = []
-        
+
         for task_id, deps in batch_tasks.items():
             if task_id in assigned:
                 continue
-            
-            # Check if all dependencies are satisfied
-            deps_satisfied = all(
-                dep in completed_tasks or dep in assigned
-                for dep in deps
-            )
-            
-            # For wave 1, only count prior-batch deps
+
             if wave_num == 1:
+                deps_satisfied = all(dep in completed_tasks for dep in deps)
+            else:
                 deps_satisfied = all(
-                    dep in completed_tasks
+                    dep in completed_tasks or dep in assigned
                     for dep in deps
                 )
-            
+
             if deps_satisfied:
                 current_wave.append(task_id)
-        
+
         if not current_wave:
-            raise ValueError(f"Circular dependency detected in batch")
-        
+            raise ValueError("Circular dependency detected in batch")
+
         waves[wave_num] = current_wave
         assigned.update(current_wave)
         completed_tasks.update(current_wave)
         wave_num += 1
-    
+
     return waves
 ```
 
@@ -416,24 +561,23 @@ def calculate_waves(batch_tasks, completed_tasks):
 Parallelism % = (Max parallel tasks in any wave / Total tasks) * 100
 
 Example:
-- Batch has 9 tasks
-- Wave 1: 3 tasks (parallel)
-- Wave 2: 2 tasks (parallel)  
-- Wave 3: 2 tasks (parallel)
-- Wave 4: 2 tasks (parallel)
-
-Parallelism = 3/9 = 33% (or weighted average: (3+2+2+2)/(4*3) = 9/12 = 75%)
+- Batch has 9 tasks across 4 waves
+- Wave 1: 3 tasks → max parallel = 3
+- Parallelism = 3/9 = 33%
 ```
 
-Use the **maximum concurrent tasks** interpretation:
-- If Wave 1 has 3 parallel tasks and that's the max → 33%
-- Or use **cross-worktree parallelism**: control and gateway always parallel → 100% cross-worktree
+Use the **maximum concurrent tasks** interpretation for the Parallelism column.
 
 ---
 
-## Example Output
+## Example Outputs
 
-See `docs/workstreams/virtual-mcp-server-mvp/BATCH_EXECUTION_PLAN.md` for a complete example.
+| Pattern | See |
+|---------|-----|
+| Single-branch, small feature | `docs/workstreams/idp-selector/BATCH_EXECUTION_PLAN.md` |
+| Multi-worktree, medium feature | `docs/workstreams/idp-enhanced-sso/BATCH_EXECUTION_PLAN.md` |
+| Multi-worktree, large feature | `docs/workstreams/virtual-mcp-server-mvp/BATCH_EXECUTION_PLAN.md` |
+| Multi-phase, large feature | `docs/workstreams/mvp-production-readiness/BATCH_EXECUTION_PLAN.md` |
 
 ---
 
@@ -441,25 +585,13 @@ See `docs/workstreams/virtual-mcp-server-mvp/BATCH_EXECUTION_PLAN.md` for a comp
 
 After creating the execution plan:
 
-1. **Link from WORKSTREAM.md:**
-   ```markdown
-   ## Execution
-   
-   > **Batch Execution Plan:** [BATCH_EXECUTION_PLAN.md](./BATCH_EXECUTION_PLAN.md)
-   ```
-
-2. **Link from STATUS.md:**
-   Add reference in the header section
-
-3. **Commit the file:**
-   ```bash
-   git add docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md
-   git commit -m "Add batch execution plan for [feature-name]"
-   ```
+1. **Link from WORKSTREAM.md** (should already have the link if created by `/create-workstream`)
+2. **Link from STATUS.md** — add reference in the header
+3. **Verify MERGE_POINTS.md exists** — should already be created by `/create-workstream`
 
 ---
 
-## ⚠️ Output Verification Checklist (MANDATORY)
+## Output Verification Checklist (MANDATORY)
 
 **Before declaring the batch execution plan complete, verify ALL sections exist.**
 
@@ -467,277 +599,84 @@ After creating the execution plan:
 
 | # | Section | Required? | Purpose |
 |---|---------|-----------|---------|
-| 0 | **Worktree Setup (Lifecycle)** | ✅ YES | Cleanup old worktrees + create fresh + post-merge cleanup (see `docs/WORKTREE_GUIDE.md`) |
-| 1 | **Quick Reference** | ✅ YES | Status tracking table with Complete column |
-| 2 | **Worktree Reference** | ✅ YES | Path, Branch, Workstreams mapping |
-| 3 | **Per-Batch: Dependencies** | ✅ YES | Table with Worktree column |
-| 4 | **Per-Batch: Wave Analysis** | ✅ YES | Table format (Control \| Gateway columns) |
-| 5 | **Per-Batch: Visual Dependency Graph** | ✅ YES | ASCII showing CONTROL/GATEWAY |
-| 6 | **Per-Batch: Execution Strategy** | ✅ YES | Text description |
-| 7 | **Per-Batch: Commands** | ✅ YES | `/create-task-spec`, `/create-task-ticket`, `/execute-task`, `/complete-task` |
-| 8 | **Per-Batch: Summary** | ✅ YES | Table with Metric/Value format |
-| 9 | **Overall Execution Summary** | ✅ YES | Batch overview, merge points, total commands |
-| 10 | **Critical Path** | ✅ YES | ASCII diagram |
-| 11 | **Quick Start Commands** | ✅ YES | Copy-paste ready |
-
-### Per-Batch Command Template (MUST include ALL)
-
-```bash
-# ═══════════════════════════════════════════════════════════════
-# BATCH [N] - [DESCRIPTION]
-# ═══════════════════════════════════════════════════════════════
-
-# --- Create Task Specs (from main repo, in Plan mode) ---
-cd /path/to/main/repo
-/plan
-/create-task-spec [batch] [feature-name]
-
-# --- Create Task Tickets (from main repo) ---
-/create-task-ticket WS-[ID] [feature-name]
-...
-
-# ───────────────────────────────────────────────────────────────
-# WAVE 1: [tasks]
-# ───────────────────────────────────────────────────────────────
-
-# Terminal 1: [worktree]
-cd /path/to/worktree
-/execute-task WS-[ID] [feature-name]
-/complete-task WS-[ID] [feature-name]
-
-# Terminal 2: [worktree]
-cd /path/to/other-worktree
-/execute-task WS-[ID] [feature-name]
-/complete-task WS-[ID] [feature-name]
-
-# ⏸️ WAIT: [dependency description if needed]
-
-# ───────────────────────────────────────────────────────────────
-# WAVE 2: [tasks]
-# ───────────────────────────────────────────────────────────────
-...
-
-# --- Sync Status (from main repo) ---
-cd /path/to/main/repo
-/sync-worktree-status [feature-name]
-```
+| 0 | **Header with Cross-References** | YES | Links to BREAKDOWN, WORKSTREAM, STATUS, design doc |
+| 1 | **Quick Reference** (Complete + Status columns) | YES | At-a-glance tracking with Total/Completed/Remaining counter |
+| 2 | **Worktree / Branch Reference** | YES | Path, Branch, Workstreams mapping |
+| 3 | **Worktree / Branch Setup** | YES | Lifecycle commands (cleanup old, create fresh, verify) |
+| 4 | **Phase Distribution** | IF multi-phase | ASCII timeline |
+| 5a | **Per-Batch: Header with Focus** | YES | One-line focus description |
+| 5b | **Per-Batch: Dependencies** | YES | Table with Complexity and Worktree columns |
+| 5c | **Per-Batch: Wave Analysis** | YES | Columns adapt to worktree model |
+| 5d | **Per-Batch: Visual Dependency Graph** | YES | ASCII |
+| 5e | **Per-Batch: Execution Strategy** | YES | Text description |
+| 5f | **Per-Batch: Commands** | YES | `/create-task-spec`, `/create-task-ticket`, `/execute-task`, `/complete-task` |
+| 5g | **Per-Batch: Validation** | YES | Pre-Merge (unit tests) + Post-Merge (integration, if MP) |
+| 5h | **Per-Batch: Post-Batch Verification** | YES | `/verify-batch-completion` with checklist |
+| 5i | **Per-Batch: Summary** | YES | Metric/Value table |
+| 6 | **Inline Merge Point sections** | IF merge points exist | ASCII box + quick merge commands between batches |
+| 7 | **Overall Execution Summary** | YES | Parallelism (with Status), Merge Points (with Status), Total Commands, Critical Path, Worktree Distribution |
+| 8 | **Optimal Execution Strategy** | YES | Developer/instance allocation per phase |
+| 9 | **Quick Start Commands** | YES | Condensed copy-paste lifecycle script |
+| 10 | **Worktree / Branch Cleanup** | YES | Cleanup with Troubleshooting table |
 
 ### Verification Command
-
-Before completing, grep for required sections:
 
 ```bash
 FEATURE="[feature-name]"
 FILE="docs/workstreams/${FEATURE}/BATCH_EXECUTION_PLAN.md"
 
-echo "=== Section Verification ==="
-grep -q "## Quick Reference" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING: Quick Reference"
-grep -q "## Worktree Reference" $FILE && echo "✅ Worktree Reference" || echo "❌ MISSING: Worktree Reference"
-grep -q "### Dependencies" $FILE && echo "✅ Dependencies tables" || echo "❌ MISSING: Dependencies tables"
-grep -q "### Wave Analysis" $FILE && echo "✅ Wave Analysis tables" || echo "❌ MISSING: Wave Analysis tables"
-grep -q "### Visual Dependency Graph" $FILE && echo "✅ Visual Graphs" || echo "❌ MISSING: Visual Graphs"
-grep -q "### Execution Strategy" $FILE && echo "✅ Execution Strategy" || echo "❌ MISSING: Execution Strategy"
-grep -q "### Commands" $FILE && echo "✅ Commands sections" || echo "❌ MISSING: Commands sections"
-grep -q "/create-task-spec" $FILE && echo "✅ /create-task-spec" || echo "❌ MISSING: /create-task-spec"
-grep -q "/create-task-ticket" $FILE && echo "✅ /create-task-ticket" || echo "❌ MISSING: /create-task-ticket"
-grep -q "/execute-task" $FILE && echo "✅ /execute-task" || echo "❌ MISSING: /execute-task"
-grep -q "/complete-task" $FILE && echo "✅ /complete-task" || echo "❌ MISSING: /complete-task"
-grep -q "### Summary" $FILE && echo "✅ Summary tables" || echo "❌ MISSING: Summary tables"
-grep -q "## Overall Execution Summary" $FILE && echo "✅ Overall Summary" || echo "❌ MISSING: Overall Summary"
-grep -q "### Critical Path" $FILE && echo "✅ Critical Path" || echo "❌ MISSING: Critical Path"
+echo "=== BATCH_EXECUTION_PLAN.md Section Verification ==="
+grep -q "## Quick Reference" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING"
+grep -q "**Total Tasks:**" $FILE && echo "✅ Total/Completed counter" || echo "❌ MISSING"
+grep -q "## Worktree Reference\|## Branch Reference" $FILE && echo "✅ Worktree/Branch Reference" || echo "❌ MISSING"
+grep -q "## Worktree Setup\|## Branch Setup" $FILE && echo "✅ Setup section" || echo "❌ MISSING"
+grep -q "### Dependencies" $FILE && echo "✅ Dependencies tables" || echo "❌ MISSING"
+grep -q "### Wave Analysis" $FILE && echo "✅ Wave Analysis" || echo "❌ MISSING"
+grep -q "### Visual Dependency Graph" $FILE && echo "✅ Visual Graphs" || echo "❌ MISSING"
+grep -q "### Execution Strategy" $FILE && echo "✅ Execution Strategy" || echo "❌ MISSING"
+grep -q "### Commands" $FILE && echo "✅ Commands" || echo "❌ MISSING"
+grep -q "### Validation" $FILE && echo "✅ Validation" || echo "❌ MISSING"
+grep -q "/create-task-spec" $FILE && echo "✅ /create-task-spec" || echo "❌ MISSING"
+grep -q "/execute-task" $FILE && echo "✅ /execute-task" || echo "❌ MISSING"
+grep -q "/verify-batch-completion" $FILE && echo "✅ /verify-batch-completion" || echo "❌ MISSING"
+grep -q "### Summary" $FILE && echo "✅ Summary tables" || echo "❌ MISSING"
+grep -q "MERGE POINT\|No merge points" $FILE && echo "✅ Merge Point sections" || echo "⚠️  Check if merge points needed"
+grep -q "## Overall Execution Summary" $FILE && echo "✅ Overall Summary" || echo "❌ MISSING"
+grep -q "## Optimal Execution Strategy" $FILE && echo "✅ Optimal Strategy" || echo "❌ MISSING"
+grep -q "## Quick Start Commands" $FILE && echo "✅ Quick Start" || echo "❌ MISSING"
+grep -q "## Worktree Cleanup\|## Branch Cleanup" $FILE && echo "✅ Cleanup" || echo "❌ MISSING"
+grep -q "### Troubleshooting" $FILE && echo "✅ Troubleshooting" || echo "❌ MISSING"
+grep -q "### Critical Path" $FILE && echo "✅ Critical Path" || echo "❌ MISSING"
 echo "=== Verification Complete ==="
 ```
 
-### Why This Matters
+---
 
-**Lesson Learned (Feb 2026):** The `mvp-production-readiness` batch plan was created without:
-- Quick Reference table
-- Worktree Reference table  
-- Per-batch Commands with `/create-task-spec`, `/execute-task`, etc.
-- Per-batch Summary tables
+## Common Rationalizations
 
-This made it inconsistent with `virtual-mcp-server-mvp` and harder to execute.
+| Rationalization | Reality |
+|-----------------|---------|
+| "Validation is obvious, I'll skip it" | Every gold-standard doc has per-batch validation. Without it, issues found late. |
+| "Quick Start is redundant with the per-batch Commands" | Quick Start is the condensed, copy-paste-ready version. Developers use it, not the detailed sections. |
+| "This feature has no merge points" | Still need inline `No merge points in this feature` note. And still need Overall Summary. |
+| "Single-branch doesn't need worktree setup" | It needs Branch Setup (creation, naming). Just simpler. |
+| "Phase Distribution is overhead for a small feature" | Skip it for <5 batches. Required for 5+ batches. |
+
+## Red Flags
+
+- BATCH_EXECUTION_PLAN.md under 200 lines (likely missing sections)
+- No `### Validation` subsections in any batch (will miss broken endpoints)
+- No Quick Start Commands (developers will re-derive the execution sequence)
+- Quick Reference missing Complete/Status columns (tracking will be ad-hoc)
+- No inline Merge Point sections (developers won't know what to do at convergence)
+- Escaped backticks (`\`\`\``) in the output (template rendering issue)
+- Worktree commands using placeholder paths instead of concrete absolute paths
 
 ---
 
-## Worktree Cleanup Section (MUST Include)
+## Token Types Reference
 
-Every BATCH_EXECUTION_PLAN.md must include a cleanup section at the end.
-
-### Required Cleanup Template
-
-```markdown
-## Worktree Cleanup (End of Workstream)
-
-> **When to run:** After ALL phases are complete and merged to `dev` branch.
-> **Prerequisites:** All merge points must be ✅ REACHED.
-
-### Pre-Cleanup Verification
-
-Before removing worktrees, verify all work is merged:
-
-\`\`\`bash
-# 1. Navigate to main repo
-cd /Users/imaxxs/repositories/deepsecure-mvp
-
-# 2. Update dev branch
-git checkout dev
-git pull origin dev
-
-# 3. Check if worktree branches are fully merged
-git branch --merged dev | grep "[worktree-branch-prefix]"
-
-# 4. If branches NOT shown above, merge them first:
-git merge feature/[worktree-1] --no-ff -m "Merge [feature]: [service 1]"
-git merge feature/[worktree-2] --no-ff -m "Merge [feature]: [service 2]"
-
-# 5. Verify E2E demo passes on merged code
-python demos/demo_sarah_journey_e2e.py
-\`\`\`
-
-### Remove Worktrees
-
-\`\`\`bash
-# Navigate to main repo
-cd /Users/imaxxs/repositories/deepsecure-mvp
-
-# List current worktrees
-git worktree list
-
-# Remove worktrees (safe removal - fails if uncommitted changes)
-git worktree remove ../[worktree-1]
-git worktree remove ../[worktree-2]
-
-# Verify removal
-git worktree list
-\`\`\`
-
-### Delete Feature Branches (Optional)
-
-\`\`\`bash
-# Delete local feature branches
-git branch -d feature/[worktree-1]
-git branch -d feature/[worktree-2]
-
-# If pushed to remote, delete there too
-git push origin --delete feature/[worktree-1]
-git push origin --delete feature/[worktree-2]
-\`\`\`
-
-### Force Removal (Use with Caution)
-
-\`\`\`bash
-# ⚠️ WARNING: Discards ALL uncommitted changes!
-git worktree remove --force ../[worktree-1]
-git worktree remove --force ../[worktree-2]
-\`\`\`
-
-### Cleanup Summary Checklist
-
-| Step | Command | Verified |
-|------|---------|----------|
-| 1. All phases complete | Check `STATUS.md` | ☐ |
-| 2. All merge points reached | Check `MERGE_POINTS.md` | ☐ |
-| 3. Branches merged to dev | `git branch --merged dev` | ☐ |
-| 4. E2E demo passes | `python demos/...` | ☐ |
-| 5. Worktrees removed | `git worktree remove ...` | ☐ |
-| 6. Feature branches deleted | `git branch -d ...` | ☐ |
-| 7. Worktree list clean | `git worktree list` | ☐ |
-```
-
-### Verification: Cleanup Section Exists
-
-Add to the verification command:
-
-```bash
-grep -q "## Worktree Cleanup" $FILE && echo "✅ Worktree Cleanup" || echo "❌ MISSING: Worktree Cleanup"
-grep -q "### Remove Worktrees" $FILE && echo "✅ Remove Worktrees" || echo "❌ MISSING: Remove Worktrees"
-grep -q "git worktree remove" $FILE && echo "✅ Cleanup commands" || echo "❌ MISSING: Cleanup commands"
-```
-
----
-
-## Validation Sections (Per-Batch REQUIRED)
-
-Every batch must include Pre-Merge and Post-Merge validation sections.
-
-### Validation Template
-
-```markdown
-### Validation
-
-#### Pre-Merge Validation (Unit Tests Only)
-
-Run these BEFORE merging to dev branch:
-
-\`\`\`bash
-# Control worktree: Run unit tests
-cd /path/to/control-worktree/[service-dir]
-pytest tests/[relevant-tests]/ -v
-
-# Gateway worktree: Run unit tests
-cd /path/to/gateway-worktree/[service-dir]
-pytest tests/[relevant-tests]/ -v
-\`\`\`
-
-#### Post-Merge Validation (Integration Tests)
-
-Run these AFTER merging and rebuilding containers:
-
-\`\`\`bash
-# ═══════════════════════════════════════════════════════════════
-# [BATCH-ID] VALIDATION - [Description] (POST-MERGE)
-# ═══════════════════════════════════════════════════════════════
-# All commands should return 200 (or expected status codes)
-# ═══════════════════════════════════════════════════════════════
-
-# 0. Rebuild containers with new code
-cd /path/to/main-repo
-docker compose build [services]
-docker compose up -d [dependencies] [services]
-sleep 15
-
-# 1. Verify services are healthy
-curl -sf http://localhost:[port]/health && echo "✅ [Service] healthy"
-
-# 2. Verify new endpoints exist
-curl -s http://localhost:[port]/openapi.json | jq '.paths | keys | map(select(contains("[keyword]")))' 
-
-# ─────────────────────────────────────────────────────────────────
-# SETUP: Get required tokens
-# ─────────────────────────────────────────────────────────────────
-
-# 3. Get user token via login (note: returns "token" field)
-USER_TOKEN=$(curl -s -X POST http://localhost:[port]/api/v1/auth/login \\
-  -H "Content-Type: application/json" \\
-  -d '{"email":"[user]","password":"[password]"}' | jq -r '.token')
-echo "User token: \${USER_TOKEN:0:20}..."
-
-# ─────────────────────────────────────────────────────────────────
-# TEST [N]: [Description]
-# ─────────────────────────────────────────────────────────────────
-
-echo "Test [N]: [Description]..."
-curl -s -w "\\nHTTP Status: %{http_code}\\n" \\
-  -X [METHOD] "http://localhost:[port]/api/v1/[endpoint]" \\
-  -H "Authorization: Bearer $[TOKEN_VAR]" \\
-  -H "Content-Type: application/json" \\
-  -d '[payload]'
-# Expected: [response description]
-
-# ─────────────────────────────────────────────────────────────────
-# CLEANUP
-# ─────────────────────────────────────────────────────────────────
-
-docker compose down
-
-echo "✅ [BATCH-ID] Post-Merge Validation Complete"
-\`\`\`
-```
-
-### Token Types Reference
-
-Different endpoints require different token types. Use this reference:
+Different endpoints require different token types in validation commands:
 
 | Token Type | How to Obtain | Used For |
 |------------|---------------|----------|
@@ -748,7 +687,7 @@ Different endpoints require different token types. Use this reference:
 
 ### Agent JWT Creation Template
 
-For endpoints requiring Agent JWT:
+For validation commands needing Agent JWT:
 
 ```bash
 # Generate Ed25519 keypair
@@ -778,7 +717,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/delegate \
   -H "Content-Type: application/json" \
   -d '{"agent_id": "test-agent-001", "permissions": ["service:scope:action"]}'
 
-# Request and sign challenge
+# Challenge-response
 CHALLENGE=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/challenge \
   -H "Content-Type: application/json" \
   -d '{"agent_id": "test-agent-001"}' | jq -r '.challenge')
@@ -791,7 +730,6 @@ signed = private_key.sign('$CHALLENGE'.encode())
 print(base64.urlsafe_b64encode(signed.signature).decode())
 ")
 
-# Get Agent JWT
 AGENT_JWT=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/verify \
   -H "Content-Type: application/json" \
   -d "{
@@ -803,53 +741,14 @@ AGENT_JWT=$(curl -s -X POST http://localhost:8000/api/v1/auth/agent/verify \
 
 ---
 
-## MERGE_POINTS.md Creation
+## MERGE_POINTS.md Note
 
-Alongside BATCH_EXECUTION_PLAN.md, create MERGE_POINTS.md using the template guide.
-
-### When to Create
-
-- **After** BATCH_EXECUTION_PLAN.md is created
-- **Before** starting batch execution
-
-### How to Create
-
-1. **Read the template guide:**
-   ```
-   docs/workstreams/MERGE_POINT_GUIDE.md
-   ```
-
-2. **Create the file:**
-   ```
-   docs/workstreams/[feature-name]/MERGE_POINTS.md
-   ```
-
-3. **Required sections** (see MERGE_POINT_GUIDE.md for full template):
-   - Code Dependencies vs Runtime Dependencies
-   - Development Mode vs Integration Mode
-   - Runtime Dependencies by Merge Point
-   - Per-MP: Merge Actions, Container Deployment, Container Test Scenarios, Cleanup, Success Criteria, Post-Merge Status Update
-   - Testing Strategy by Phase
-   - Troubleshooting
-   - Container Deployment Schedule
-   - Quick Reference Commands
-   - Merge Point Status table with Progress Summary
-   - History
-
-### Post-Creation Verification
+MERGE_POINTS.md should already exist (created by `/create-workstream`). If not, create it using
+`docs/workstreams/MERGE_POINT_GUIDE.md` as the template. Verify with:
 
 ```bash
 FEATURE="[feature-name]"
-FILE="docs/workstreams/${FEATURE}/MERGE_POINTS.md"
-
-echo "=== MERGE_POINTS.md Verification ==="
-grep -q "## Code Dependencies vs Runtime Dependencies" $FILE && echo "✅ Dependencies section" || echo "❌ MISSING"
-grep -q "### Merge Actions" $FILE && echo "✅ Merge Actions" || echo "❌ MISSING"
-grep -q "### Container Test Scenarios" $FILE && echo "✅ Container Tests" || echo "❌ MISSING"
-grep -q "### Post-Merge Status Update" $FILE && echo "✅ Status Update" || echo "❌ MISSING"
-grep -q "## Quick Reference Commands" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING"
-grep -q "## Merge Point Status" $FILE && echo "✅ Status Table" || echo "❌ MISSING"
-echo "=== Verification Complete ==="
+[ -f "docs/workstreams/${FEATURE}/MERGE_POINTS.md" ] && echo "✅ Exists" || echo "❌ MISSING — create it"
 ```
 
 ---
@@ -859,11 +758,11 @@ echo "=== Verification Complete ==="
 | Command | Purpose |
 |---------|---------|
 | `/breakdown-design` | Creates the breakdown document (input) |
-| `/create-workstream` | Creates WORKSTREAM.md |
+| `/create-workstream` | Creates WORKSTREAM.md + MERGE_POINTS.md + STATUS.md |
 | `/create-task-spec` | Creates specs for a batch (run before tickets) |
 | `/create-task-ticket` | Creates individual task tickets |
 | `/execute-task` | Executes a task |
-| `/complete-task` | Marks task complete (auto after execute) |
+| `/complete-task` | Marks task complete |
 | `/sync-worktree-status` | Syncs status across worktrees |
 | `/verify-batch-completion` | Verifies batch completion status |
 
@@ -871,6 +770,6 @@ echo "=== Verification Complete ==="
 
 | Template | Purpose |
 |----------|---------|
-| `docs/workstreams/MERGE_POINT_GUIDE.md` | Template for MERGE_POINTS.md creation |
+| `docs/workstreams/MERGE_POINT_GUIDE.md` | Template for MERGE_POINTS.md |
 | `docs/workstreams/TASK_SPEC_TEMPLATE.md` | Template for task specifications |
 | `docs/workstreams/TASK_TICKET_TEMPLATE.md` | Template for task tickets |
