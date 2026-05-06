@@ -1,0 +1,41 @@
+{
+  "sceneId": "delegation",
+  "title": "Delegate Permissions",
+  "description": "Sarah delegates specific, scoped permissions to her agent. The agent can only access what Sarah explicitly allows.",
+  "steps": [
+    {
+      "id": "del-1",
+      "label": "Select Agent",
+      "description": "Sarah selects her research agent for delegation",
+      "actor": "sarah@acme.com",
+      "action": "select_agent",
+      "result": "Agent selected",
+      "metadata": { "agent_id": "sarah-research-agent" }
+    },
+    {
+      "id": "del-2",
+      "label": "Choose Scopes",
+      "description": "Sarah selects the specific permissions to delegate",
+      "actor": "sarah@acme.com",
+      "action": "select_permissions",
+      "result": "4 permissions selected",
+      "metadata": { "permissions": ["notion:pages:read", "notion:pages:write", "slack:messages:read", "slack:messages:write"] }
+    },
+    {
+      "id": "del-3",
+      "label": "Create Delegation",
+      "description": "Delegation is recorded; agent receives scoped L3 token",
+      "actor": "deepsecure-control",
+      "action": "create_delegation",
+      "result": "Delegation active"
+    },
+    {
+      "id": "del-4",
+      "label": "Agent Token Updated",
+      "description": "Agent's JWT is enriched with the delegated permissions",
+      "actor": "sarah-research-agent",
+      "action": "token_refresh",
+      "result": "L3 token with delegation claims"
+    }
+  ]
+}

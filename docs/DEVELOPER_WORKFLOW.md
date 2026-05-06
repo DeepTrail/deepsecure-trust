@@ -282,7 +282,47 @@ docs/workstreams/[feature-name]/
 
 **Skip if:** Feature is single-service only or has fewer than 4 tasks.
 
-### Step 4: Create Task Specifications
+### Step 4: Run Batch (Automated — Recommended)
+
+**Mode:** Agent Mode
+
+```
+/run-batch [batch-number] [feature-name]
+```
+
+**What it does (automatically, in one command):**
+1. Reads `BATCH_EXECUTION_PLAN.md` — extracts task list, wave analysis, dependency graph
+2. Runs `/create-task-spec` for all tasks in the batch
+3. Runs `/create-task-ticket` for each task
+4. Executes waves in order, parallelizing independent tasks via subagents
+5. Gates on wave completion before advancing to the next wave
+6. Runs `/verify-batch-completion` after all waves
+7. Handles merge point tagging if applicable
+8. Checkpoints with the user — reports results and asks to proceed
+
+**Parallelization rules:**
+- 1 task in wave → execute inline
+- 2-3 tasks in wave → execute sequentially (subagent overhead exceeds benefit)
+- 4+ tasks in wave → spawn parallel `best-of-n-runner` subagents
+
+**Output:** Specs, tickets, code, completion reports — everything the manual steps produce.
+
+**Example:**
+```
+/run-batch 1 frontend-architecture
+# → Creates specs for A1,A3,A4,A5
+# → Creates tickets for A1,A3,A4,A5
+# → Executes Wave 1: A1 (inline)
+# → Executes Wave 2: A3,A4,A5 (sequential — 3 tasks)
+# → Runs /verify-batch-completion 1 frontend-architecture
+# → Reports results, asks to proceed
+```
+
+### Step 4-alt: Manual Batch Execution (Alternative)
+
+If you prefer manual control over individual steps, use Steps 4a-5 below instead of `/run-batch`:
+
+#### Step 4a: Create Task Specifications
 
 **Mode:** ⚠️ Plan Mode (switch from Agent Mode)
 
@@ -294,14 +334,14 @@ docs/workstreams/[feature-name]/
 - Creates interface/contract specifications for all tasks in a batch
 - Defines data models, API signatures, class interfaces
 - Establishes acceptance criteria at the spec level
-- **Required for:** All tasks involving Python code
-- **Skip for:** Documentation-only tasks (no Python code)
+- **Required for:** All tasks involving code
+- **Skip for:** Documentation-only tasks (no code)
 
 **Why Plan Mode:** Spec creation benefits from collaborative design thinking and iteration before committing to implementation details.
 
 **Output:** `docs/workstreams/[feature-name]/specs/[WS-ID]-spec.md`
 
-### Step 5: Create Task Tickets
+#### Step 5: Create Task Tickets
 
 **Mode:** Agent Mode (switch back from Plan Mode)
 
@@ -456,7 +496,39 @@ All execution commands run in **Agent Mode**.
 
 ## Batch Execution Pattern
 
-For each batch, follow this mini-loop:
+### Automated (Recommended)
+
+Use `/run-batch` to automate the entire batch lifecycle:
+
+```
+For Batch N:
+  /run-batch N [feature]
+  # Internally: specs → tickets → execute waves (parallel where possible) → verify → checkpoint
+  # DO NOT proceed to Batch N+1 until checkpoint passes
+```
+
+### Example: 4-Batch Feature (Automated)
+
+```bash
+# ══════════════════════════════════════════════════════════════
+# AUTOMATED BATCH EXECUTION
+# ══════════════════════════════════════════════════════════════
+
+/run-batch 1 my-feature    # Foundation — specs, tickets, execute, verify, checkpoint
+/run-batch 2 my-feature    # Core — specs, tickets, execute (parallel waves), verify, checkpoint
+/run-batch 3 my-feature    # Integration — specs, tickets, execute, verify, checkpoint
+/run-batch 4 my-feature    # Polish — specs, tickets, execute, verify, checkpoint
+
+# ══════════════════════════════════════════════════════════════
+# FINALIZATION [AGENT MODE]
+# ══════════════════════════════════════════════════════════════
+/run-checks
+/commit-push-pr
+```
+
+### Manual (Alternative)
+
+If you prefer manual control, replace `/run-batch N` with the individual steps:
 
 ```
 For Batch N:
@@ -478,52 +550,6 @@ For Batch N:
      # DO NOT proceed to Batch N+1 if verification fails
 ```
 
-### Example: 4-Batch Feature
-
-```bash
-# ══════════════════════════════════════════════════════════════
-# BATCH 1 - Foundation
-# ══════════════════════════════════════════════════════════════
-
-# [PLAN MODE] - Create specs
-/create-task-spec 1 my-feature
-
-# [AGENT MODE] - Create tickets and execute
-/create-task-ticket A1 my-feature
-/create-task-ticket A2 my-feature
-/execute-task A1 my-feature
-/execute-task A2 my-feature
-
-# [AGENT MODE] - Verify batch 1
-/sync-worktree-status my-feature            # If using worktrees
-/verify-batch-completion 1 my-feature        # Must pass before proceeding
-
-# ══════════════════════════════════════════════════════════════
-# BATCH 2 - Core Components
-# ══════════════════════════════════════════════════════════════
-
-# [PLAN MODE] - Create specs
-/create-task-spec 2 my-feature
-
-# [AGENT MODE] - Create tickets and execute
-/create-task-ticket B1 my-feature
-/create-task-ticket B2 my-feature
-/execute-task B1 my-feature
-/execute-task B2 my-feature
-
-# [AGENT MODE] - Verify batch 2
-/sync-worktree-status my-feature            # If using worktrees
-/verify-batch-completion 2 my-feature        # Must pass before proceeding
-
-# ... continue for remaining batches ...
-
-# ══════════════════════════════════════════════════════════════
-# FINALIZATION [AGENT MODE]
-# ══════════════════════════════════════════════════════════════
-/run-checks
-/commit-push-pr
-```
-
 ---
 
 ## Mode Selection Guide
@@ -531,7 +557,7 @@ For Batch N:
 | Mode | When to Use | Commands/Actions |
 |------|-------------|------------------|
 | **Plan Mode** | Collaborative spec iteration, task spec design | `/spec` (optional), `/create-task-spec` |
-| **Agent Mode** | Everything else — design, planning, execution, review, shipping | `/spec`, `/create-design-doc`, `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/setup-worktrees`, `/create-task-ticket`, `/execute-task`, `/debug`, `/complete-task`, `/sync-worktree-status`, `/verify-batch-completion`, `/run-checks`, `/review`, `/security-audit`, `/commit-push-pr`, `/ship` |
+| **Agent Mode** | Everything else — design, planning, execution, review, shipping | `/spec`, `/create-design-doc`, `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/setup-worktrees`, `/run-batch`, `/create-task-ticket`, `/execute-task`, `/debug`, `/complete-task`, `/sync-worktree-status`, `/verify-batch-completion`, `/run-checks`, `/review`, `/security-audit`, `/commit-push-pr`, `/ship` |
 
 ### Mode Switching Pattern
 
@@ -549,7 +575,12 @@ Agent Mode: /breakdown-design → /create-workstream → /create-batch-execution
 Agent Mode: /setup-worktrees (Step 3.5) ◄── Optional: parallel execution setup
                      │
                      ▼
-Plan Mode:  /create-task-spec (Step 4) ◄── Switch to Plan Mode for specs
+Agent Mode: /run-batch (Step 4) ◄── Automated: specs → tickets → execute → verify
+                     │               (internally handles Plan Mode for specs)
+                     │
+                     │  OR (manual alternative):
+                     │
+Plan Mode:  /create-task-spec (Step 4a) ◄── Switch to Plan Mode for specs
                      │
                      ▼
 Agent Mode: /create-task-ticket → /execute-task (/debug if errors) → ...
@@ -570,8 +601,9 @@ Agent Mode: /run-checks → /review → /security-audit → /commit-push-pr → 
 | Workstream | `/create-workstream` | Agent | `WORKSTREAM.md`, `STATUS.md`, directories |
 | Batch Plan | `/create-batch-execution-plan` | Agent | `BATCH_EXECUTION_PLAN.md` |
 | **Parallel** | `/setup-worktrees` | Agent | Git worktrees + copied config per service |
-| Task Specs | `/create-task-spec` | **Plan** | `specs/[WS-ID]-spec.md` |
-| Task Tickets | `/create-task-ticket` | Agent | `tasks/[WS-ID]-[name].md` |
+| **Batch Run** | `/run-batch` | Agent | Orchestrates specs → tickets → execute → verify (automated) |
+| Task Specs | `/create-task-spec` | **Plan** | `specs/[WS-ID]-spec.md` (manual alternative) |
+| Task Tickets | `/create-task-ticket` | Agent | `tasks/[WS-ID]-[name].md` (manual alternative) |
 | Execution | `/execute-task` | Agent | Code files |
 | **Debug** | `/debug` | Agent | Fix + regression test |
 | Completion | `/complete-task` | Agent | `reports/[WS-ID]-completion.md` |

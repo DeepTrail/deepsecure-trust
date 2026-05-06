@@ -71,6 +71,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - path: .env.google
+        required: false
     environment:
       - DATABASE_URL=postgresql://deepsecure_user:deepsecure_password@db/deeptrail_controldb
       - SECRET_KEY=your-secret-key-for-jwt
@@ -111,8 +114,8 @@ services:
       - NOTION_CLIENT_SECRET=${NOTION_CLIENT_SECRET:-test-notion-client-secret}
       - SLACK_CLIENT_ID=${SLACK_CLIENT_ID:-test-slack-client-id}
       - SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET:-test-slack-client-secret}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # Google OAuth credentials loaded from .env.google (via env_file above).
+      # GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_HD are set there.
       - HUBSPOT_CLIENT_ID=test-hubspot-client-id
       - HUBSPOT_CLIENT_SECRET=test-hubspot-client-secret
       
@@ -158,6 +161,27 @@ services:
       - GATEWAY_INTERNAL_API_TOKEN=gateway-internal-secret-token
       # Pass the current DeepSecure version to the container
       - DEEPSECURE_VERSION=0.1.12
+    networks:
+      - deepsecure_network
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: deeptrail_frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - deeptrail-control
+      - deeptrail-gateway
+    environment:
+      - NODE_ENV=production
+      - DEEPTRAIL_CONTROL_INTERNAL_URL=http://deeptrail-control:8001
+      - DEEPTRAIL_GATEWAY_INTERNAL_URL=http://deeptrail-gateway:8001
+      - NEXT_PUBLIC_APP_NAME=DeepSecure
+      - NEXT_PUBLIC_DEMO_ENABLED=true
+      - FRONTEND_ORIGIN=http://localhost:3000
+      - SESSION_SECRET=${SESSION_SECRET:-dev-session-secret-change-in-prod-32chars}
+      - CSRF_SECRET=${CSRF_SECRET:-dev-csrf-secret-change-in-production}
     networks:
       - deepsecure_network
 

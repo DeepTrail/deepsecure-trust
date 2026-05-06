@@ -1,0 +1,52 @@
+{
+  "sceneId": "audit-review",
+  "title": "Audit Review",
+  "description": "Every action is logged with full attribution chain — who delegated, which agent acted, what was accessed, and the outcome.",
+  "steps": [
+    {
+      "id": "audit-1",
+      "label": "SSO Login Logged",
+      "description": "Sarah's authentication event is recorded at L2 User layer",
+      "actor": "sarah@acme.com",
+      "action": "sso_login",
+      "result": "Event logged",
+      "metadata": { "layer": "L2", "time": "09:01" }
+    },
+    {
+      "id": "audit-2",
+      "label": "Delegation Logged",
+      "description": "Delegation creation event with scope details",
+      "actor": "sarah@acme.com",
+      "action": "delegation_created",
+      "result": "Event logged",
+      "metadata": { "layer": "L2", "time": "09:02" }
+    },
+    {
+      "id": "audit-3",
+      "label": "Agent Auth Logged",
+      "description": "Agent authentication via challenge-response recorded at L3",
+      "actor": "sarah-research-agent",
+      "action": "agent_authenticated",
+      "result": "Event logged",
+      "metadata": { "layer": "L3", "time": "09:03" }
+    },
+    {
+      "id": "audit-4",
+      "label": "Tool Call Logged",
+      "description": "Notion search tool call recorded with attribution to delegating user",
+      "actor": "sarah-research-agent",
+      "action": "mcp_tool_call",
+      "result": "Event logged",
+      "metadata": { "layer": "L3", "tool": "notion.search_pages", "time": "09:04" }
+    },
+    {
+      "id": "audit-5",
+      "label": "Denial Logged",
+      "description": "Permission denial for HubSpot access recorded with full attribution chain",
+      "actor": "sarah-research-agent",
+      "action": "permission_denied",
+      "result": "Event logged",
+      "metadata": { "layer": "L3", "tool": "hubspot.list_contacts", "time": "09:05" }
+    }
+  ]
+}
