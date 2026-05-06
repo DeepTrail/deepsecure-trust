@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Secrets
+.env.local
+
+# Test artifacts
+playwright-report/
+test-results/
+coverage/
+
+# Build
+*.tsbuildinfo

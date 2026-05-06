@@ -1,0 +1,40 @@
+{
+  "sceneId": "sso-login",
+  "title": "SSO Authentication",
+  "description": "Sarah signs in via Keycloak SSO. Her identity is verified and a JWT is issued with her groups and roles.",
+  "steps": [
+    {
+      "id": "sso-1",
+      "label": "Navigate to Login",
+      "description": "User opens the DeepSecure dashboard and is redirected to the identity provider",
+      "actor": "sarah@acme.com",
+      "action": "navigate",
+      "result": "Redirect to Keycloak"
+    },
+    {
+      "id": "sso-2",
+      "label": "Authenticate with IdP",
+      "description": "Keycloak validates credentials and issues an authorization code",
+      "actor": "sarah@acme.com",
+      "action": "authenticate",
+      "result": "Authorization code issued"
+    },
+    {
+      "id": "sso-3",
+      "label": "Token Exchange",
+      "description": "BFF exchanges the authorization code for a JWT containing user groups and roles",
+      "actor": "deepsecure-bff",
+      "action": "token_exchange",
+      "result": "JWT with groups/roles",
+      "metadata": { "token_type": "L2", "groups": ["engineering", "admin"] }
+    },
+    {
+      "id": "sso-4",
+      "label": "Session Established",
+      "description": "Encrypted session cookie is set and user lands on the dashboard",
+      "actor": "deepsecure-bff",
+      "action": "set_session",
+      "result": "Dashboard loaded"
+    }
+  ]
+}

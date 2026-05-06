@@ -14,18 +14,17 @@ Each phase invokes the appropriate sub-commands, pauses at human checkpoints, an
 (This IS the workflow — it orchestrates everything else)
 
 DEFINE ──────── PLAN ──────────── EXECUTE ────────── REVIEW ────── SHIP
-/spec           /breakdown-       /execute-task      /review       /ship
-/create-         design           /complete-task     /security-
- design-doc     (runs /explore-   /run-checks         audit
-                 codebase         /setup-worktrees   /commit-
-                 internally)      /sync-worktree-     push-pr
-                /create-           status
-                 workstream       /verify-batch-
-                /create-           completion
-                 batch-
+/spec           /breakdown-       /run-batch          /review       /ship
+/create-         design            (orchestrates:     /security-
+ design-doc     (runs /explore-     /create-task-      audit
+                 codebase            spec             /commit-
+                 internally)        /create-task-      push-pr
+                /create-             ticket
+                 workstream         /execute-task
+                /create-            /verify-batch-
+                 batch-              completion)
                  execution-plan
-                /create-task-spec
-                /create-task-ticket
+                /setup-worktrees
 ```
 
 ## When to Use
@@ -233,45 +232,42 @@ Ask: "Approve this plan? (yes / modify / cancel)"
 
 **Goal:** Implement all tasks, batch by batch, with quality gates.
 
-**Sub-commands invoked:** `/execute-task`, `/complete-task`, `/run-checks`, `/setup-worktrees`, `/sync-worktree-status`, `/verify-batch-completion`
+**Sub-commands invoked:** `/run-batch` (which internally invokes `/create-task-spec`, `/create-task-ticket`, `/execute-task`, `/verify-batch-completion`)
 
-### Step 3.1: Batch Loop
+### Step 3.1: Batch Loop (Automated)
+
+```
+for batch_number in 1..total_batches:
+    /run-batch batch_number feature_name
+    
+    # /run-batch internally:
+    #   1. Parses BATCH_EXECUTION_PLAN.md for this batch
+    #   2. Creates specs (/create-task-spec)
+    #   3. Creates tickets (/create-task-ticket for each task)
+    #   4. Executes waves in order:
+    #      - 1-3 tasks in wave → sequential
+    #      - 4+ tasks in wave → parallel subagents
+    #   5. Gates on wave completion before next wave
+    #   6. Runs /verify-batch-completion
+    #   7. Handles merge point tagging if applicable
+    #   8. CHECKPOINT: presents results, asks "Proceed?"
+    
+    # DO NOT proceed if verification fails
+    # DO NOT proceed without user confirmation at checkpoint
+```
+
+### Step 3.1-alt: Manual Batch Loop (Alternative)
+
+If `/run-batch` is not appropriate (e.g., need fine-grained control):
 
 ```
 for batch in BATCH_EXECUTION_PLAN:
-    
-    # Identify runnable tasks
-    tasks = get_tasks_in_batch(batch)
-    parallel_tasks = [t for t in tasks if no_unmet_dependencies(t)]
-    
-    # Execute tasks (parallel or sequential)
-    if using_worktrees:
-        for task in parallel_tasks:
-            spawn_subagent(task, worktree=get_worktree(task))
-    else:
-        for task in parallel_tasks:
-            execute_sequentially(task)
-    
-    # Quality gate per task
-    for task in completed_tasks:
-        run_checks(task)  # /run-checks
-        complete_task(task)  # /complete-task
-    
-    # Sync and verify (MANDATORY before next batch)
-    if using_worktrees:
-        sync_worktree_status(feature)  # /sync-worktree-status
-    verify_batch_completion(batch, feature)  # /verify-batch-completion
-    # DO NOT proceed if verification fails
-    
-    # CHECKPOINT: After each batch
-    present_batch_results()
-    ask("Proceed to next batch?")
-    
-    # Merge point handling (if applicable)
-    if batch_triggers_merge_point:
-        merge_branches()
-        verify_merge()
-        cleanup_worktrees()
+    /create-task-spec batch feature
+    for task in batch: /create-task-ticket task feature
+    for task in batch (wave order): /execute-task task feature
+    if using_worktrees: /sync-worktree-status feature
+    /verify-batch-completion batch feature
+    # CHECKPOINT: present results, ask to proceed
 ```
 
 ### Step 3.2: Executing a Single Task
@@ -487,7 +483,9 @@ Proceed? (yes / pause / modify)
 
 ## Subagent Coordination
 
-For parallel batch execution, use the Task tool:
+For parallel task execution within a wave, `/run-batch` automatically spawns subagents when a wave has 4+ tasks. The subagent prompt template is defined in `.claude/commands/run-batch.md`.
+
+**Manual subagent spawning** (if not using `/run-batch`):
 
 ```
 # Spawn parallel subagents for independent tasks
@@ -612,8 +610,8 @@ This command orchestrates all other pipeline commands:
 | Phase | Commands Invoked |
 |-------|-----------------|
 | DEFINE | `/spec`, `/create-design-doc` |
-| PLAN | `/breakdown-design` (internally runs `/explore-codebase`), `/create-workstream`, `/create-batch-execution-plan`, `/create-task-ticket`, `/create-task-spec` |
-| EXECUTE | `/execute-task`, `/complete-task`, `/run-checks`, `/setup-worktrees`, `/sync-worktree-status`, `/verify-batch-completion` |
+| PLAN | `/breakdown-design` (internally runs `/explore-codebase`), `/create-workstream`, `/create-batch-execution-plan` |
+| EXECUTE | `/run-batch` (orchestrates: `/create-task-spec`, `/create-task-ticket`, `/execute-task`, `/verify-batch-completion`), `/setup-worktrees`, `/sync-worktree-status` |
 | REVIEW | `/review`, `/security-audit`, `/commit-push-pr` |
 | SHIP | `/ship`, `/update-claude-md` |
 
