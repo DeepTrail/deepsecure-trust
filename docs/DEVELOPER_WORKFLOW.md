@@ -13,18 +13,9 @@
 │                    DEFINE PHASE (Plan Mode / Agent Mode)                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  0a. /spec                →  Structured requirements & spec creation        │
-│                              Output: docs/design/[feature].md              │
-│  0b. /create-design-doc   →  Convert plan file to formal design doc        │
-│                              Input: plans/*.plan.md → docs/design/*.md     │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    ⚠️ CODEBASE EXPLORATION (Agent Mode) ⚠️                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  0.5 /explore-codebase    →  Inventory existing implementations BEFORE     │
-│                              breakdown to avoid over-scoped tasks           │
-│                              (CRITICAL: Design docs can become stale!)     │
+│                              Output: docs/spec/[feature-name]-spec.md      │
+│  0b. /create-design-doc   →  Transform spec into formal design doc          │
+│                              Output: docs/design/[feature-name].md         │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
@@ -32,6 +23,7 @@
 │                          PLANNING PHASE (Agent Mode)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  1. /breakdown-design     →  Analyze design doc, create workstreams/tasks  │
+│                              (internally runs /explore-codebase first)     │
 │  2. /create-workstream    →  Create folder structure (WORKSTREAM.md, etc.) │
 │  3. /create-batch-execution-plan → Create batched execution plan           │
 │  3.5 /setup-worktrees     →  Create parallel worktrees from batch plan     │
@@ -104,64 +96,40 @@ Use the `/spec` command to create structured requirements before any design or i
 - Asks targeted clarification questions grouped by category
 - Creates a structured spec covering: Objective, API Contracts, Data Models, Architecture Decisions, Testing Strategy, Boundaries, and Demo Scenarios
 - Reframes vague requirements into testable success criteria
-- Saves the spec to `docs/design/[feature-name].md`
+- Saves the spec to `docs/spec/[feature-name]-spec.md`
 
-**Output:** `docs/design/[feature-name].md`
+**Output:** `docs/spec/[feature-name]-spec.md`
 
 **When to use /spec vs Plan Mode:**
 - `/spec` — When you need a formal, structured specification with all sections
 - Plan Mode — When you're still exploring ideas and need open-ended conversation
 - Both — Start in Plan Mode to explore, then `/spec` to formalize
 
-**Conversion:** If you already have a `.cursor/plans/*.plan.md` or `plans/*.plan.md`, use `/create-design-doc` to convert it into a formal design doc in `docs/design/`, then optionally enrich with `/spec`.
+**Conversion:** If you already have a `.cursor/plans/*.plan.md` or `plans/*.plan.md`, use `/create-design-doc` to convert it into a formal design doc in `docs/design/`.
 
-### Step 0b: Convert Plan to Design Doc (Optional)
+### Step 0b: Transform Spec/Plan into Design Doc (Mandatory)
 
+```
+/create-design-doc docs/spec/[feature-name]-spec.md
+```
+
+Or from a plan file:
 ```
 /create-design-doc plans/[feature]_[hash].plan.md
 ```
 
 **What it does:**
-- Reads the plan file's YAML frontmatter (name, overview, todos) and body content
-- Transforms into the formal design doc structure (7 sections)
+- Reads the spec (or plan file) and transforms into a 15-section design doc (500–800+ lines)
+- Creates Mermaid diagrams, code interfaces, workstream file tables
 - Applies DeepSecure path conventions and testing patterns
 - Flags sections needing human input
 - Saves to `docs/design/[feature-name].md`
 
-**When to use:** When you created a plan in Plan Mode and want to formalize it before breakdown. The plan's informal structure gets converted into the canonical design doc format that `/breakdown-design` expects.
+**When to use:** After `/spec` has produced a requirements document. This step is **mandatory** — it transforms requirements (what + why) into implementation design (how).
 
----
+**Pipeline:** `/spec` → `/create-design-doc` → `/breakdown-design`
 
-## Phase 0.5: Codebase Exploration (CRITICAL)
-
-> **⚠️ LESSON LEARNED:** Design documents describe **intent**, not **current state**. Coverage matrices and gap analyses become stale as development continues. The **codebase is the source of truth**.
-
-### Why This Step Exists
-
-We learned this the hard way: A breakdown was created for "MVP Production Readiness" based on design documents that said certain endpoints were "missing." After codebase exploration, we discovered most components **already existed** and just needed verification. The breakdown was over-scoped by ~60%.
-
-### Step 0.5: Explore Existing Codebase
-
-**Mode:** Agent Mode (uses Task tool with `subagent_type="explore"`)
-
-**When to run:** BEFORE `/breakdown-design`, AFTER design doc creation
-
-**What to explore:**
-
-```
-/explore-codebase [design-doc-path]
-```
-
-Or manually request:
-- "Explore deeptrail-control/ to inventory all existing API endpoints, models, and services"
-- "Explore deeptrail-gateway/ to inventory all existing handlers, middleware, and backends"
-
-**What it produces:**
-
-1. **Component Inventory** - List of ALL existing implementations
-2. **Design Intent vs Reality** - What the design says is "missing" vs what actually exists
-3. **Gap Analysis** - True gaps that need implementation vs verification tasks
-4. **Stale Document Detection** - Flags when design docs may be outdated
+> **Note on `/explore-codebase`:** This is NOT a separate pipeline step. It is embedded inside `/breakdown-design` as a mandatory pre-breakdown phase. You do not need to run it explicitly.
 
 ### Exploration Checklist
 
@@ -228,7 +196,7 @@ Most planning commands run in **Agent Mode** since they create files. The except
 /breakdown-design [design-doc-path]
 ```
 
-**⚠️ PREREQUISITE:** Complete Phase 0.5 (Codebase Exploration) first!
+**⚠️ NOTE:** `/breakdown-design` internally runs `/explore-codebase` as its first step to inventory existing implementations before creating tasks.
 
 **What it does:**
 - **FIRST:** Verifies codebase exploration was completed (checks for existing implementations)
@@ -503,7 +471,11 @@ For Batch N:
        /execute-task [task-id] [feature]
        # /complete-task runs automatically
   
-  4. Verify batch complete → Move to Batch N+1
+  4. If using worktrees:
+       /sync-worktree-status [feature]   # Sync status from worktrees to main repo
+  
+  5. /verify-batch-completion N [feature]  # Verify all tasks done, status consistent
+     # DO NOT proceed to Batch N+1 if verification fails
 ```
 
 ### Example: 4-Batch Feature
@@ -522,6 +494,10 @@ For Batch N:
 /execute-task A1 my-feature
 /execute-task A2 my-feature
 
+# [AGENT MODE] - Verify batch 1
+/sync-worktree-status my-feature            # If using worktrees
+/verify-batch-completion 1 my-feature        # Must pass before proceeding
+
 # ══════════════════════════════════════════════════════════════
 # BATCH 2 - Core Components
 # ══════════════════════════════════════════════════════════════
@@ -534,6 +510,10 @@ For Batch N:
 /create-task-ticket B2 my-feature
 /execute-task B1 my-feature
 /execute-task B2 my-feature
+
+# [AGENT MODE] - Verify batch 2
+/sync-worktree-status my-feature            # If using worktrees
+/verify-batch-completion 2 my-feature        # Must pass before proceeding
 
 # ... continue for remaining batches ...
 
@@ -551,18 +531,19 @@ For Batch N:
 | Mode | When to Use | Commands/Actions |
 |------|-------------|------------------|
 | **Plan Mode** | Collaborative spec iteration, task spec design | `/spec` (optional), `/create-task-spec` |
-| **Agent Mode** | Everything else — exploration, execution, review, shipping | `/spec`, `/create-design-doc`, `/explore-codebase`, `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/setup-worktrees`, `/create-task-ticket`, `/execute-task`, `/debug`, `/complete-task`, `/run-checks`, `/review`, `/security-audit`, `/commit-push-pr`, `/ship` |
+| **Agent Mode** | Everything else — design, planning, execution, review, shipping | `/spec`, `/create-design-doc`, `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/setup-worktrees`, `/create-task-ticket`, `/execute-task`, `/debug`, `/complete-task`, `/sync-worktree-status`, `/verify-batch-completion`, `/run-checks`, `/review`, `/security-audit`, `/commit-push-pr`, `/ship` |
 
 ### Mode Switching Pattern
 
 ```
-Agent Mode: /spec (Step 0) ◄── Structured requirements first
+Agent Mode: /spec (Step 0a) ◄── Structured requirements first
                      │
                      ▼
-Agent Mode: /explore-codebase (Step 0.5) ◄── ⚠️ CRITICAL: Don't skip!
+Agent Mode: /create-design-doc (Step 0b) ◄── Transform spec into design doc
                      │
                      ▼
 Agent Mode: /breakdown-design → /create-workstream → /create-batch-execution-plan
+                     │          (internally runs /explore-codebase)
                      │
                      ▼
 Agent Mode: /setup-worktrees (Step 3.5) ◄── Optional: parallel execution setup
@@ -583,10 +564,9 @@ Agent Mode: /run-checks → /review → /security-audit → /commit-push-pr → 
 
 | Stage | Command | Mode | Artifacts Created |
 |-------|---------|------|-------------------|
-| **Define** | `/spec` | Agent/Plan | `docs/design/[feature].md` |
-| **Define** | `/create-design-doc` | Agent | Convert `plans/*.plan.md` → `docs/design/*.md` |
-| **Explore** | `/explore-codebase` | Agent | `CODEBASE_ANALYSIS.md` (in workstream folder) |
-| Breakdown | `/breakdown-design` | Agent | `[feature]-breakdown.md` |
+| **Define** | `/spec` | Agent/Plan | `docs/spec/[feature-name]-spec.md` |
+| **Define** | `/create-design-doc` | Agent | Transform spec → `docs/design/[feature-name].md` |
+| Breakdown | `/breakdown-design` | Agent | `[feature]-breakdown.md` (runs `/explore-codebase` internally → `CODEBASE_ANALYSIS.md`) |
 | Workstream | `/create-workstream` | Agent | `WORKSTREAM.md`, `STATUS.md`, directories |
 | Batch Plan | `/create-batch-execution-plan` | Agent | `BATCH_EXECUTION_PLAN.md` |
 | **Parallel** | `/setup-worktrees` | Agent | Git worktrees + copied config per service |
@@ -659,21 +639,17 @@ Consolidates status from all worktrees back to main repo.
  DEFINE
 ═══════════════════════════════════════════════════
        │
-/spec ◄──────────────── Structured requirements → docs/design/[feature].md
+/spec ◄──────────────── Structured requirements → docs/spec/[feature-name]-spec.md
        │
        ▼
-═══════════════════════════════════════════════════
- EXPLORE
-═══════════════════════════════════════════════════
-       │
-/explore-codebase ◄──── ⚠️ CRITICAL: Inventory existing implementations
+/create-design-doc ◄─── Transform spec into design doc → docs/design/[feature-name].md
        │
        ▼
 ═══════════════════════════════════════════════════
  PLAN
 ═══════════════════════════════════════════════════
        │
-/breakdown-design ◄──── Cross-references exploration results
+/breakdown-design ◄──── Internally runs /explore-codebase, then creates workstreams
        │
 /create-workstream
        │
@@ -697,6 +673,15 @@ Consolidates status from all worktrees back to main repo.
 │   │ /execute-task      │ │◄── Repeat for each task
 │   │  └─ /debug (error) │ │    (/debug if things break)
 │   │ (/complete-task)   │ │    (auto-completes)
+│   └─────────┬──────────┘ │
+│             ▼            │
+│   ┌────────────────────┐ │
+│   │/sync-worktree-status│ │◄── If using worktrees
+│   └─────────┬──────────┘ │
+│             ▼            │
+│   ┌────────────────────┐ │
+│   │/verify-batch-       │ │◄── Must pass before next batch
+│   │ completion          │ │
 │   └────────────────────┘ │
 └──────────────────────────┘
        │
@@ -774,9 +759,8 @@ If using `questionary` with `asyncio`, use `.ask_async()` instead of `.ask()` in
 | Phase | Command | Description |
 |-------|---------|-------------|
 | Define | `/spec` | Structured requirements before design |
-| Define | `/create-design-doc` | Convert plan file to formal design doc |
-| Explore | `/explore-codebase` | Inventory existing implementations |
-| Plan | `/breakdown-design` | Create workstreams and tasks from spec |
+| Define | `/create-design-doc` | Transform spec/plan into formal design doc |
+| Plan | `/breakdown-design` | Create workstreams and tasks (runs `/explore-codebase` internally) |
 | Plan | `/create-workstream` | Create folder structure |
 | Plan | `/create-batch-execution-plan` | Create batched execution plan |
 | Plan | `/setup-worktrees` | Create parallel worktrees from batch plan |
@@ -793,7 +777,7 @@ If using `questionary` with `asyncio`, use `.ask_async()` instead of `.ask()` in
 | Review | `/commit-push-pr` | Commit, push, create PR |
 | Ship | `/ship` | Deploy, smoke test, monitor, rollback |
 | Learn | `/update-claude-md` | Capture learnings |
-| Meta | `/pipeline` | Orchestrate full DEFINE→EXPLORE→PLAN→EXECUTE→REVIEW→SHIP |
+| Meta | `/pipeline` | Orchestrate full DEFINE→PLAN→EXECUTE→REVIEW→SHIP |
 
 ### Subagent Definitions (`.cursor/agents/`)
 
@@ -829,7 +813,7 @@ Hooks are deterministic (unlike rules) and run outside the LLM loop, making them
 3. "Not Implemented" in gap analysis meant "not enterprise-grade" not "doesn't exist"
 4. No codebase exploration was done before breakdown
 
-**Solution:** Added Phase 0.5 (Codebase Exploration) as mandatory step before breakdown.
+**Solution:** Embedded codebase exploration as a mandatory first step inside `/breakdown-design`.
 
 **Key learning:** The codebase is the **source of truth**. Design documents are proposals. Coverage matrices are snapshots. Always explore before scoping.
 
@@ -862,7 +846,7 @@ Hooks are deterministic (unlike rules) and run outside the LLM loop, making them
 |------|--------|
 | May 2026 | Added `/security-audit` — OWASP/STRIDE security audit with token verification and secrets scan |
 | May 2026 | Added `/ship` — production deployment with smoke tests, rollback plan, and monitoring |
-| May 2026 | Renamed `/orchestrate-feature` → `/pipeline` — full state machine: DEFINE→EXPLORE→PLAN→EXECUTE→REVIEW→SHIP |
+| May 2026 | Renamed `/orchestrate-feature` → `/pipeline` — full state machine: DEFINE→PLAN→EXECUTE→REVIEW→SHIP (EXPLORE embedded in PLAN) |
 | May 2026 | Added `/setup-worktrees` — automated parallel worktree creation from batch plan |
 | May 2026 | Added `/create-design-doc` — convert plan files to formal design docs |
 | May 2026 | Added Cursor hooks system — quality gates for file edits, shell commands, task completion |
@@ -870,8 +854,8 @@ Hooks are deterministic (unlike rules) and run outside the LLM loop, making them
 | May 2026 | Added `/review` command — five-axis code review with anti-rationalization tables |
 | May 2026 | Added `/debug` command — systematic root-cause debugging with triage checklist |
 | May 2026 | Added subagent definitions: code-reviewer, test-engineer, security-auditor |
-| May 2026 | Updated pipeline: Define → Explore → Plan → Build → Review → Ship |
-| Feb 2026 | Added Phase 0.5 (Codebase Exploration) after learning from MVP Production Readiness over-scoping |
+| May 2026 | Updated pipeline: Define → Plan → Build → Review → Ship (Explore embedded in Plan) |
+| Feb 2026 | Added codebase exploration (embedded in `/breakdown-design`) after learning from MVP Production Readiness over-scoping |
 | Feb 2026 | Added Lessons Learned section documenting process improvements |
 | Feb 2026 | Corrected mode assignments: Plan Mode only for design doc + `/create-task-spec`; Agent Mode for all other commands |
 | Feb 2026 | Initial workflow documentation |

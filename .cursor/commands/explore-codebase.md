@@ -5,20 +5,25 @@ Inventory existing implementations in the codebase BEFORE creating a task breakd
 ## Workflow Position
 
 ```
-/spec (or /create-design-doc) → /explore-codebase → /breakdown-design → ...
-                                       ↑
-                                  (YOU ARE HERE)
+/spec → /create-design-doc → /breakdown-design (embeds codebase exploration) → ...
+                                                       ↑
+                                                  (CALLED BY /breakdown-design)
+
+NOTE: This command is NOT a standalone pipeline step. It is automatically
+invoked as Step 1 of /breakdown-design. You should NOT need to call it
+separately unless doing ad-hoc codebase exploration outside the pipeline.
 ```
 
 ## When to Use
 
-- **ALWAYS** before `/breakdown-design` — this is mandatory, not optional
-- When design docs reference "missing" components
+- **Automatically called** by `/breakdown-design` as its first step — you do NOT need to run this separately
+- For **ad-hoc exploration** outside the standard pipeline (e.g., debugging, curiosity, pre-spec research)
+- When design docs reference "missing" components and you want to verify before even writing a spec
 - When coverage matrices or gap analyses seem potentially stale
 - When starting work on an existing codebase you haven't explored recently
-- When a design doc was written more than 2 weeks ago
 
 **When NOT to use:**
+- Before `/breakdown-design` — it's already embedded there, running separately is redundant
 - Single-file bug fixes where the affected code is already known
 - Documentation-only changes
 - Changes to files you already have open and recently read
@@ -271,11 +276,11 @@ Before proceeding to `/breakdown-design`:
 ## Reference
 
 This command integrates with:
+- `/breakdown-design` → Calls this as its embedded Step 1 (you don't need to call it separately)
 - `/spec` or `/create-design-doc` → Produces the design doc this reads
-- `/breakdown-design` → Next step, uses `CODEBASE_ANALYSIS.md` for task classification
 - Task tool (`subagent_type="explore"`) → Used for parallel service inventory
 
 See also:
 - `CLAUDE.md` → "Codebase Exploration Before Breakdown (CRITICAL)" section
 - `CLAUDE.md` → "Meta Verification: Validate Assumptions"
-- `docs/DEVELOPER_WORKFLOW.md` → Phase 0.5: Codebase Exploration
+- `docs/DEVELOPER_WORKFLOW.md` → Phase 1: Planning
