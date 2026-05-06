@@ -143,6 +143,7 @@ docs/workstreams/
 
 | Feature | Status | Progress | Link |
 |---------|--------|----------|------|
+| Frontend Architecture | `planning` | 0% (0/58 tasks) | [WORKSTREAM.md](./frontend-architecture/WORKSTREAM.md) |
 | IdP Enhanced SSO Features | `planning` | 0% (0/20 tasks) | [WORKSTREAM.md](./idp-enhanced-sso/WORKSTREAM.md) |
 | Virtual MCP Server MVP | `complete` | 100% | [WORKSTREAM.md](./virtual-mcp-server-mvp/WORKSTREAM.md) |
 | MVP Production Readiness | `complete` | 100% | [WORKSTREAM.md](./mvp-production-readiness/WORKSTREAM.md) |

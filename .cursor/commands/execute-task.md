@@ -1,6 +1,29 @@
-# Execute Task
+# Execute Task: Implement a Task from Its Ticket
 
-Automatically implement a task by reading its ticket and executing the implementation.
+Automatically implement a task by reading its ticket, verifying dependencies, coding the solution, running tests, and completing inline. This is the core build step of the pipeline.
+
+## Workflow Position
+
+```
+... → /create-task-ticket → /execute-task → (/debug if errors) → /run-checks → /review → ...
+                                  ↑
+                             (YOU ARE HERE)
+```
+
+## When to Use
+
+- After task tickets have been created (`/create-task-ticket`)
+- When the task's dependencies are all satisfied (check STATUS.md)
+- When task specifications and tickets exist in the workstream
+- When executing tasks in parallel across worktrees
+
+**When NOT to use:**
+- Task dependencies are not met (blocked tasks — check STATUS.md first)
+- Task ticket doesn't exist yet — run `/create-task-ticket` first
+- Task spec is missing for code tasks — run `/create-task-spec` first
+- You're unsure what to build — run `/spec` or read the design doc first
+
+---
 
 ## Instructions
 
@@ -462,9 +485,58 @@ MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
 
 ---
 
-## Reference Files
-- Task tickets: `docs/workstreams/[feature]/tasks/`
-- STATUS.md: `docs/workstreams/[feature]/STATUS.md`
-- WORKSTREAM.md: `docs/workstreams/[feature]/WORKSTREAM.md`
-- EXECUTION_STATUS.md (global): `docs/EXECUTION_STATUS.md`
-- Workflow guide: `docs/WORKFLOW_GUIDE.md`
+## Common Rationalizations
+
+| Rationalization | Reality |
+|-----------------|---------|
+| "I'll check dependencies later" | Unchecked dependencies cause cascading failures. A task built on incomplete foundations will need rework. |
+| "The acceptance criteria are obvious, I don't need to read the ticket" | Tickets contain edge cases, specific contracts, and test requirements you'll miss. Read the full ticket. |
+| "I'll write tests after the implementation" | Tests written after implementation test what you built, not what you should have built. Write tests alongside code. |
+| "This task is simple, I'll skip the verification step" | Simple tasks cause the most insidious bugs because they're under-scrutinized. Verify every task. |
+| "Contract verification is overkill for this endpoint" | One mismatched endpoint path causes cascading E2E failures across services. Verify contracts always. |
+| "I'll update STATUS.md after I finish several tasks" | Stale status files break `/verify-batch-completion` and mislead other agents working in parallel. Update immediately. |
+| "The completion steps (8a-8i) can wait until later" | They MUST run inline. Separating execution from completion creates orphaned tasks with no reports or status updates. |
+
+## Red Flags
+
+- Starting execution without reading the full task ticket
+- Building code that doesn't match the spec's API contracts (wrong endpoint paths, wrong schemas)
+- Skipping tests or writing tests that only check the happy path
+- Not updating `$MAIN_REPO` status files (breaks parallel execution visibility)
+- Proceeding past failing tests to "finish faster"
+- Using `@pytest.fixture` for async fixtures instead of `@pytest_asyncio.fixture`
+- Placing E2E tests inside a service directory instead of root `tests/e2e/`
+- Not running inline completion (Steps 8a-8i) before ending the task
+- Using the wrong token type in test validation (User Token vs Agent JWT vs Internal Token)
+
+## Verification
+
+After task execution and inline completion:
+
+- [ ] All acceptance criteria from ticket are met and verified
+- [ ] Contract verification passes (implementation endpoints match spec)
+- [ ] Tests pass (`pytest [test_file] -v`)
+- [ ] Lint passes (`ruff check [files]`)
+- [ ] Completion report created (local + main repo)
+- [ ] Task ticket status updated to `completed`
+- [ ] Main repo STATUS.md updated with progress
+- [ ] Main repo WORKSTREAM.md updated
+- [ ] Newly unblocked tasks identified
+
+---
+
+## Reference
+
+This command integrates with:
+- `/create-task-ticket` → Produces the tickets this reads
+- `/create-task-spec` → Produces the specs this references
+- `/debug` → Use when implementation hits errors
+- `/complete-task` → Now runs inline (Steps 8a-8i)
+- `/run-checks` → Run after execution for full quality validation
+- `/sync-worktree-status` → Consolidates status from worktrees
+
+See also:
+- `CLAUDE.md` → Token Types for API Validation
+- `CLAUDE.md` → Async Test Fixtures
+- `CLAUDE.md` → Backend Service File Path Conventions
+- `docs/DEVELOPER_WORKFLOW.md` → Phase 2: Execution

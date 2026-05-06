@@ -1,6 +1,29 @@
-# Complete Task and Generate Report
+# Complete Task: Generate Report and Update All Status Files
 
-Generate a completion report for a finished task.
+Generate a completion report for a finished task, update all tracking files in both local and main repo, and identify newly unblocked tasks. This is the accountability step that closes the loop on execution.
+
+## Workflow Position
+
+```
+... → /execute-task → /complete-task → /run-checks → /review → /commit-push-pr
+                           ↑
+                      (YOU ARE HERE)
+```
+
+> **Note:** `/complete-task` is now called **inline** at the end of `/execute-task` (Steps 8a-8i). It can also be run standalone if inline completion was skipped or partially completed.
+
+## When to Use
+
+- Standalone: When `/execute-task` inline completion was interrupted or skipped
+- Standalone: When manually finishing a task that was partially completed
+- Standalone: When re-generating a completion report after corrections
+
+**When NOT to use:**
+- During normal execution — `/execute-task` calls completion steps inline
+- When the task isn't actually complete (acceptance criteria not met)
+- Before tests pass — run `/debug` first
+
+---
 
 ## Instructions
 
@@ -465,3 +488,57 @@ Then:
    - Check if A2, A3, A5 are now ready (they depend on A1)
    - Add timeline entry
 8. Create task tickets for newly ready tasks (A2, A3, A5)
+
+---
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|-----------------|---------|
+| "I'll write the completion report later" | Reports written later lack detail. Write it now while git diff, test output, and context are fresh. |
+| "The status files will get updated eventually" | Status drift breaks `/verify-batch-completion` and misleads parallel agents. Update immediately. |
+| "I don't need a completion report for a small task" | Small tasks still need accountability. The report confirms acceptance criteria were met and tracks progress. |
+| "Contract verification is for API tasks only" | Any task with file path expectations, schemas, or endpoint references needs contract verification. |
+| "I'll just mark it complete in STATUS.md" | Completion requires report + ticket update + STATUS.md + WORKSTREAM.md + EXECUTION_STATUS.md. All five. |
+| "The task is done, I don't need to check what it unblocks" | Identifying newly unblocked tasks is critical for parallel execution — other agents need to know what's ready. |
+
+## Red Flags
+
+- No completion report created (task marked done without evidence)
+- STATUS.md not updated in main repo (invisible progress in parallel execution)
+- WORKSTREAM.md batch status not updated (batch appears incomplete when it's done)
+- Acceptance criteria marked as met without verification evidence
+- Completion report in local worktree but not copied to main repo
+- Contract verification skipped (endpoint mismatches go unnoticed)
+- Missing `CLAUDE.md` update recommendation when a generalizable learning was discovered
+- Newly unblocked tasks not identified (downstream work is delayed)
+
+## Verification
+
+After task completion:
+
+- [ ] Completion report exists locally: `docs/workstreams/[feature]/reports/[WS-ID]-completion.md`
+- [ ] Completion report exists in main repo: `$MAIN_REPO/docs/workstreams/[feature]/reports/[WS-ID]-completion.md`
+- [ ] Task ticket status updated to `completed`
+- [ ] Main repo STATUS.md updated (metrics, batch progress, completed section)
+- [ ] Main repo WORKSTREAM.md updated (task table, batch status, progress)
+- [ ] Main repo EXECUTION_STATUS.md updated (global progress %)
+- [ ] Contract verification passed (endpoints match spec)
+- [ ] File location verification passed (E2E at root, service tests under service)
+- [ ] Newly unblocked tasks identified and listed
+
+---
+
+## Reference
+
+This command integrates with:
+- `/execute-task` → Calls completion inline (Steps 8a-8i)
+- `/verify-batch-completion` → Verifies batch-level consistency after completion
+- `/sync-worktree-status` → Fallback if completion missed main repo updates
+- `/update-claude-md` → If completion report recommends a learning
+- `/run-checks` → Next step after completion
+
+See also:
+- `docs/workstreams/COMPLETION_REPORT_TEMPLATE.md` → Report template
+- `CLAUDE.md` → Status Verification Requirements (MANDATORY)
+- `CLAUDE.md` → File Path Verification (MANDATORY)

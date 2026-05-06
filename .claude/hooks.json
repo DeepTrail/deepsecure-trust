@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/after-file-edit.sh"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/before-shell.sh"
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/on-task-stop.sh"
+      }
+    ]
+  }
+}

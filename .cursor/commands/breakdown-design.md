@@ -1,14 +1,41 @@
-# Breakdown Design Document into Workstreams and Tasks
+# Breakdown Design: Analyze Design Doc into Workstreams, Tasks, and Batches
 
-Analyze the provided design document and create a complete task breakdown.
+Analyze a design document, cross-reference against actual codebase state, and create a complete task breakdown with workstreams, dependency graphs, merge points, and batch execution model.
 
-## ⚠️ CRITICAL: Explore Codebase BEFORE Breakdown
+## Workflow Position
+
+```
+/spec → /create-design-doc → /breakdown-design → /create-workstream → /create-batch-execution-plan → ...
+                                    ↑
+                               (YOU ARE HERE)
+
+This command internally runs codebase exploration as its FIRST step.
+/explore-codebase is NOT a separate pipeline stage — it is embedded here.
+```
+
+## When to Use
+
+- After a design doc exists at `docs/design/[feature-name].md` (output of `/create-design-doc`)
+- When a formal spec exists at `docs/spec/[feature-name]-spec.md` (can also be used as input)
+- When the feature requires multi-task implementation across services
+- When parallel execution planning is needed
+
+**When NOT to use:**
+- No design doc exists — run `/spec` then `/create-design-doc` first
+- Single-task changes that don't need workstream structure
+- Quick bug fixes or documentation updates
+
+---
+
+## ⚠️ CRITICAL: Embedded Codebase Exploration (Step 1 of This Command)
 
 **Lesson Learned (Feb 2026):** A breakdown was created based on design documents claiming endpoints were "missing." After codebase exploration, ~60% of components already existed. Design documents describe **intent**, not **current state**. The codebase is the source of truth.
 
-### Pre-Breakdown Exploration (MANDATORY)
+**Note:** Codebase exploration is NOT a separate command you run before this. It is the FIRST thing this command does internally. See `/explore-codebase` for the detailed exploration methodology.
 
-Before proceeding with breakdown, you MUST:
+### Pre-Breakdown Exploration (MANDATORY — runs as Step 1 of this command)
+
+Before proceeding with the breakdown output, you MUST:
 
 1. **Explore the codebase** using Task tool with `subagent_type="explore"`:
    - Explore `deeptrail-control/` for existing endpoints, services, models
@@ -206,18 +233,65 @@ python demos/demo_sarah_journey_e2e.py  # E2E demo
 
 8. **Output format:**
 
+The breakdown document MUST include all sections below. This is a **19-section template** — all sections are required. If the feature is small (single-service, <10 tasks), some sections can be abbreviated but not omitted.
+
+**Quality bar:** The output must match the depth of proven breakdowns:
+- `docs/workstreams/idp-enhanced-sso/BREAKDOWN.md` — 19 tasks, Type column, Feature→Task matrix
+- `docs/workstreams/virtual-mcp-server-mvp/deepsecure-virtual-mcp-server-mvp-breakdown.md` — 44 tasks, File Checklist tree, dual-track critical path
+- `docs/workstreams/mvp-production-readiness/mvp-production-readiness-breakdown.md` — 32 tasks, Phase grouping (P0/P1/P2)
+
 ```markdown
-## Workstream Breakdown for: [Design Name]
+# Workstream Breakdown: [Design Name]
 
-### Summary
-- Total Workstreams: X
-- Total Tasks: Y
-- Total Batches: Z
-- Critical Path: [list of task IDs]
-- Merge Points: [number]
-- Estimated Total Effort: [S/M/L tasks breakdown]
+> **Design Doc**: [docs/design/[feature-name].md](../../design/[feature-name].md)
+> **Codebase Analysis**: [CODEBASE_ANALYSIS.md](./CODEBASE_ANALYSIS.md)
+> **Created**: [date]
 
-### Parallelization Decision
+---
+
+## Summary
+
+| Metric | Value |
+|--------|-------|
+| **Total Workstreams** | [X] |
+| **Total Tasks** | [Y] |
+| **Total Batches** | [Z] |
+| **Critical Path** | [A1 → A2 → ... → FN] (longest chain) |
+| **Merge Points** | [N] |
+| **Estimated Total Effort** | [Ns] S + [Nm] M + [Nl] L = [Y] tasks |
+
+### Task Complexity Distribution
+
+| Complexity | Count | Tasks |
+|-----------|-------|-------|
+| S (< 1hr) | [N] | [A1, C1, D1, ...] |
+| M (1-3hr) | [N] | [A2, B2, C3, ...] |
+| L (3+ hr) | [N] | [B1, D2, ...] |
+
+### Phase Distribution (if multi-phase)
+
+[Include this table when the feature spans multiple priority phases (P0/P1/P2) or delivery phases. Omit for single-phase features.]
+
+| Phase | Priority | Tasks | Focus |
+|-------|----------|-------|-------|
+| **P0** | Immediate | [N] | [What P0 enables] |
+| **P1** | Short-term | [N] | [What P1 enables] |
+| **P2** | Medium-term | [N] | [What P2 enables] |
+
+---
+
+## Pre-requisites (if any)
+
+[Include this section when there are manual or non-code tasks required BEFORE Batch 1 (e.g., creating API keys, provisioning infrastructure, external account setup). Omit if no pre-requisites exist.]
+
+| ID | Description | Type | Complexity |
+|----|-------------|------|------------|
+| PRE-1 | [Manual task description with specific instructions] | Manual | N/A |
+| PRE-2 | [Another manual task] | Manual | N/A |
+
+---
+
+## Parallelization Decision
 
 **Recommended Setup:** [X] worktrees based on service boundaries
 
@@ -239,83 +313,181 @@ python demos/demo_sarah_journey_e2e.py  # E2E demo
 | Single Worktree | ❌ | Misses parallelization |
 
 **Worktree Lifecycle:** (see `docs/WORKTREE_GUIDE.md` for full guide)
-```bash
-# Step 1: Clean up old worktrees (from previous features)
-cd /Users/imaxxs/repositories/deepsecure-mvp
-git worktree list
-git worktree remove ../[old-worktree] --force   # if any exist
-git branch -D feature/[old-branch]               # if already merged
 
-# Step 2: Create fresh worktrees
-git worktree add ../[feature]-control -b feature/[feature]-control dev
-git worktree add ../[feature]-gateway -b feature/[feature]-gateway dev
+    # Step 1: Clean up old worktrees (from previous features)
+    cd /Users/imaxxs/repositories/deepsecure-mvp
+    git worktree list
+    git worktree remove ../[old-worktree] --force   # if any exist
+    git branch -D feature/[old-branch]               # if already merged
 
-# Step 3: Copy .cursor commands (required for /execute-task)
-cp -r .cursor ../[feature]-control/
-cp -r .cursor ../[feature]-gateway/
-```
+    # Step 2: Create fresh worktrees
+    git worktree add ../[feature]-control -b feature/[feature]-control dev
+    git worktree add ../[feature]-gateway -b feature/[feature]-gateway dev
 
-### Workstream A: [Name] (PARALLEL with B, C)
+    # Step 3: Copy .cursor commands (required for /execute-task)
+    cp -r .cursor ../[feature]-control/
+    cp -r .cursor ../[feature]-gateway/
 
-| Task ID | Description | Dependencies | Complexity | Files | Acceptance Criteria |
-|---------|-------------|--------------|------------|-------|---------------------|
-| WS-A1 | ... | None | S | `path/to/file.py` (create) | ... |
-| WS-A2 | ... | WS-A1 | M | `path/to/other.py` (modify) | ... |
+---
 
-### Workstream B: [Name] (PARALLEL with A)
-...
+## Phase 0: [Phase Name] (if multi-phase)
 
-### Workstream C: [Name] (BLOCKED BY A, B)
-...
+[Group workstreams by priority phase when the feature spans P0/P1/P2. For single-phase features, skip the phase headers and list workstreams directly.]
 
-### Batch Execution Model
+### Workstream A: [Name] ([Service])
 
-| Batch | Tasks (Parallel) | Depends On | Blocking For |
-|-------|------------------|------------|--------------|
-| 1 | A1, B1 | None | Batch 2 |
-| 2 | A2, A3, B2 | Batch 1 | Batch 3 |
-| 3 | C1, C2 | Batch 2 | Batch 4 |
+**PARALLEL with B, C** | **Service:** `deeptrail-control`
+**Batches:** [1, 2, 3] | **Design Steps Covered:** [Steps X-Y from design doc]
+**Contributes to Merge Point:** [MP1 or N/A] | **Depends on Merge Point:** [MP2 or N/A]
 
-### Merge Points
+| Task ID | Type | Description | Dependencies | Complexity | Files | Acceptance Criteria |
+|---------|------|-------------|--------------|------------|-------|---------------------|
+| WS-A1 | Create | [description] | None | S | `[service]/app/[path]/[file].py` (create) | [specific, testable criteria] |
+| WS-A2 | Modify | [description] | WS-A1 | M | `[service]/app/[path]/[file].py` (modify) | [specific, testable criteria] |
+| WS-A3 | Verify | [description] | WS-A2 | S | `[service]/app/[path]/[file].py` (verify) | [specific, testable criteria] |
 
-| Point | Converging Tasks | Enables | Git Action |
-|-------|------------------|---------|------------|
-| MP1 | A3 + B2 | C1 | Merge ws-a, ws-b |
-| MP2 | C3 + D2 | E1 | Merge ws-c, ws-d |
+**Critical Path:** A1 → A2 → A3
 
-### Critical Path Analysis
+### Workstream B: [Name] ([Service])
 
-```
-Primary:   A1 → A2 → A3 → C1 → C3 → E1 → F1
-Secondary: B1 → B2 → D1 → D3 → F1 (if dual-track)
-```
+**PARALLEL with A** | **Service:** `deeptrail-gateway`
+**Batches:** [1, 2] | **Design Steps Covered:** [Steps X-Y]
+**Contributes to Merge Point:** [MP1] | **Depends on Merge Point:** [N/A]
 
-[Explanation of the critical path and parallelization opportunities]
+| Task ID | Type | Description | Dependencies | Complexity | Files | Acceptance Criteria |
+|---------|------|-------------|--------------|------------|-------|---------------------|
+| WS-B1 | Create | ... | None | M | ... | ... |
 
-### Acceptance Mapping
+**Critical Path:** B1 → B2 → B3
 
-#### Demo/Milestone → Task Matrix
+---
+
+## Phase 1: [Phase Name] (if multi-phase)
+
+### Workstream C: [Name] (DEPENDS ON A, B)
+
+**BLOCKED BY A, B** | **Services:** Both `deeptrail-control` and `deeptrail-gateway`
+**Batches:** [3, 4] | **Design Steps Covered:** [Steps X-Y]
+**Contributes to Merge Point:** [MP2] | **Depends on Merge Point:** [MP1]
+
+| Task ID | Type | Description | Dependencies | Complexity | Files | Acceptance Criteria |
+|---------|------|-------------|--------------|------------|-------|---------------------|
+
+**Critical Path:** C1 → C2 → C3
+
+[Continue for all workstreams...]
+
+---
+
+## Batch Execution Model
+
+| Batch | Tasks (Parallel) | Depends On | Blocking For | Worktree | Effort |
+|-------|------------------|------------|--------------|----------|--------|
+| 1 | A1, B1 | None (or PRE-1) | Batch 2 | Control: A1; Gateway: B1 | 1S + 1M |
+| 2 | A2, A3, B2 | Batch 1 | Batch 3 | Control: A2, A3; Gateway: B2 | 2M + 1S |
+| 3 | C1, C2 | Batch 2, MP1 | Batch 4 | Control: C1; Gateway: C2 | 2M |
+
+---
+
+## Merge Points
+
+| Point | Converging From | Enables | When | Git Action |
+|-------|-----------------|---------|------|------------|
+| MP1 | A3 + B2 | C1 (auth) | After Batch 2 | Merge feature branches to dev |
+| MP2 | C3 + D2 | E1 (integration) | After Batch 4 | Merge all into dev |
+
+---
+
+## Critical Path Analysis
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    DUAL-TRACK CRITICAL PATH                     │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                 │
+    │  PRIMARY (Control → Auth → Integration):                        │
+    │  A1 → A2 → A3 → C1 → C2 → C3 → E1 → F1                       │
+    │  │                                      │                       │
+    │  └──────── [N] days minimum ────────────┘                       │
+    │                                                                 │
+    │  SECONDARY (Gateway → Backends):                                │
+    │  B1 → B2 → B3 → D1 → D2 → D3                                  │
+    │  │                          │                                   │
+    │  └──── [N] days ([N] float) ┘                                   │
+    │                                                                 │
+    │  CONVERGENCE POINTS:                                            │
+    │  • MP1 (Day X): Control meets Gateway                           │
+    │  • MP2 (Day X): All middleware complete                         │
+    │                                                                 │
+    └─────────────────────────────────────────────────────────────────┘
+
+---
+
+## Dependency Graph
+
+[ASCII diagram showing all workstreams, tasks, and merge points with visual flow. See virtual-mcp-server-mvp breakdown for the gold-standard format.]
+
+       WS-A (Control)                      WS-B (Gateway)
+       ══════════════                      ══════════════
+            A1 ────────┐                        B1 ────────┐
+             │         │                         │         │
+             ▼         │                         ▼         │
+            A2         │                        B2         │
+             │         │                         │         │
+             ▼         │                         ▼         │
+            A3 ────────┼─────────────────────── B3         │
+                       │                                   │
+                       ▼                                   ▼
+                      MP1 ═════════════════════════════════╗
+                                                          ║
+       WS-C (Auth)                                        ║
+       ═══════════                                        ║
+            C1 ◄──────────────────────────────────────────╝
+             │
+             ▼
+            C2 → C3
+
+---
+
+## Acceptance Mapping
+
+### Feature → Task Matrix
+
+[Map each design doc feature to its implementing and validating tasks. This provides traceability.]
+
+| Feature | Description | Implementing Tasks | Validating Tasks |
+|---------|-------------|-------------------|------------------|
+| F1: [Feature Name] | [from design doc] | A1, A2, A3 | A4 |
+| F2: [Feature Name] | [from design doc] | B1, B2, B3 | B4 |
+
+### Demo/Milestone → Task Matrix
+
 | Demo | Description | Validating Tasks |
 |------|-------------|------------------|
 | Demo 1 | [from design doc] | A1, B3, D1 |
 | Demo 2 | [from design doc] | C2, C4 |
 
-#### User Journey → Task Matrix (if applicable)
+### User Journey → Task Matrix (if applicable)
+
 | Step | Action | Implementing Tasks |
 |------|--------|-------------------|
 | 1 | [from design doc] | A1 |
 | 2 | [from design doc] | A3, B3 |
 
-### API Contract Summary
+---
+
+## API Contract Summary
 
 > **CRITICAL**: Extract ALL endpoints from design doc. These are CANONICAL.
 
-| Service | Method | Endpoint | Implementing Task | Test Task |
-|---------|--------|----------|-------------------|-----------|
-| Control | POST | `/api/v1/exact/path` | A1 | F1 |
-| Gateway | POST | `/api/v1/other/path` | B1 | F1 |
+| Service | Method | Endpoint | Implementing Task | Test Task | Status |
+|---------|--------|----------|-------------------|-----------|--------|
+| Control | POST | `/api/v1/exact/path` | A1 | F1 | **NEW** |
+| Control | GET | `/api/v1/other/path` | C1 | F1 | Modify |
+| Gateway | POST | `/api/v1/gateway/path` | B1 | F1 | **NEW** |
 
-### File Organization Plan
+---
+
+## File Organization Plan
 
 | Type | Location | Files | Notes |
 |------|----------|-------|-------|
@@ -330,52 +502,47 @@ Secondary: B1 → B2 → D1 → D3 → F1 (if dual-track)
 | Gateway Middleware | `deeptrail-gateway/app/middleware/` | `*.py` | Request handling only |
 | Gateway Backends | `deeptrail-gateway/app/backends/` | `*_client.py` | MCP backend clients |
 
-### File Naming Conventions
+### File Checklist (Annotated Tree View)
 
-| Pattern | Convention | Example | Notes |
-|---------|------------|---------|-------|
-| Services | `*_service.py` suffix | `[domain]_service.py` | Consistent naming |
-| Combined endpoints | Group related operations | `[domain]_auth.py` (related ops in one file) | Reduces file count |
-| Validation modules | Use descriptive names | `[x]_validation.py` not `[x]_auth.py` | Clearer purpose |
-| Constraint modules | Use active verb form | `[x]_checker.py` not `[x]s.py` | Describes action |
-| Backend clients | `*_client.py` suffix | `[provider]_client.py` | Consistent naming |
+[Show all new and modified files in a tree view, annotated with the task ID that creates/modifies each file. This provides a visual overview complementing the table above.]
 
-### Architecture Conventions (DeepSecure Project)
+    deeptrail-control/
+    ├── app/
+    │   ├── models/
+    │   │   └── [new_model].py              ← A1
+    │   ├── services/
+    │   │   └── [new]_service.py            ← A2
+    │   └── api/v1/endpoints/
+    │       └── [domain].py                 ← A3 (modify)
+    ├── tests/
+    │   └── services/
+    │       └── test_[new]_service.py       ← A4
+    └── alembic/versions/
+        └── xxx_[migration].py              ← A1
 
-| Convention | Pattern | Rationale |
-|------------|---------|-----------|
-| FastAPI `app/` prefix | `[service]/app/[module]/` | Framework standard, consistent imports |
-| Versioned API | `app/api/v1/endpoints/` | API evolution, breaking change isolation |
-| Security separation | Separate `app/security/` directory | First-class security concerns |
-| Endpoint consolidation | Related endpoints in single file | Group by domain (e.g., auth, audit) |
-| Service suffix | `*_service.py` for all services | Explicit, searchable, consistent |
+    deeptrail-gateway/
+    ├── app/
+    │   ├── backends/
+    │   │   └── [new]_client.py             ← B1
+    │   └── middleware/
+    │       └── [existing].py               ← B2 (modify)
+    └── tests/
+        └── backends/
+            └── test_[new]_client.py        ← B3
 
-**Directory Structure Template:**
-```
-[service-name]/
-├── app/
-│   ├── api/
-│   │   └── v1/
-│   │       └── endpoints/     ← Flat structure, grouped by domain
-│   ├── core/                  ← Config, settings
-│   ├── models/                ← SQLAlchemy/Pydantic models
-│   ├── schemas/               ← Pydantic schemas (Control only)
-│   ├── services/              ← Business logic (*_service.py)
-│   ├── middleware/            ← Request/response handling (Gateway only)
-│   ├── security/              ← Security-specific (Gateway only)
-│   ├── backends/              ← Backend API clients (Gateway only)
-│   └── mcp/                   ← MCP handlers (Gateway only)
-├── tests/                     ← ⚠️ NO unit/ subdirectory!
-│   ├── api/                   ← API tests (Control)
-│   ├── schemas/               ← Schema tests (Control)
-│   ├── services/              ← Service tests (Control)
-│   ├── models/                ← Model tests (Control)
-│   ├── backends/              ← Backend tests (Gateway)
-│   ├── middleware/            ← Middleware tests (Gateway)
-│   ├── security/              ← Security tests (Gateway)
-│   └── mcp/                   ← MCP tests (Gateway)
-└── alembic/                   ← Migrations (Control only)
-```
+    tests/
+    └── e2e/
+        └── test_[feature].py               ← F1
+
+---
+
+## Testing Strategy
+
+| Batch | What | How |
+|-------|------|-----|
+| Batch 1 | Unit: [components tested] | `cd [service] && pytest tests/[module]/ -v` |
+| Batch 2 | Unit: [components tested] | `cd [service] && pytest tests/[module]/ -v` |
+| Batch N | E2E: [full flow description] | `cd [root] && pytest tests/e2e/ -v` or `python demos/[demo].py` |
 
 ### Technical Requirements Checklist
 
@@ -385,8 +552,39 @@ Secondary: B1 → B2 → D1 → D3 → F1 (if dual-track)
 | HTTP client | `httpx.AsyncClient` | All async tests |
 | Fixture scope | `scope="function"` for HTTP clients | Avoid connection issues |
 
-### Dependency Graph
-[ASCII diagram]
+---
+
+## File Naming Conventions
+
+| Pattern | Convention | Example | Notes |
+|---------|------------|---------|-------|
+| Services | `*_service.py` suffix | `[domain]_service.py` | Consistent naming |
+| Combined endpoints | Group related operations | `[domain]_auth.py` (related ops in one file) | Reduces file count |
+| Validation modules | Use descriptive names | `[x]_validation.py` not `[x]_auth.py` | Clearer purpose |
+| Constraint modules | Use active verb form | `[x]_checker.py` not `[x]s.py` | Describes action |
+| Backend clients | `*_client.py` suffix | `[provider]_client.py` | Consistent naming |
+
+## Architecture Conventions (DeepSecure Project)
+
+| Convention | Pattern | Rationale |
+|------------|---------|-----------|
+| FastAPI `app/` prefix | `[service]/app/[module]/` | Framework standard, consistent imports |
+| Versioned API | `app/api/v1/endpoints/` | API evolution, breaking change isolation |
+| Security separation | Separate `app/security/` directory | First-class security concerns |
+| Endpoint consolidation | Related endpoints in single file | Group by domain (e.g., auth, audit) |
+| Service suffix | `*_service.py` for all services | Explicit, searchable, consistent |
+
+---
+
+## Next Steps
+
+After saving this breakdown, the following commands are available:
+
+1. **Create workstream structure:** `/create-workstream [feature-name]`
+2. **Create batch execution plan:** `/create-batch-execution-plan [feature-name]`
+3. **Create task specifications:** `/plan` then `/create-task-spec [batch] [feature-name]`
+4. **Generate task tickets:** `/create-task-ticket WS-[ID] [feature-name]`
+5. **Start execution:** `/execute-task WS-[ID] [feature-name]`
 ```
 
 9. **Save the breakdown output** to a reference file:
@@ -524,7 +722,7 @@ echo "=== Verification Complete ==="
    | `STATUS.md` | Create from template |
    | `BATCH_EXECUTION_PLAN.md` | Run `/create-batch-execution-plan` |
    | `MERGE_POINTS.md` | Create from template (see `docs/workstreams/MERGE_POINT_GUIDE.md`) |
-   | `CODEBASE_ANALYSIS.md` | Run `/explore-codebase` |
+   | `CODEBASE_ANALYSIS.md` | Re-run embedded codebase exploration (Step 1 of this command) |
 
 16. **Final confirmation to user:**
    
@@ -652,3 +850,62 @@ Before finalizing task breakdown, verify all file paths follow conventions:
 | "Create user login endpoint" | Endpoint EXISTS at /api/v1/auth/login | "Verify login response format matches E2E" |
 | "Create UserAuthService" | Service EXISTS | "Verify UserAuthService handles all cases" |
 | "Create delegation token model" | Model EXISTS with macaroons | "Verify delegation response includes required fields" |
+
+---
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|-----------------|---------|
+| "I don't need to explore first, the design doc is accurate" | Design docs describe intent, not current state. The Feb 2026 lesson proved 60% of "missing" items already existed. Explore first. |
+| "I'll classify task types later during execution" | Wrong task types (Create vs Verify) lead to wildly inaccurate effort estimates and over-scoped work. Classify now. |
+| "This feature is simple enough for one workstream" | Even simple features benefit from service-boundary workstreams when they cross Control/Gateway/SDK. Parallelization pays off. |
+| "Merge points add unnecessary overhead" | Without merge points, parallel worktrees diverge until conflicts are unresolvable. Merge points are insurance. |
+| "I'll figure out the batches as I go" | Ad-hoc batching misses dependency chains and creates blocked tasks. Plan batches explicitly. |
+| "The breakdown is close enough, let me start coding" | Over-scoped breakdowns waste hours on unnecessary tasks. Under-scoped breakdowns miss critical work. Get it right before execution. |
+| "I don't need to auto-run /create-workstream and /create-batch-execution-plan" | Manual creation leads to forgotten files and inconsistent structure. Always chain the follow-up commands. |
+
+## Red Flags
+
+- Running `/breakdown-design` without `CODEBASE_ANALYSIS.md` existing
+- All tasks classified as `Create` (suggests exploration was skipped)
+- No `Verify` or `Modify` tasks in a mature codebase (something's wrong)
+- More than 30 tasks (likely over-scoped — split into phases)
+- No merge points defined for multi-service features
+- Worktree setup referenced but file paths not using canonical conventions
+- Tasks with `tests/unit/` paths instead of correct `tests/[module]/` paths
+- E2E tests placed inside service directories instead of root `tests/e2e/`
+- Missing post-breakdown verification (all 8 required files must exist)
+
+## Verification
+
+Before declaring breakdown complete:
+
+- [ ] `CODEBASE_ANALYSIS.md` was consulted (not just the design doc)
+- [ ] Tasks correctly classified (Create / Modify / Verify / Wire / Skip)
+- [ ] Workstreams align with service boundaries
+- [ ] Dependencies form a valid DAG (no circular dependencies)
+- [ ] Batches respect dependency ordering
+- [ ] Merge points defined for parallel tracks
+- [ ] Critical path identified
+- [ ] All 8 required files exist (BREAKDOWN.md, WORKSTREAM.md, STATUS.md, BATCH_EXECUTION_PLAN.md, MERGE_POINTS.md, CODEBASE_ANALYSIS.md, tasks/, reports/)
+- [ ] File paths follow canonical conventions (see path tables above)
+
+---
+
+## Reference
+
+This command integrates with:
+- `/explore-codebase` → Embedded as Step 1 of this command (produces `CODEBASE_ANALYSIS.md`)
+- `/create-workstream` → Automatically called after breakdown
+- `/create-batch-execution-plan` → Automatically called after workstream creation
+- `/setup-worktrees` → Optional next step for parallel execution
+- `/create-task-spec` → Next step for tasks requiring specifications
+- `/verify-batch-completion` → Run after each batch during execution
+- `/sync-worktree-status` → Run after worktree tasks complete
+
+See also:
+- `CLAUDE.md` → "Codebase Exploration Before Breakdown (CRITICAL)"
+- `CLAUDE.md` → "Backend Service File Path Conventions"
+- `CLAUDE.md` → "Task Ticket Structure Requirements"
+- `docs/DEVELOPER_WORKFLOW.md` → Phase 1: Planning
