@@ -107,7 +107,8 @@ class TaskService:
         Raises:
             TaskPermissionError: If requested permissions exceed delegation scope.
         """
-        requested_urns = [p.permission_urn for p in task_data.requested_permissions]
+        requested_permissions = task_data.requested_permissions or []
+        requested_urns = [p.permission_urn for p in requested_permissions]
 
         if delegation_permissions is not None:
             self._validate_permissions_subset(requested_urns, delegation_permissions)
@@ -127,14 +128,14 @@ class TaskService:
             description=task_data.description,
             scoped_permissions=[
                 {"urn": p.permission_urn, "constraints": p.constraints}
-                for p in task_data.requested_permissions
+                for p in requested_permissions
             ],
             deadline=deadline,
             auto_revoke_on_complete=task_data.auto_revoke_on_complete,
         )
 
         perm_valid_until = deadline or (now + timedelta(hours=24))
-        for p in task_data.requested_permissions:
+        for p in requested_permissions:
             sp = ScopedPermission(
                 id=generate_scoped_permission_id(),
                 task_id=task.id,

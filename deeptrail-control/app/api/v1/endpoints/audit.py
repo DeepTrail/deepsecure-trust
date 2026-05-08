@@ -10,10 +10,13 @@ These endpoints support:
 - Step 10 of Sarah's Journey: Sarah Reviews Audit Trail
 """
 
+import asyncio
+import json as json_module
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api import deps
@@ -221,10 +224,11 @@ def query_events(
     on_behalf_of: Optional[str] = Query(None, description="Filter by user"),
     organization_id: Optional[str] = Query(None, description="Filter by org"),
     event_type: Optional[str] = Query(None, description="Filter by event type"),
-    start_time: Optional[datetime] = Query(None, description="Events after this time"),
-    end_time: Optional[datetime] = Query(None, description="Events before this time"),
+    start_time: Optional[datetime] = Query(None, alias="from_date", description="Events after this time"),
+    end_time: Optional[datetime] = Query(None, alias="to_date", description="Events before this time"),
     tool: Optional[str] = Query(None, description="Filter by tool name"),
     delegation_id: Optional[str] = Query(None, description="Filter by delegation ID"),
+    token_layer: Optional[str] = Query(None, description="Filter by token layer (e.g., delegation, agent_session, task)"),
     limit: int = Query(100, ge=1, le=1000, description="Max results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
 ) -> QueryEventsResponse:
@@ -245,6 +249,21 @@ def query_events(
         filtered_events = [e for e in filtered_events if e.get("event_type") == event_type]
     if tool:
         filtered_events = [e for e in filtered_events if e.get("tool") == tool]
+    if delegation_id:
+        filtered_events = [e for e in filtered_events if e.get("delegation_id") == delegation_id]
+    if token_layer:
+        if token_layer == "delegation":
+            filtered_events = [e for e in filtered_events if e.get("delegation_id")]
+        elif token_layer == "agent_session":
+            filtered_events = [e for e in filtered_events if e.get("agent_session_id")]
+        elif token_layer == "task":
+            filtered_events = [e for e in filtered_events if "task" in (e.get("event_type") or "")]
+    if start_time:
+        start_iso = start_time.isoformat()
+        filtered_events = [e for e in filtered_events if e.get("timestamp", "") >= start_iso]
+    if end_time:
+        end_iso = end_time.isoformat()
+        filtered_events = [e for e in filtered_events if e.get("timestamp", "") <= end_iso]
     
     # Sort by timestamp descending
     filtered_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
@@ -281,6 +300,46 @@ def query_events(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get(
+    "/events/stream",
+    summary="Stream audit events in real-time via SSE",
+    description="Server-Sent Events endpoint for real-time audit event streaming.",
+)
+async def stream_audit_events(
+    agent_id: Optional[str] = Query(None),
+    on_behalf_of: Optional[str] = Query(None),
+) -> StreamingResponse:
+    """Stream audit events in real-time via Server-Sent Events."""
+
+    async def event_generator():
+        last_seen = len(_mvp_audit_events)
+        while True:
+            current_len = len(_mvp_audit_events)
+            if current_len > last_seen:
+                new_events = _mvp_audit_events[last_seen:current_len]
+                for event in new_events:
+                    if agent_id and event.get("agent_id") != agent_id:
+                        continue
+                    if on_behalf_of and event.get("on_behalf_of") != on_behalf_of:
+                        continue
+                    data = {
+                        "id": event.get("id"),
+                        "event_type": event.get("event_type"),
+                        "agent_id": event.get("agent_id"),
+                        "tool": event.get("tool"),
+                        "timestamp": event.get("timestamp"),
+                    }
+                    yield f"data: {json_module.dumps(data)}\n\n"
+                last_seen = current_len
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
 
 

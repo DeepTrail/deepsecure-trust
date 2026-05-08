@@ -251,5 +251,40 @@ def verify_internal_token(
 InternalTokenDep = Annotated[str, Depends(verify_internal_token)]
 
 
+# --- Flexible Auth (API Key OR JWT) ---
+
+
+def flexible_auth(
+    api_key: str = Depends(api_key_header_scheme),
+    bearer: str = Depends(OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)),
+    db: Session = Depends(get_db),
+):
+    """Accept either API key or JWT Bearer token for vault endpoints.
+
+    Dashboard proxy sends JWT, CLI sends API key.
+    """
+    if api_key and api_key.startswith("Bearer "):
+        token = api_key.replace("Bearer ", "")
+        if token == settings.BACKEND_API_TOKEN:
+            return {"auth_type": "api_key"}
+
+    if bearer:
+        try:
+            payload = security.decode_token(bearer)
+            if payload is not None:
+                return {"auth_type": "jwt", "claims": payload}
+        except Exception:
+            pass
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid authentication",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+FlexibleAuthDep = Depends(flexible_auth)
+
+
 # You can add more dependencies here later, e.g., for role checks
 # def get_current_active_admin(...): ... 
