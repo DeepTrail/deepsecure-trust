@@ -338,8 +338,8 @@ class TaskCreate(BaseModel):
 
     name: Optional[str] = Field(None, description="Human-readable task name")
     description: Optional[str] = Field(None, description="Task description")
-    requested_permissions: List[ScopedPermissionRequest] = Field(
-        ..., min_length=1, description="Permissions requested for this task"
+    requested_permissions: Optional[List[ScopedPermissionRequest]] = Field(
+        default=None, description="Permissions requested for this task"
     )
     deadline_minutes: Optional[int] = Field(
         None,

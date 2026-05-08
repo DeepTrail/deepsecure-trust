@@ -118,6 +118,14 @@ class ConnectedService(Base):
         comment="Timestamp when this connection was last used",
     )
 
+    # Computed available permissions from ScopeMapper
+    available_permissions = Column(
+        JSON().with_variant(postgresql.JSONB(), "postgresql"),
+        nullable=True,
+        default=list,
+        comment='Computed available permissions from ScopeMapper (e.g., ["notion:pages:read"])',
+    )
+
     # Unique constraint: one active connection per service per user
     __table_args__ = (
         UniqueConstraint("user_id", "service_id", name="uq_user_service"),

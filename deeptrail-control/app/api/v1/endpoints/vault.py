@@ -475,7 +475,7 @@ async def refresh_token(
 @router.get("/secrets", status_code=status.HTTP_200_OK)
 def list_secrets(
     db: deps.DbDep,
-    _: Any = deps.APIKeyDep
+    _: Any = deps.FlexibleAuthDep
 ):
     """
     Lists all secrets in the vault (metadata only, no values).
@@ -505,7 +505,7 @@ def list_secrets(
 def store_secret(
     secret_in: SecretStoreRequest,
     db: deps.DbDep,
-    _: Any = deps.APIKeyDep
+    _: Any = deps.FlexibleAuthDep
 ):
     """
     Store or update a secret in the vault.
@@ -524,7 +524,7 @@ def store_secret(
 def get_secret_direct(
     name: str,
     db: deps.DbDep,
-    _: Any = deps.APIKeyDep
+    _: Any = deps.FlexibleAuthDep
 ):
     """
     Retrieve a secret directly from the vault by name.
@@ -554,7 +554,7 @@ def get_secret_direct(
 def get_secret_with_value(
     name: str,
     db: deps.DbDep,
-    _: Any = deps.APIKeyDep
+    _: Any = deps.FlexibleAuthDep
 ):
     """
     Retrieve a secret with its reassembled value.
@@ -672,7 +672,7 @@ def get_secret_with_value(
 def delete_secret(
     name: str,
     db: deps.DbDep,
-    _: Any = deps.APIKeyDep
+    _: Any = deps.FlexibleAuthDep
 ):
     """
     Delete a secret from the vault by name.
@@ -720,9 +720,9 @@ def delete_secret(
 
 @router.post("/credentials", response_model=schemas.credential.CredentialIssueResponse, status_code=status.HTTP_201_CREATED)
 def issue_credential(
-    credential_in: schemas.credential.CredentialIssueRequest, # Input now has .ephemeral_public_key and .signature as bytes
+    credential_in: schemas.credential.CredentialIssueRequest,
     db: deps.DbDep,
-    _: Any = deps.APIKeyDep # Use APIKeyDep directly as it's already Depends(verify_api_key)
+    _: Any = deps.FlexibleAuthDep
 ):
     # logger.info(f"[VAULT_EP_DEBUG] Received credential_in.origin_context: {credential_in.origin_context}")
     logger.info(f"Attempting to issue credential for agent: {credential_in.agent_id}, scope: {credential_in.scope}")
@@ -806,7 +806,7 @@ def issue_credential(
 def revoke_credential(
     credential_id: str,
     db: deps.DbDep,
-    _: Any = deps.APIKeyDep # Corrected here as well
+    _: Any = deps.FlexibleAuthDep
 ):
     """Revoke an existing credential by setting its `revoked_at` timestamp.
 
@@ -845,9 +845,9 @@ def revoke_credential(
 @router.post("/agents/{agent_id}/rotate-identity", status_code=status.HTTP_204_NO_CONTENT)
 def rotate_agent_identity_key(
     agent_id: str,
-    rotation_request: schemas.agent.AgentRotateRequest, # Corrected to use schemas.agent
+    rotation_request: schemas.agent.AgentRotateRequest,
     db: deps.DbDep,
-    _: Any = deps.APIKeyDep # Corrected here as well
+    _: Any = deps.FlexibleAuthDep
 ):
     """Update the long-term identity public key for an agent.
 

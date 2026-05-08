@@ -137,22 +137,62 @@ function WelcomeContent() {
   );
 }
 
+const OAUTH_SERVICES = [
+  { id: "notion", label: "Notion", icon: "N" },
+  { id: "slack", label: "Slack", icon: "S" },
+  { id: "hubspot", label: "HubSpot", icon: "H" },
+  { id: "gdrive", label: "Google Drive", icon: "G" },
+  { id: "gmail", label: "Gmail", icon: "M" },
+] as const;
+
 function ConnectServiceContent() {
+  const [connected, setConnected] = useState<Record<string, "pending" | "connected">>({});
+
+  const handleConnect = (serviceId: string) => {
+    setConnected((prev) => ({ ...prev, [serviceId]: "pending" }));
+    window.location.href = `/api/proxy/sso/connect/${serviceId}`;
+  };
+
   return (
     <div className="space-y-4">
       <p className="text-muted-foreground">
         Connect an external service that your agent will access. DeepSecure
         handles OAuth flows and securely stores credentials.
       </p>
-      <div className="rounded-lg border p-4 space-y-2">
-        <h4 className="font-medium">Supported Services</h4>
-        <p className="text-sm text-muted-foreground">
-          Notion, Slack, GitHub, and more. You can connect additional services
-          later from the Services page.
-        </p>
+      <div className="grid gap-3">
+        {OAUTH_SERVICES.map((svc) => {
+          const status = connected[svc.id];
+          return (
+            <div
+              key={svc.id}
+              className="flex items-center justify-between rounded-lg border p-3"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted font-semibold text-sm">
+                  {svc.icon}
+                </div>
+                <span className="font-medium">{svc.label}</span>
+              </div>
+              {status === "connected" ? (
+                <span className="flex items-center gap-1 text-sm text-green-600">
+                  <CheckCircle2 className="h-4 w-4" /> Connected
+                </span>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleConnect(svc.id)}
+                  disabled={status === "pending"}
+                >
+                  {status === "pending" ? "Connecting..." : "Connect"}
+                </Button>
+              )}
+            </div>
+          );
+        })}
       </div>
       <p className="text-xs text-muted-foreground">
-        You can skip this step and connect services later.
+        You can skip this step and connect services later from the Services page.
       </p>
     </div>
   );

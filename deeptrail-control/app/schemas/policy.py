@@ -1,22 +1,24 @@
 from typing import List, Optional
 import uuid as uuid_module
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Shared properties
 class PolicyBase(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: Optional[str] = None
     description: Optional[str] = None
     effect: str = "allow"
     actions: Optional[List[str]] = None
     resources: Optional[List[str]] = None
-    agent_id: Optional[str] = None  # String to match agents.agent_id format
+    agent_id: Optional[str] = Field(None, alias="agentId")
 
 # Properties to receive on item creation
 class PolicyCreate(PolicyBase):
     name: str
     actions: List[str]
     resources: List[str]
-    agent_id: str  # String format: either "agent-uuid" or just "uuid"
+    agent_id: str = Field(..., alias="agentId")
 
     @field_validator('name')
     @classmethod
