@@ -305,6 +305,67 @@ Report merge point status:
     | **Converging Tasks** | [task list] |
     | **Enables** | [what gets unblocked] |
 
+#### 6g. Build Verify
+
+Run full lint and type checks on every file modified in this batch:
+
+```bash
+cd deeptrail-control && ruff check app/ tests/ && echo "✅ ruff clean"
+cd frontend && npx tsc --noEmit && echo "✅ tsc clean"
+```
+
+If either fails, fix the errors before proceeding. Report to user if the fix is non-trivial.
+
+#### 6h. Container Rebuild
+
+Rebuild backend containers with the batch's changes and verify they start healthy:
+
+```bash
+docker compose build deeptrail-control deeptrail-gateway
+docker compose up -d deeptrail-control deeptrail-gateway
+sleep 5
+
+# Health checks
+curl -sf http://localhost:8000/health && echo "✅ Control healthy" || echo "❌ Control unhealthy"
+curl -sf http://localhost:8002/health && echo "✅ Gateway healthy"  || echo "❌ Gateway unhealthy"
+```
+
+If either service fails health check, inspect logs with `docker compose logs <service>` and fix before proceeding.
+
+#### 6i. Browser Smoke Test
+
+Quick frontend smoke test to confirm the dashboard still renders after backend changes:
+
+```bash
+cd frontend && npm run build && echo "✅ Frontend builds"
+```
+
+If available, use the browser-use MCP to navigate to `http://localhost:3000/dashboard` and verify the page renders without console errors. Report any regression.
+
+### Step 6.5: Cross-Service Integration Verification
+
+**MANDATORY after every batch.** Run the static integration verifier to catch cross-service contract violations that per-task audits cannot see:
+
+```bash
+python scripts/verify_integration.py
+```
+
+**Checks performed:**
+1. **Model-Migration Parity** — every `__tablename__` has an Alembic migration
+2. **Frontend-Backend Route Existence** — every frontend API proxy path has a backend route
+3. **Auth Mechanism Compatibility** — no APIKeyDep endpoints called from JWT proxy
+4. **Request Body Shape** — frontend field names match backend Pydantic models
+5. **In-Memory Storage Detection** — no module-level mutable dicts/lists in endpoints
+
+**If exit code is 1 (CRITICAL findings):**
+- This is expected on early batches — the known issues are being fixed across the workstream.
+- Use `--warn-only` flag to continue: `python scripts/verify_integration.py --warn-only`
+- Track findings: compare CRITICAL count against previous batch — it must be strictly decreasing.
+- On the **final batch**: exit code MUST be 0 (all findings resolved).
+
+**If findings INCREASED from previous batch:**
+- STOP. Report to user. A regression was introduced.
+
 ### Step 7: Checkpoint — Report Results
 
 **MANDATORY: Always checkpoint with the user after each batch.**
