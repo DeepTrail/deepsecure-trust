@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
@@ -382,4 +382,79 @@ def bootstrap_docker(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Bootstrap failed: {str(e)}"
-        ) 
+        )
+
+
+# =============================================================================
+# Token Refresh
+# =============================================================================
+
+REFRESH_GRACE_WINDOW_SECONDS = 3600  # 1 hour
+
+
+class AuthRefreshResponse(BaseModel):
+    """Response for token refresh."""
+    token: str
+    expires_in: int = 28800
+
+
+def _decode_jwt_for_refresh(authorization: str | None) -> dict:
+    """Decode a JWT for refresh, tolerating tokens expired within the grace window."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization")
+
+    token = authorization.removeprefix("Bearer ").strip()
+
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        try:
+            claims = jwt.decode(
+                token,
+                settings.SECRET_KEY,
+                algorithms=["HS256"],
+                options={"verify_exp": False},
+            )
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        exp = claims.get("exp")
+        if exp:
+            expired_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+            grace_deadline = expired_at + timedelta(seconds=REFRESH_GRACE_WINDOW_SECONDS)
+            if datetime.now(timezone.utc) > grace_deadline:
+                raise HTTPException(
+                    status_code=401, detail="Token expired beyond refresh grace window"
+                )
+        return claims
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+@router.post("/refresh", response_model=AuthRefreshResponse)
+def auth_refresh(
+    authorization: str | None = Header(None),
+):
+    """Refresh a session JWT with a new expiry.
+
+    Accepts JWTs expired within a 1-hour grace window.
+    Issues a brand-new JWT with fresh TTL — does NOT contact an IdP.
+    """
+    claims = _decode_jwt_for_refresh(authorization)
+
+    sub = claims.get("sub")
+    if not sub:
+        raise HTTPException(status_code=401, detail="Token missing sub claim")
+
+    new_token_data = {
+        "sub": sub,
+        "session_id": claims.get("session_id", f"usess-{uuid.uuid4()}"),
+        "organization_id": claims.get("organization_id"),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=8),
+        "iat": datetime.now(timezone.utc),
+    }
+    new_token = jwt.encode(new_token_data, settings.SECRET_KEY, algorithm="HS256")
+
+    logger.info(f"Token refreshed for: {sub}")
+
+    return AuthRefreshResponse(token=new_token, expires_in=28800)

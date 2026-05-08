@@ -29,11 +29,13 @@ class AgentBase(BaseModel):
 
 class AgentCreate(AgentBase):
     agent_id: Optional[str] = Field(None, description="Optional agent ID. If not provided, one will be generated.")
-    public_key: bytes
+    public_key: Optional[bytes] = Field(None, description="Base64-encoded Ed25519 public key. If omitted, backend generates a keypair.")
     
     @field_validator('public_key', mode='before')
     @classmethod
-    def validate_public_key_from_str_input(cls, v: Any) -> bytes:
+    def validate_public_key_from_str_input(cls, v: Any) -> Optional[bytes]:
+        if v is None:
+            return None
         if not isinstance(v, str):
             raise ValueError("Input public_key must be a base64 encoded string.")
         try:
@@ -101,6 +103,39 @@ class AgentRotateRequest(BaseModel):
     new_public_key: str = Field(..., description="Base64 encoded raw Ed25519 public key bytes (32 bytes).", example="Base64EncodedEd25519PublicKeyBytes")
 
 # --- Schemas for Challenge-Response Auth ---
+
+class AgentCreateResponse(BaseModel):
+    """Response schema for agent creation, includes private_key when backend generates keypair."""
+
+    agent_id: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    public_key: str = Field(description="Base64-encoded Ed25519 public key")
+    status: str = "active"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    private_key: Optional[str] = Field(None, description="Base64-encoded Ed25519 private key (only present when backend generates keypair)")
+    private_key_warning: Optional[str] = Field(None, description="Warning about private key storage")
+
+    model_config = {"from_attributes": True}
+
+
+class AgentToolInfo(BaseModel):
+    """Schema for a single tool available to an agent."""
+
+    name: str = Field(description="Tool name (e.g., notion.search_pages)")
+    backend: str = Field(description="Backend service (e.g., notion)")
+    permission: str = Field(description="Required permission string")
+    available: bool = Field(description="Whether the agent has this permission delegated")
+    reason: Optional[str] = Field(None, description="Reason if not available")
+
+
+class AgentToolsResponse(BaseModel):
+    """Response schema for GET /agents/{id}/tools."""
+
+    agent_id: str
+    tools: List[AgentToolInfo]
+
 
 class ChallengeRequest(BaseModel):
     """Schema for requesting a new challenge nonce."""

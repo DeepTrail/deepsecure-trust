@@ -13,19 +13,15 @@ Each phase invokes the appropriate sub-commands, pauses at human checkpoints, an
 ```
 (This IS the workflow — it orchestrates everything else)
 
-DEFINE ──────── PLAN ──────────── EXECUTE ────────── REVIEW ────── SHIP
-/spec           /breakdown-       /execute-task      /review       /ship
-/create-         design           /complete-task     /security-
- design-doc     (runs /explore-   /run-checks         audit
-                 codebase         /setup-worktrees   /commit-
-                 internally)      /sync-worktree-     push-pr
-                /create-           status
-                 workstream       /verify-batch-
-                /create-           completion
-                 batch-
-                 execution-plan
-                /create-task-spec
-                /create-task-ticket
+DEFINE ──────── PLAN ──────────────────── EXECUTE ────────── REVIEW ────── SHIP
+/spec           /run-plan                 /run-batch          /review       /ship
+/create-         (orchestrates:           (orchestrates:      /security-
+ design-doc       /breakdown-design         /create-task-spec   audit
+                    └─ /explore-codebase    /create-task-ticket /commit-
+                    └─ /create-workstream   /execute-task        push-pr
+                    └─ /create-batch-plan   /verify-batch-
+                  /setup-worktrees           completion)
+                  + verification)
 ```
 
 ## When to Use
@@ -168,61 +164,48 @@ Ask: "Approve this definition? (yes / modify / cancel)"
 
 **Goal:** Explore the codebase, break the design into executable workstreams, tasks, and batches.
 
-**Sub-commands invoked:** `/breakdown-design` (internally runs `/explore-codebase`), `/create-workstream`, `/create-batch-execution-plan`, `/create-task-ticket`, `/create-task-spec`
+**Sub-commands invoked:** `/run-plan` (which internally invokes `/breakdown-design`, `/explore-codebase`, `/create-workstream`, `/create-batch-execution-plan`, `/setup-worktrees`)
 
-### Step 2.1: Breakdown Design (includes codebase exploration)
+> **Note:** Task specs and tickets are NOT created in the PLAN phase. They are created automatically by `/run-batch` at the start of each batch in the EXECUTE phase.
 
-Invoke `/breakdown-design @design-doc.md`:
-1. Run `/explore-codebase` internally — inventory existing implementations, cross-reference against design doc claims
-2. Classify tasks by codebase state (Create / Modify / Verify / Skip)
-3. Identify external dependencies
-4. Map data flow and shared state
-5. Group into parallel workstreams
-6. Order tasks by dependency within each workstream
-7. Calculate critical path
+### Step 2.1: Run /run-plan (Automated)
 
-### Step 2.2: Create Workstream Structure
+Invoke `/run-plan [design-doc-path] [feature-name]`:
 
-Invoke `/create-workstream [feature-name]`:
-1. Create `docs/workstreams/[feature-name]/` directory
-2. Create `WORKSTREAM.md` with task table
-3. Create `STATUS.md` tracking file
-4. Create `tasks/` and `reports/` directories
+```
+/run-plan [design-doc-path] [feature-name]
+```
 
-### Step 2.3: Generate Batch Execution Plan
+**What `/run-plan` does internally (in order):**
 
-Invoke `/create-batch-execution-plan [feature-name]`:
-1. Organize tasks into dependency-ordered batches
-2. Identify merge points between workstreams
-3. Map parallelizable vs sequential batches
-4. Output `BATCH_EXECUTION_PLAN.md`
+1. **Runs `/breakdown-design`** which internally chains:
+   - `/explore-codebase` — inventories existing implementations, classifies tasks as Create / Modify / Verify / Skip, saves `CODEBASE_ANALYSIS.md`
+   - Analyzes design doc, identifies workstreams, tasks, dependencies
+   - `/create-workstream` — creates folder structure, `WORKSTREAM.md`, `STATUS.md`, `MERGE_POINTS.md`
+   - `/create-batch-execution-plan` — creates `BATCH_EXECUTION_PLAN.md` with wave analysis
+2. **Verifies all 8 required files** exist (`BREAKDOWN.md`, `WORKSTREAM.md`, `STATUS.md`, `BATCH_EXECUTION_PLAN.md`, `MERGE_POINTS.md`, `CODEBASE_ANALYSIS.md`, `tasks/`, `reports/`)
+3. **Decides on and optionally runs `/setup-worktrees`** — only for multi-service features with independent parallel work
+4. **Checkpoints with user** — presents workstream summary, task count, batch table, critical path, Batch 1 preview
 
-### Step 2.4: Generate Task Tickets
+### Step 2.2 (Manual Alternative): Individual Commands
 
-For each task identified, invoke `/create-task-ticket`:
-1. Create task ticket with full metadata
-2. Include acceptance criteria and files to modify
-3. Link dependencies
-4. Include test requirements
+If you need fine-grained control, replace Step 2.1 with these individual commands:
 
-### Step 2.5: Setup Worktrees (if parallel execution planned)
+- `/breakdown-design [design-doc-path]` — explores + creates workstream + batch plan
+- `/setup-worktrees [feature-name]` — only if multi-service parallelization needed
 
-If multiple workstreams can execute in parallel, invoke `/setup-worktrees`:
-1. Map workstreams to services
-2. Create git worktrees
-3. Copy configuration to each worktree
-4. Output execution commands
+> Steps 2.2, 2.3, 2.4 from the old PLAN phase (`/create-workstream`, `/create-batch-execution-plan`, `/create-task-ticket`) are all handled internally by `/run-plan`. The only reason to run them manually is to recover from a partial failure.
 
-**CHECKPOINT 2**: Present plan to user
+**CHECKPOINT 2**: Present plan to user (handled inside `/run-plan` — see step 6 of run-plan.md)
 ```
 Show:
 - Workstream count and task count
-- Dependency graph (ASCII)
+- Critical path
 - Batch table with parallelization opportunities
-- Critical path length
-- Estimated total effort
+- Codebase analysis highlights (existing vs new)
+- Worktree strategy
 
-Ask: "Approve this plan? (yes / modify / cancel)"
+Ask: "Proceed to Batch 1? (yes / review / pause)"
 ```
 
 **Update pipeline state → PLAN ✅**
@@ -233,45 +216,42 @@ Ask: "Approve this plan? (yes / modify / cancel)"
 
 **Goal:** Implement all tasks, batch by batch, with quality gates.
 
-**Sub-commands invoked:** `/execute-task`, `/complete-task`, `/run-checks`, `/setup-worktrees`, `/sync-worktree-status`, `/verify-batch-completion`
+**Sub-commands invoked:** `/run-batch` (which internally invokes `/create-task-spec`, `/create-task-ticket`, `/execute-task`, `/verify-batch-completion`)
 
-### Step 3.1: Batch Loop
+### Step 3.1: Batch Loop (Automated)
+
+```
+for batch_number in 1..total_batches:
+    /run-batch batch_number feature_name
+    
+    # /run-batch internally:
+    #   1. Parses BATCH_EXECUTION_PLAN.md for this batch
+    #   2. Creates specs (/create-task-spec)
+    #   3. Creates tickets (/create-task-ticket for each task)
+    #   4. Executes waves in order:
+    #      - 1-3 tasks in wave → sequential
+    #      - 4+ tasks in wave → parallel subagents
+    #   5. Gates on wave completion before next wave
+    #   6. Runs /verify-batch-completion
+    #   7. Handles merge point tagging if applicable
+    #   8. CHECKPOINT: presents results, asks "Proceed?"
+    
+    # DO NOT proceed if verification fails
+    # DO NOT proceed without user confirmation at checkpoint
+```
+
+### Step 3.1-alt: Manual Batch Loop (Alternative)
+
+If `/run-batch` is not appropriate (e.g., need fine-grained control):
 
 ```
 for batch in BATCH_EXECUTION_PLAN:
-    
-    # Identify runnable tasks
-    tasks = get_tasks_in_batch(batch)
-    parallel_tasks = [t for t in tasks if no_unmet_dependencies(t)]
-    
-    # Execute tasks (parallel or sequential)
-    if using_worktrees:
-        for task in parallel_tasks:
-            spawn_subagent(task, worktree=get_worktree(task))
-    else:
-        for task in parallel_tasks:
-            execute_sequentially(task)
-    
-    # Quality gate per task
-    for task in completed_tasks:
-        run_checks(task)  # /run-checks
-        complete_task(task)  # /complete-task
-    
-    # Sync and verify (MANDATORY before next batch)
-    if using_worktrees:
-        sync_worktree_status(feature)  # /sync-worktree-status
-    verify_batch_completion(batch, feature)  # /verify-batch-completion
-    # DO NOT proceed if verification fails
-    
-    # CHECKPOINT: After each batch
-    present_batch_results()
-    ask("Proceed to next batch?")
-    
-    # Merge point handling (if applicable)
-    if batch_triggers_merge_point:
-        merge_branches()
-        verify_merge()
-        cleanup_worktrees()
+    /create-task-spec batch feature
+    for task in batch: /create-task-ticket task feature
+    for task in batch (wave order): /execute-task task feature
+    if using_worktrees: /sync-worktree-status feature
+    /verify-batch-completion batch feature
+    # CHECKPOINT: present results, ask to proceed
 ```
 
 ### Step 3.2: Executing a Single Task
@@ -487,7 +467,9 @@ Proceed? (yes / pause / modify)
 
 ## Subagent Coordination
 
-For parallel batch execution, use the Task tool:
+For parallel task execution within a wave, `/run-batch` automatically spawns subagents when a wave has 4+ tasks. The subagent prompt template is defined in `.claude/commands/run-batch.md`.
+
+**Manual subagent spawning** (if not using `/run-batch`):
 
 ```
 # Spawn parallel subagents for independent tasks
@@ -580,6 +562,7 @@ The pipeline reads state and picks up at the last incomplete phase.
 
 ## Red Flags
 
+- **Running `/run-batch` without completing the PLAN phase** — `BREAKDOWN.md`, `CODEBASE_ANALYSIS.md`, and `MERGE_POINTS.md` must all exist before any batch executes. If they are missing, `/run-batch` will fail its pre-flight checks. Fix: run `/run-plan [design-doc] [feature-name]` first.
 - Skipping codebase exploration (embedded in PLAN phase) to save time
 - Jumping straight to EXECUTE from a plan file without formal spec or design doc
 - Executing all tasks sequentially when the batch plan shows parallel opportunities
@@ -612,8 +595,8 @@ This command orchestrates all other pipeline commands:
 | Phase | Commands Invoked |
 |-------|-----------------|
 | DEFINE | `/spec`, `/create-design-doc` |
-| PLAN | `/breakdown-design` (internally runs `/explore-codebase`), `/create-workstream`, `/create-batch-execution-plan`, `/create-task-ticket`, `/create-task-spec` |
-| EXECUTE | `/execute-task`, `/complete-task`, `/run-checks`, `/setup-worktrees`, `/sync-worktree-status`, `/verify-batch-completion` |
+| PLAN | `/run-plan` (orchestrates: `/breakdown-design` → `/explore-codebase` → `/create-workstream` → `/create-batch-execution-plan` → `/setup-worktrees` if needed) |
+| EXECUTE | `/run-batch` (orchestrates: `/create-task-spec`, `/create-task-ticket`, `/execute-task`, `/verify-batch-completion`), `/sync-worktree-status` |
 | REVIEW | `/review`, `/security-audit`, `/commit-push-pr` |
 | SHIP | `/ship`, `/update-claude-md` |
 

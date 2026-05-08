@@ -1,0 +1,42 @@
+{
+  "sceneId": "mcp-tool-call",
+  "title": "MCP Tool Execution",
+  "description": "The agent calls tools through the MCP gateway. Each call is authorized against the delegation. Undelegated tools are denied.",
+  "steps": [
+    {
+      "id": "mcp-1",
+      "label": "Initialize MCP Session",
+      "description": "Agent establishes an MCP session with the gateway",
+      "actor": "sarah-research-agent",
+      "action": "mcp_initialize",
+      "result": "Session established"
+    },
+    {
+      "id": "mcp-2",
+      "label": "Search Notion Pages",
+      "description": "Agent searches Notion for Q4 planning documents",
+      "actor": "sarah-research-agent",
+      "action": "tools/call",
+      "result": "3 pages found",
+      "metadata": { "tool": "notion.search_pages", "args": { "query": "Q4 planning" } }
+    },
+    {
+      "id": "mcp-3",
+      "label": "Post to Slack",
+      "description": "Agent posts search results to the #research channel",
+      "actor": "sarah-research-agent",
+      "action": "tools/call",
+      "result": "Message sent",
+      "metadata": { "tool": "slack.post_message", "args": { "channel": "#research", "text": "Found 3 pages" } }
+    },
+    {
+      "id": "mcp-4",
+      "label": "List HubSpot Contacts (Denied)",
+      "description": "Agent attempts to access HubSpot contacts — permission not delegated",
+      "actor": "sarah-research-agent",
+      "action": "tools/call",
+      "result": "Permission denied: hubspot:contacts:read not delegated",
+      "metadata": { "tool": "hubspot.list_contacts", "denied": true }
+    }
+  ]
+}

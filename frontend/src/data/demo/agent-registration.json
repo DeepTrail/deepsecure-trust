@@ -1,0 +1,41 @@
+{
+  "sceneId": "agent-registration",
+  "title": "Register Agent",
+  "description": "An Ed25519 keypair is generated. The agent registers its public key and proves identity via cryptographic challenge-response.",
+  "steps": [
+    {
+      "id": "agent-1",
+      "label": "Generate Keypair",
+      "description": "Ed25519 signing keypair is generated locally",
+      "actor": "sarah-research-agent",
+      "action": "generate_keys",
+      "result": "Ed25519 keypair created",
+      "metadata": { "key_type": "ed25519" }
+    },
+    {
+      "id": "agent-2",
+      "label": "Register Public Key",
+      "description": "Agent registers its public key with the control plane",
+      "actor": "sarah@acme.com",
+      "action": "register_agent",
+      "result": "Agent registered",
+      "metadata": { "agent_id": "sarah-research-agent", "name": "Research Assistant" }
+    },
+    {
+      "id": "agent-3",
+      "label": "Request Challenge",
+      "description": "Agent requests a cryptographic challenge from the control plane",
+      "actor": "sarah-research-agent",
+      "action": "request_challenge",
+      "result": "Challenge issued"
+    },
+    {
+      "id": "agent-4",
+      "label": "Sign & Verify",
+      "description": "Agent signs the challenge with its private key; control plane verifies the signature",
+      "actor": "sarah-research-agent",
+      "action": "verify_signature",
+      "result": "Identity verified — L3 Agent JWT issued"
+    }
+  ]
+}

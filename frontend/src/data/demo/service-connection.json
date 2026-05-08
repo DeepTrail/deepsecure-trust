@@ -1,0 +1,50 @@
+{
+  "sceneId": "service-connection",
+  "title": "Connect Services",
+  "description": "Sarah connects Notion, Slack, and HubSpot via OAuth. Credentials are stored in the vault — never exposed to agents.",
+  "steps": [
+    {
+      "id": "svc-1",
+      "label": "Select Notion",
+      "description": "User initiates OAuth connection flow for Notion",
+      "actor": "sarah@acme.com",
+      "action": "connect_service",
+      "result": "OAuth redirect",
+      "metadata": { "service": "notion", "scopes": ["pages:read", "pages:write"] }
+    },
+    {
+      "id": "svc-2",
+      "label": "Authorize Scopes",
+      "description": "User approves the requested scopes on the OAuth provider",
+      "actor": "sarah@acme.com",
+      "action": "authorize",
+      "result": "Scopes granted"
+    },
+    {
+      "id": "svc-3",
+      "label": "Store Credentials",
+      "description": "OAuth tokens are encrypted and stored in the DeepSecure vault",
+      "actor": "deepsecure-control",
+      "action": "vault_store",
+      "result": "Credentials stored securely"
+    },
+    {
+      "id": "svc-4",
+      "label": "Connect Slack",
+      "description": "Repeat OAuth flow for Slack with messaging scopes",
+      "actor": "sarah@acme.com",
+      "action": "connect_service",
+      "result": "Connected",
+      "metadata": { "service": "slack", "scopes": ["messages:read", "messages:write"] }
+    },
+    {
+      "id": "svc-5",
+      "label": "Connect HubSpot",
+      "description": "Connect HubSpot with contacts read scope",
+      "actor": "sarah@acme.com",
+      "action": "connect_service",
+      "result": "Connected",
+      "metadata": { "service": "hubspot", "scopes": ["contacts:read"] }
+    }
+  ]
+}

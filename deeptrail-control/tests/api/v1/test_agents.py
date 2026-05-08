@@ -20,7 +20,7 @@ def test_register_agent_success(client: TestClient, db: Session):
     assert response.status_code == 201
     content = response.json()
     assert content["agent_id"] == agent_id
-    assert content["publicKey"] == public_key
+    assert content["public_key"] == public_key
     assert "created_at" in content
 
 def test_register_agent_duplicate(client: TestClient, db: Session):

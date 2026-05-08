@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.config import settings
-from app.core.idp_config import IdPConfig, IdPProviderType
+from app.core.idp_config import IdPConfig, IdPProviderType, get_idp_config_for_provider
 from app.schemas.sso import (
     SSOAuthorizeResponse,
     SSOCallbackResponse,
@@ -180,8 +180,7 @@ async def sso_authorize(
         )
 
     try:
-        idp_config = IdPConfig()
-        idp_config.provider = IdPProviderType(idp)
+        idp_config = get_idp_config_for_provider(idp)
         provider = create_oidc_provider(idp_config)
     except NotImplementedError as exc:
         raise HTTPException(
@@ -312,8 +311,7 @@ async def sso_callback(
 
     # Resolve provider
     try:
-        idp_config = IdPConfig()
-        idp_config.provider = IdPProviderType(idp)
+        idp_config = get_idp_config_for_provider(idp)
         provider = create_oidc_provider(idp_config)
     except Exception:
         raise HTTPException(
@@ -493,8 +491,7 @@ async def sso_logout(
             )
 
     try:
-        idp_config = IdPConfig()
-        idp_config.provider = IdPProviderType(idp_name)
+        idp_config = get_idp_config_for_provider(idp_name)
         provider = create_oidc_provider(idp_config)
         logout_url = await provider.logout_url(
             id_token_hint=None,
@@ -586,8 +583,7 @@ async def sso_refresh(
         raise HTTPException(status_code=404, detail="No refresh token available")
 
     # --- Refresh tokens with IdP provider ---
-    idp_config = IdPConfig()
-    idp_config.provider = IdPProviderType(idp)
+    idp_config = get_idp_config_for_provider(idp)
     provider = create_oidc_provider(idp_config)
 
     try:

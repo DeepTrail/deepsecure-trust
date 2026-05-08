@@ -459,7 +459,12 @@ cp -r .cursor ../vmcp-gateway/
 
 For automated batch execution, use:
 ```
-/orchestrate-feature @design-doc.md --phase=execution --batch=1
+/run-batch 1 [feature-name]
+```
+
+Or via the full pipeline (all phases):
+```
+/pipeline @design-doc.md --phase=execute --batch=1
 ```
 
 ---
