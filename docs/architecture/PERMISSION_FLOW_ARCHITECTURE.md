@@ -1,6 +1,7 @@
 # Permission Flow Architecture: End-to-End Deep Dive
 
 > **Created:** February 22, 2026  
+> **Last Updated:** May 7, 2026  
 > **Purpose:** Document the complete permission flow from Notion capabilities to agent tool access
 
 ---
@@ -14,6 +15,8 @@
 5. [Gap Analysis](#5-gap-analysis)
 6. [Proposed Fixes](#6-proposed-fixes)
 7. [Two Mappers: Permission Mapper vs Scope Mapper](#7-two-mappers-permission-mapper-vs-scope-mapper)
+8. [ScopeMapper: Current Design, Risks, and Evolution Path](#8-scopemapper-current-design-risks-and-evolution-path)
+9. [Implementation Status (May 2026)](#9-implementation-status-may-2026)
 
 ---
 
@@ -1090,3 +1093,200 @@ Layer 2: Permission Mapper (Gateway)
 ```
 
 Even if Layer 1 has a bug, Layer 2 still enforces. This is the security principle of **fail-closed at multiple layers**.
+
+---
+
+## 8. ScopeMapper: Current Design, Risks, and Evolution Path
+
+> **Added:** May 7, 2026  
+> **Context:** Discussion of how `available-permissions` endpoint works, what happens when OAuth scopes change, and the architectural trade-offs of code-as-configuration vs. DB-driven mappings.
+
+### 8.1 How Available Permissions Are Computed Today
+
+The `GET /users/me/available-permissions` endpoint does **not** store or query a permissions table. It computes permissions on-the-fly every time it is called:
+
+```
+Request: GET /users/me/available-permissions
+
+1. Query connected_services WHERE user_id = current_user
+   → finds 5 rows: notion, slack, gmail, gdrive, gcalendar
+
+2. For each row, read scopes_granted (stored as JSON array):
+   e.g. notion: ["read_content", "update_content", "insert_content"]
+        slack:  ["channels:history", "channels:read", "chat:write", ...]
+
+3. For each service+scope, call ScopeMapper.get_permissions_for_scopes()
+   e.g. "channels:history" → ["slack:channels:history", "slack:messages:search"]
+
+4. Aggregate into all_permissions flat list → 23 strings returned to UI
+```
+
+The `ScopeMapper` class in `deeptrail-control/app/services/scope_mapper.py` holds a **static hardcoded dict** (`SCOPE_TO_PERMISSIONS`) mapping every known service scope to a list of fine-grained permission strings.
+
+### 8.2 Why This Design Was Chosen
+
+The rationale for computing rather than storing:
+
+- **Scopes are ground truth.** The OAuth provider (Google, Slack, etc.) grants scopes. Storing derived permissions would create a second copy that could drift from what the provider actually allows.
+- **Permissions are a view.** They are a product enrichment layer on top of raw OAuth scopes. Recomputing them keeps the derivation logic in one place (`ScopeMapper`) rather than in a migration or a background job.
+- **Monotonic attenuation is preserved.** Users can only delegate permissions they can compute from their scopes. The computation happens at delegation time, so a user can never delegate more than their current scopes allow.
+
+### 8.3 Failure Modes When Scopes or the Mapper Change
+
+#### Case A: User re-authorizes with more scopes (scope expansion)
+
+The OAuth callback stores the new, wider `scopes_granted` in the DB. The next call to `available-permissions` recomputes from the new scopes and returns the expanded permission set. **This works correctly** -- no action needed.
+
+#### Case B: User's scopes are reduced (e.g., they revoke a Google scope)
+
+The OAuth callback (or a future revocation handler) should update `scopes_granted` to the smaller set. On the next `available-permissions` call the narrower set is returned. **Existing delegations are NOT retroactively narrowed** -- they still embed the old permission strings in the JWT. This is an open gap.
+
+#### Case C: `ScopeMapper` code is updated (new permission added to a scope)
+
+A developer adds `"slack:messages:list"` as a new permission for `channels:history`. After deploy:
+
+- `available-permissions` immediately returns the new permission for any user who has that scope connected.
+- Existing Agent JWTs do **not** contain the new permission (JWTs are issued at auth time and are immutable until re-authentication).
+- The Gateway's `PermissionMapper` **must be updated simultaneously** or the new permission string will be unknown to the Gateway and calls will fail closed.
+
+**Risk:** The two mapper files (`scope_mapper.py` in Control Plane and `permission_mapper.py` in Gateway) must stay in sync manually. There is no automated check.
+
+#### Case D: `ScopeMapper` code is updated (permission removed from a scope)
+
+A developer removes `"slack:messages:search"` from `channels:history`. After deploy:
+
+- `available-permissions` no longer returns that permission.
+- Existing delegations that included it still embed it in the Agent JWT.
+- The Gateway still enforces it (as long as `PermissionMapper` also still has it). If `PermissionMapper` removes it too, existing agent sessions silently lose that tool.
+
+#### Case E: OAuth provider changes their scope name
+
+Unlikely for Google/Slack but possible. The `ScopeMapper` has both short-form (`drive.readonly`) and full-URL form (`https://www.googleapis.com/auth/drive.readonly`) entries to guard against this. Any scope string the provider returns that is not in the map produces **zero permissions silently** -- no error, no warning to the user.
+
+### 8.4 The Two-Mapper Sync Problem
+
+Both `ScopeMapper` (Control Plane) and `PermissionMapper` (Gateway) use the same permission string vocabulary. They are maintained in separate files in separate services with no automated consistency check:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `ScopeMapper` | `deeptrail-control/app/services/scope_mapper.py` | Scope → Permission (at delegation time) |
+| `PermissionMapper` | `deeptrail-gateway/app/mcp/permission_mapper.py` | Tool → Permission (at tool call time) |
+
+**Current risk:** A developer updating one without updating the other will cause silent permission mismatches. The comment on line 26 of `scope_mapper.py` acknowledges this: *"Permission strings MUST match those used by the Gateway's PermissionMapper."*
+
+There is no test that verifies both mappers use the same set of permission strings.
+
+### 8.5 Evolution Path
+
+#### Level 0 (Current): Hardcoded static dict
+
+- All mappings in Python source
+- Change requires code deploy
+- No admin control
+- No audit trail of mapping changes
+
+#### Level 1 (Recommended next step): Store computed permissions in DB
+
+Add an `available_permissions` JSON column to `connected_services`. Populate it at OAuth callback time by calling `ScopeMapper` once and storing the result. The `available-permissions` endpoint reads from DB.
+
+```
+OAuth callback:
+  → ScopeMapper.get_permissions_for_scopes(service_id, scopes)
+  → Store result in connected_services.available_permissions
+  → This column is the user's permission ceiling
+
+available-permissions endpoint:
+  → SELECT available_permissions FROM connected_services
+  → No computation at query time
+```
+
+**Benefits:**
+- Permissions are stable across code deploys (no silent expansion/contraction when mapper is updated)
+- Admins can see and audit what permissions each user holds
+- A single `POST /admin/recompute-permissions` endpoint can refresh all users after a mapper change, making the change explicit and auditable
+
+**New migration needed:** Add `available_permissions JSONB` to `connected_services` table. This fits naturally with the C1 migrations already planned in the Integration Verification Pipeline plan (`~/.cursor/plans/integration_verification_pipeline_e3462407.plan.md`).
+
+#### Level 2 (Future): DB-driven scope-to-permission mapping table
+
+Replace the hardcoded dict with a `scope_permission_mappings` table:
+
+```sql
+CREATE TABLE scope_permission_mappings (
+    id          UUID PRIMARY KEY,
+    service_id  TEXT NOT NULL,
+    scope       TEXT NOT NULL,
+    permission  TEXT NOT NULL,
+    active      BOOLEAN DEFAULT TRUE,
+    created_at  TIMESTAMPTZ,
+    updated_at  TIMESTAMPTZ
+);
+```
+
+- IT Admin or Security team updates mappings via UI without code deploy
+- Changes are versioned and auditable
+- `ScopeMapper` reads from DB instead of the hardcoded dict
+- Seeded from current `SCOPE_TO_PERMISSIONS` dict via migration
+
+**Trade-off:** More complex. Admin UI required. Startup latency for DB read. DB becomes a dependency for permission computation.
+
+#### Level 3 (Future): Shared permission registry as single source of truth
+
+As described in Section 7, a `PERMISSION_DEFINITIONS` shared registry from which both `ScopeMapper` and `PermissionMapper` are derived. Eliminates the two-mapper sync problem. Appropriate when the permission vocabulary grows significantly or when a shared config package is introduced.
+
+### 8.6 Recommended Action Items
+
+| Priority | Action | Files |
+|----------|--------|-------|
+| **Now** | Add a test that asserts every permission string in `ScopeMapper.SCOPE_TO_PERMISSIONS` exists in `PermissionMapper.TOOL_TO_PERMISSION` (and vice versa) | New test file in `deeptrail-control/tests/` |
+| **With C1 migrations** | Add `available_permissions JSONB` column to `connected_services` | New Alembic migration |
+| **With C2 DB persistence** | Populate `available_permissions` in OAuth callback handler | `deeptrail-control/app/api/v1/endpoints/oauth.py` |
+| **After C2** | Update `available-permissions` endpoint to read from DB column | `deeptrail-control/app/api/v1/endpoints/users.py` |
+| **After C2** | Add `POST /admin/recompute-permissions` management endpoint | New endpoint |
+| **Future** | Consider Level 2 DB-driven mappings if scope vocabulary grows | New migration + admin UI |
+
+---
+
+## 9. Implementation Status (May 2026)
+
+This section tracks the current state of the permission architecture relative to the gaps and fixes documented above.
+
+### 9.1 What Is Implemented
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `ScopeMapper` class | **Done** | `deeptrail-control/app/services/scope_mapper.py` -- full static mapping for notion, slack, hubspot, gdrive, gcalendar, gmail |
+| `GET /users/me/available-permissions` | **Done** | Computes on-the-fly from `connected_services.scopes_granted` |
+| `PermissionMapper` (Gateway) | **Done** | `deeptrail-gateway/app/mcp/permission_mapper.py` -- enforces at tool call time |
+| OAuth connect flow (browser-based) | **Done** | `services/page.tsx` uses real OAuth via `GET /oauth/{serviceId}/authorize` |
+| Delegation creation UI | **Done** | `delegation/create/page.tsx` fetches `available-permissions`, parses strings into objects, passes to `PermissionChecklist` |
+| Delegation validation against scopes (WS-K4) | **Not done** | `delegation.py` accepts any permission string without checking against user's connected scopes |
+
+### 9.2 What Is Still In-Memory (Lost on Restart)
+
+| Data | Location | Impact |
+|------|----------|--------|
+| Delegations | `_delegations: Dict` in `delegation.py` line 49 | Restart wipes all delegations; agent re-authentication returns empty permissions |
+| Audit events | `_mvp_audit_events: list` in `audit.py` line 29 | Restart wipes audit trail |
+
+These are tracked in **C2 of the Integration Verification Pipeline plan** (`~/.cursor/plans/integration_verification_pipeline_e3462407.plan.md`). C1 (Alembic migrations for `delegation_tokens`, `agent_sessions`, `audit_events` tables) is a prerequisite.
+
+### 9.3 Known Sync Gaps Between the Two Mappers
+
+The following permission strings appear in `ScopeMapper` but their presence in `PermissionMapper` has not been formally verified:
+
+- `slack:users:search` (from `search:read.users` scope)
+- `slack:reactions:write` (from `reactions:write` scope)  
+- `slack:channels:join` (from `channels:join` scope)
+- `hubspot:*` permissions (HubSpot backend is listed as supported but not confirmed wired in gateway)
+
+**Action:** Add a cross-mapper consistency test before adding any new permission strings.
+
+### 9.4 Open Gaps from Original Gap Analysis (Section 5)
+
+| Gap | Original Status | Current Status |
+|-----|----------------|----------------|
+| Gap 1: No delegation validation against scopes | Spec created (WS-K4) | Still not implemented |
+| Gap 2: No scope→permission mapping | Spec created (WS-K3) | Implemented (`ScopeMapper`) |
+| Gap 3: Tool name derivation mismatch | Spec created (WS-J2) | Status unknown -- needs verification |
+| Gap 4: No scope discovery UI | Spec created (WS-K5) | `available-permissions` endpoint implemented; UI shows permission checklist on delegation create page |

@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
-import { Bot, Shield, ScrollText, Activity } from "lucide-react";
+import { Bot, Shield, ScrollText, Activity, Sparkles } from "lucide-react";
+import { checkOnboardingStatus } from "@/lib/auth/onboarding";
 
 interface AuditEvent {
   id: string;
@@ -29,6 +32,13 @@ type PageState =
 
 export default function DashboardPage() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    checkOnboardingStatus()
+      .then((dest) => setShowOnboarding(dest === "onboarding"))
+      .catch(() => {});
+  }, []);
 
   const fetchData = async () => {
     setState({ kind: "loading" });
@@ -83,6 +93,25 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Overview</h1>
+
+      {showOnboarding && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex items-center justify-between py-4">
+            <div className="flex items-center gap-3">
+              <Sparkles className="h-5 w-5 text-primary" />
+              <div>
+                <p className="font-medium">Complete your setup</p>
+                <p className="text-sm text-muted-foreground">
+                  Walk through the onboarding wizard to configure agents and delegations.
+                </p>
+              </div>
+            </div>
+            <Button size="sm" asChild>
+              <Link href="/onboarding">Start Onboarding</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-3">
         {metrics.map((m) => (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
-import { ListTodo, Plus, Play, CheckCircle, XCircle } from "lucide-react";
+import { ListTodo, Plus, Play, CheckCircle, XCircle, ChevronRight } from "lucide-react";
 
 interface Task {
   task_id: string;
@@ -96,11 +97,21 @@ export default function TasksPage() {
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium">
                   <ListTodo className="h-4 w-4 text-muted-foreground" />
-                  {task.name || task.task_id}
+                  <Link
+                    href={`/dashboard/tasks/${task.task_id}`}
+                    className="hover:underline"
+                  >
+                    {task.name || task.task_id}
+                  </Link>
                 </CardTitle>
-                <Badge variant={STATUS_VARIANTS[task.status] ?? "secondary"}>
-                  {task.status}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={STATUS_VARIANTS[task.status] ?? "secondary"}>
+                    {task.status}
+                  </Badge>
+                  <Link href={`/dashboard/tasks/${task.task_id}`}>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  </Link>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 {task.description && (

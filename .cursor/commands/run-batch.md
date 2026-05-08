@@ -97,13 +97,53 @@ If the prior batch is NOT complete, STOP and report:
     Run `/verify-batch-completion [N-1] [feature-name]` first,
     or run `/run-batch [N-1] [feature-name]` to complete it.
 
-**c. Verify workstream directory exists:**
+**c. Verify PLAN phase was fully completed (all 7 required files):**
+
+> **WHY THIS CHECK EXISTS:** The mvp-foundation workstream was created manually without running
+> the full pipeline. `/run-batch` accepted it as valid because it only checked for 3 files.
+> These checks enforce that `/run-plan` was actually completed — including the user-approval
+> checkpoint — before execution begins.
 
 ```bash
-ls docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md
-ls docs/workstreams/[feature-name]/WORKSTREAM.md
-ls docs/workstreams/[feature-name]/STATUS.md
+FEATURE="[feature-name]"
+
+# Core execution files (already checked above)
+ls docs/workstreams/${FEATURE}/BATCH_EXECUTION_PLAN.md
+ls docs/workstreams/${FEATURE}/WORKSTREAM.md
+ls docs/workstreams/${FEATURE}/STATUS.md
+
+# PLAN phase completion proof
+ls docs/workstreams/${FEATURE}/BREAKDOWN.md
+ls docs/workstreams/${FEATURE}/CODEBASE_ANALYSIS.md
+ls docs/workstreams/${FEATURE}/MERGE_POINTS.md
+ls docs/workstreams/${FEATURE}/PIPELINE_STATE.md
 ```
+
+If ANY of the four proof files are missing, STOP and report:
+
+    ## Pre-Flight FAILED: PLAN Phase Incomplete
+
+    The following files are missing — proving the PLAN phase was not fully completed:
+
+    | File | Status | Proves |
+    |------|--------|--------|
+    | `BREAKDOWN.md` | ❌ MISSING | `/breakdown-design` was run |
+    | `CODEBASE_ANALYSIS.md` | ❌ MISSING | `/explore-codebase` was run |
+    | `MERGE_POINTS.md` | ❌ MISSING | `/create-workstream` fully completed |
+    | `PIPELINE_STATE.md` | ❌ MISSING | user reviewed and approved the plan |
+
+    **Fix:** Run the full PLAN phase before executing:
+    ```
+    /run-plan [feature-name] [design-doc-path]
+    ```
+
+    Or if you have a design doc and want to run the missing steps individually:
+    - Missing BREAKDOWN.md or CODEBASE_ANALYSIS.md → `/breakdown-design [design-doc-path]`
+    - Missing MERGE_POINTS.md → `/create-workstream [feature-name]`
+    - Missing PIPELINE_STATE.md → run `/run-plan` to completion (checkpoint approval required)
+
+    **Do NOT manually create these files** to pass the check — they must be generated
+    by the commands above to contain valid content.
 
 **d. Report pre-flight status:**
 
@@ -116,6 +156,10 @@ ls docs/workstreams/[feature-name]/STATUS.md
     | BATCH_EXECUTION_PLAN.md exists | ✅ |
     | WORKSTREAM.md exists | ✅ |
     | STATUS.md exists | ✅ |
+    | BREAKDOWN.md exists | ✅ (proves /breakdown-design was run) |
+    | CODEBASE_ANALYSIS.md exists | ✅ (proves /explore-codebase was run) |
+    | MERGE_POINTS.md exists | ✅ (proves /create-workstream fully completed) |
+    | PIPELINE_STATE.md exists | ✅ (proves user approved plan at /run-plan checkpoint) |
 
     **Tasks in this batch:** [count]
     **Waves:** [count]
@@ -279,9 +323,100 @@ done
 
 **If sync shows discrepancies:** Report to user before proceeding. Do NOT run `/verify-batch-completion` on stale status files.
 
-### Step 6: Verify Batch Completion
+### Step 6: Spec-Implementation Audit & Gap Fix
 
-After all waves are complete (and status is synced if parallel subagents were used):
+> **WHY THIS STEP EXISTS:** When specs/tickets and implementation are created in parallel (or even sequentially), drift happens. Barrel exports get missed, E2E test plans from specs don't get fully implemented, form validation edge cases listed in specs get skipped. This step catches and fixes those gaps automatically before the batch is marked complete.
+
+**MANDATORY:** This step runs after ALL waves are complete and BEFORE `/verify-batch-completion`. Never skip it.
+
+#### 6a. Audit Each Task
+
+For each task in the batch:
+
+1. **Read the task spec** at `docs/workstreams/[feature-name]/specs/WS-[ID]-spec.md`
+2. **Read the task ticket** at `docs/workstreams/[feature-name]/tasks/WS-[ID]-*.md`
+3. **Read the implementation files** listed in the spec's "Files" section
+4. **Systematically compare** spec/ticket against implementation for gaps:
+
+| Audit Dimension | What to Check | Common Gaps |
+|----------------|---------------|-------------|
+| **Acceptance criteria** | Every AC checkbox in spec has a corresponding implementation | Missing exports, incomplete configurations |
+| **File list** | Every file in spec's "Files to Create/Modify" exists | Missing barrel exports, missing test files |
+| **Test coverage** | Test plan in spec vs actual test file contents | E2E feature tests listed but not implemented, edge cases listed but not tested |
+| **API contracts** | Endpoint shapes, request/response types match | Schema mismatches, missing error handlers |
+| **UI components** | Component interfaces, props, behaviors match spec | Missing props, missing a11y attributes |
+| **Configuration** | Config changes listed in spec are applied | Missing headers, missing env vars |
+
+#### 6b. Classify Gaps
+
+For each gap found, classify severity:
+
+| Severity | Definition | Action |
+|----------|-----------|--------|
+| **Critical** | Acceptance criterion not met, feature broken | Must fix before proceeding |
+| **Medium** | Spec lists something that exists partially or is structurally incomplete | Fix — likely a few lines of code or a few test cases |
+| **Minor** | Cosmetic or documentation-only gap | Fix inline if quick (<5 min), otherwise note and proceed |
+| **Negligible** | Implementation is actually better than spec (e.g., stronger security headers) | No fix needed — note as intentional improvement |
+
+#### 6c. Report Gaps
+
+Present audit findings:
+
+    ## Spec-Implementation Audit: Batch [N]
+
+    ### [WS-ID]: [Task Name]
+    | # | Gap | Severity | Spec Reference | Implementation State |
+    |---|-----|----------|---------------|---------------------|
+    | 1 | Missing barrel export for X | Minor | AC #11 | Not exported from index.ts |
+    | 2 | E2E feature tests not implemented | Medium | Test Plan rows 4-8 | Only smoke tests present |
+
+    **Total gaps:** [count]
+    **Critical:** [count] | **Medium:** [count] | **Minor:** [count] | **Negligible:** [count]
+
+#### 6d. Fix All Gaps
+
+**Automatically fix all Critical, Medium, and Minor gaps.** Do not ask the user — just fix them.
+
+For each gap:
+
+1. Make the code change (add export, add test, fix config, etc.)
+2. Run `ReadLints` on modified files
+3. If the gap involves tests, run the relevant test suite to verify
+4. Track what was fixed
+
+#### 6e. Verify Fixes
+
+After all gaps are fixed:
+
+```bash
+# Run full test suite for the service
+cd [service-directory]
+npm test -- --run  # or pytest, depending on service
+
+# Verify no new lint errors
+# ReadLints on all files modified during gap fixes
+```
+
+**If any fix introduces new failures:** Fix the cascading issue. Do not proceed with broken tests.
+
+#### 6f. Report Summary
+
+    ## Audit Complete: Batch [N]
+
+    | Task | Gaps Found | Gaps Fixed | Status |
+    |------|-----------|-----------|--------|
+    | [WS-ID] | 3 (0C, 2M, 1m) | 3 | ✅ All gaps closed |
+    | [WS-ID] | 0 | 0 | ✅ Clean |
+    | [WS-ID] | 1 (0C, 0M, 0m, 1N) | 0 (negligible) | ✅ No action needed |
+
+    **Tests after fixes:** [X] passing, [Y] failing
+    **Lint:** ✅ Clean
+
+Proceed to Step 7 (Verify Batch Completion).
+
+### Step 7: Verify Batch Completion
+
+After audit is complete and all gaps are fixed:
 
     /verify-batch-completion [batch-number] [feature-name]
 
@@ -305,7 +440,7 @@ Report merge point status:
     | **Converging Tasks** | [task list] |
     | **Enables** | [what gets unblocked] |
 
-### Step 7: Checkpoint — Report Results
+### Step 8: Checkpoint — Report Results
 
 **MANDATORY: Always checkpoint with the user after each batch.**
 
@@ -405,6 +540,8 @@ The exact tag names are feature-specific — read them from `BATCH_EXECUTION_PLA
 | "I will skip the checkpoint — the user said to keep going" | Checkpoints catch errors early. One bad task can cascade through all downstream batches. |
 | "I will create all tickets at once, then execute all at once" | Tickets for Wave 2 tasks may reference Wave 1 outputs. Create in wave order. |
 | "The batch failed, I will re-run everything" | Check which tasks succeeded. Re-running completed tasks wastes time and may cause conflicts. |
+| "The audit step is redundant — tests already pass" | Tests verify behavior, not spec compliance. Batch 6 found 3 CRITICAL security gaps and 10 MEDIUM gaps despite 414 passing tests. |
+| "I will skip the audit for simple batches" | Every batch in Batch 4-6 had spec-implementation gaps. The audit takes ~2 minutes and catches real issues. Never skip it. |
 
 ## Red Flags
 
@@ -412,6 +549,7 @@ The exact tag names are feature-specific — read them from `BATCH_EXECUTION_PLA
 - Spawning subagents for 2-3 tasks (overhead exceeds benefit)
 - Not checking for already-completed tasks when resuming
 - Skipping `/verify-batch-completion` after the last wave
+- **Skipping the Step 6 spec-implementation audit**
 - Not creating the merge point tag when required
 - Proceeding past a failed task without user acknowledgment
 - Not presenting the checkpoint report to the user
@@ -486,7 +624,8 @@ The agent will:
 5. **Wave 1** — execute WS-A1 inline (single task, no parallelization)
 6. **Wave gate** — verify A1 completion report exists
 7. **Wave 2** — execute WS-A3, WS-A4, WS-A5 sequentially (3 tasks = below parallel threshold)
-8. **Verify** — `/verify-batch-completion 1 frontend-architecture`
-9. **Checkpoint** — report results, ask user to proceed
+8. **Audit** — read all 4 specs/tickets, compare against implementations, fix any gaps
+9. **Verify** — `/verify-batch-completion 1 frontend-architecture`
+10. **Checkpoint** — report results, ask user to proceed
 
 Total time: ~1 session instead of manually running 13 commands.

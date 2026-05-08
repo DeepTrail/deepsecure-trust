@@ -189,6 +189,7 @@ def create_user_delegation(
         ttl_seconds=ttl_seconds,
     )
     
+    from datetime import datetime, timezone
     # Store delegation in memory (organization_id flows from User JWT)
     _delegations[delegation_id] = {
         "id": delegation_id,
@@ -198,6 +199,8 @@ def create_user_delegation(
         "token": delegation_token,
         "constraints": request.constraints,
         "organization_id": user_org_id,
+        "expires_in": ttl_seconds,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     
     logger.info(
@@ -210,6 +213,43 @@ def create_user_delegation(
         permissions=request.permissions,
         expires_in=ttl_seconds,
     )
+
+
+# =============================================================================
+# List User Delegations
+# =============================================================================
+
+
+class DelegationSummary(BaseModel):
+    """Summary of a delegation for listing."""
+
+    delegation_id: str
+    agent_id: str
+    permissions: List[str]
+    expires_in: int
+    created_at: Optional[str] = None
+
+
+@router.get("/delegations", response_model=List[DelegationSummary])
+def list_user_delegations(
+    authorization: str = Header(...),
+):
+    """List all delegations created by the current user."""
+    current_user = get_current_user_from_token(authorization)
+
+    result = []
+    for d in _delegations.values():
+        if d.get("user_id") == current_user:
+            result.append(
+                DelegationSummary(
+                    delegation_id=d["id"],
+                    agent_id=d["agent_id"],
+                    permissions=d["permissions"],
+                    expires_in=d.get("expires_in", 28800),
+                    created_at=d.get("created_at"),
+                )
+            )
+    return result
 
 
 # =============================================================================

@@ -2,6 +2,7 @@
 
 This module provides endpoints for:
 - Connecting backend services (Notion, Slack, etc.)
+- User profile management (onboarding status)
 
 These endpoints support Step 3 of Sarah's Journey: Sarah Connects Services.
 
@@ -17,6 +18,8 @@ from fastapi import APIRouter, Depends, HTTPException, Header, status
 from pydantic import BaseModel, Field
 
 from app.api import deps
+from app.schemas.user import UserUpdate, UserResponse
+from app.models.user import User
 from app.services.vault_client import VaultClient
 from app.services.scope_mapper import ScopeMapper
 from app.services.cache_events import publish_service_disconnected
@@ -134,38 +137,114 @@ def get_current_user_id(
     authorization: str = Header(..., description="Bearer token"),
 ) -> str:
     """Extract user ID from authorization header.
-    
+
     MVP: Simple token parsing.
     Production: JWT validation with proper claims extraction.
     """
-    import jwt
+    import jwt as pyjwt
     from app.core.config import settings
-    
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Authorization header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = authorization[len("Bearer "):]
+
+    if token.startswith("mock_user_token_"):
+        return token.replace("mock_user_token_", "")
+
     try:
-        # Remove 'Bearer ' prefix
-        token = authorization.replace("Bearer ", "")
-        
-        # Check if it's a mock token
-        if token.startswith("mock_user_token_"):
-            return token.replace("mock_user_token_", "")
-        
-        # Try to decode JWT
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-            return payload.get("sub", "sarah@acme.com")
-        except jwt.exceptions.PyJWTError:
-            return "sarah@acme.com"
-            
-    except Exception as e:
-        logger.warning(f"Failed to extract user from token: {e}")
-        return "sarah@acme.com"
+        payload = pyjwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        sub = payload.get("sub")
+        if not sub:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token missing 'sub' claim",
+            )
+        return sub
+    except pyjwt.exceptions.PyJWTError as e:
+        logger.warning(f"JWT decode failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 CurrentUserDep = Annotated[str, Depends(get_current_user_id)]
 
 
 # =============================================================================
-# Endpoints
+# User Profile Endpoints
+# =============================================================================
+
+
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    summary="Update current user profile",
+    description="Update the authenticated user's profile fields (e.g., onboarding_completed).",
+)
+def update_current_user(
+    user_update: UserUpdate,
+    current_user: CurrentUserDep,
+    db: deps.DbDep,
+) -> UserResponse:
+    """Update the current user's profile."""
+    # Get or create user record
+    user = db.query(User).filter(User.user_id == current_user).first()
+
+    if user is None:
+        user = User(
+            user_id=current_user,
+            email=current_user,
+            onboarding_completed=False,
+        )
+        db.add(user)
+        db.flush()
+
+    # Apply updates
+    update_data = user_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(user, field, value)
+
+    db.commit()
+    db.refresh(user)
+
+    return UserResponse.model_validate(user)
+
+
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Get current user profile",
+    description="Get the authenticated user's profile.",
+)
+def get_current_user_profile(
+    current_user: CurrentUserDep,
+    db: deps.DbDep,
+) -> UserResponse:
+    """Get the current user's profile."""
+    user = db.query(User).filter(User.user_id == current_user).first()
+
+    if user is None:
+        now = datetime.now(timezone.utc)
+        return UserResponse(
+            user_id=current_user,
+            email=current_user,
+            onboarding_completed=False,
+            created_at=now,
+            updated_at=now,
+        )
+
+    return UserResponse.model_validate(user)
+
+
+# =============================================================================
+# Service Connection Endpoints
 # =============================================================================
 
 

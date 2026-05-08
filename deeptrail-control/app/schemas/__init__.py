@@ -1,7 +1,8 @@
 """Expose Pydantic schemas for easier importing."""
 
 from .token import Token
-from .agent import Agent, AgentCreate, AgentUpdate, AgentList # noqa
+from .agent import Agent, AgentCreate, AgentUpdate, AgentList, AgentCreateResponse, AgentToolInfo, AgentToolsResponse  # noqa
+from .user import UserUpdate, UserResponse  # noqa
 from .credential import Credential, CredentialIssueRequest, CredentialIssueResponse, CredentialRevokeResponse, CredentialVerifyResponse # noqa
 from .policy import Policy, PolicyCreate, PolicyUpdate # noqa
 from .auth import ChallengeRequest, ChallengeResponse, TokenRequest, KubernetesBootstrapRequest, AWSBootstrapRequest, AzureBootstrapRequest, DockerBootstrapRequest, BootstrapResponse # noqa
@@ -59,6 +60,13 @@ __all__ = [
     "AgentVerifyRequest",
     "AgentVerifyResponse",
     "AgentAuthError",
+    # Agent tools
+    "AgentCreateResponse",
+    "AgentToolInfo",
+    "AgentToolsResponse",
+    # User
+    "UserUpdate",
+    "UserResponse",
 ]
 
 # Add any other schemas needed globally here 
