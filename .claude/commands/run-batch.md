@@ -1,6 +1,6 @@
 # Run Batch: Automated Batch Orchestration
 
-Automate the full lifecycle of a single batch: parse the batch execution plan, create specs, create tickets, execute tasks respecting wave order (parallelizing independent tasks via subagents), audit for spec-implementation gaps, fix any gaps found, verify completion, and checkpoint with the user.
+Automate the full lifecycle of a single batch: parse the batch execution plan, create specs, create tickets, execute tasks respecting wave order (parallelizing independent tasks via subagents), verify completion, and checkpoint with the user.
 
 ## Workflow Position
 
@@ -10,7 +10,7 @@ Automate the full lifecycle of a single batch: parse the batch execution plan, c
                                                                        (YOU ARE HERE)
 
 Internally invokes (in order):
-  /create-task-spec → /create-task-ticket → /execute-task → audit-gaps → /verify-batch-completion
+  /create-task-spec → /create-task-ticket → /execute-task → /verify-batch-completion
 
 Replaces the manual "Batch Execution Pattern" loop from DEVELOPER_WORKFLOW.md.
 ```
@@ -97,13 +97,53 @@ If the prior batch is NOT complete, STOP and report:
     Run `/verify-batch-completion [N-1] [feature-name]` first,
     or run `/run-batch [N-1] [feature-name]` to complete it.
 
-**c. Verify workstream directory exists:**
+**c. Verify PLAN phase was fully completed (all 7 required files):**
+
+> **WHY THIS CHECK EXISTS:** The mvp-foundation workstream was created manually without running
+> the full pipeline. `/run-batch` accepted it as valid because it only checked for 3 files.
+> These checks enforce that `/run-plan` was actually completed — including the user-approval
+> checkpoint — before execution begins.
 
 ```bash
-ls docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md
-ls docs/workstreams/[feature-name]/WORKSTREAM.md
-ls docs/workstreams/[feature-name]/STATUS.md
+FEATURE="[feature-name]"
+
+# Core execution files (already checked above)
+ls docs/workstreams/${FEATURE}/BATCH_EXECUTION_PLAN.md
+ls docs/workstreams/${FEATURE}/WORKSTREAM.md
+ls docs/workstreams/${FEATURE}/STATUS.md
+
+# PLAN phase completion proof
+ls docs/workstreams/${FEATURE}/BREAKDOWN.md
+ls docs/workstreams/${FEATURE}/CODEBASE_ANALYSIS.md
+ls docs/workstreams/${FEATURE}/MERGE_POINTS.md
+ls docs/workstreams/${FEATURE}/PIPELINE_STATE.md
 ```
+
+If ANY of the four proof files are missing, STOP and report:
+
+    ## Pre-Flight FAILED: PLAN Phase Incomplete
+
+    The following files are missing — proving the PLAN phase was not fully completed:
+
+    | File | Status | Proves |
+    |------|--------|--------|
+    | `BREAKDOWN.md` | ❌ MISSING | `/breakdown-design` was run |
+    | `CODEBASE_ANALYSIS.md` | ❌ MISSING | `/explore-codebase` was run |
+    | `MERGE_POINTS.md` | ❌ MISSING | `/create-workstream` fully completed |
+    | `PIPELINE_STATE.md` | ❌ MISSING | user reviewed and approved the plan |
+
+    **Fix:** Run the full PLAN phase before executing:
+    ```
+    /run-plan [feature-name] [design-doc-path]
+    ```
+
+    Or if you have a design doc and want to run the missing steps individually:
+    - Missing BREAKDOWN.md or CODEBASE_ANALYSIS.md → `/breakdown-design [design-doc-path]`
+    - Missing MERGE_POINTS.md → `/create-workstream [feature-name]`
+    - Missing PIPELINE_STATE.md → run `/run-plan` to completion (checkpoint approval required)
+
+    **Do NOT manually create these files** to pass the check — they must be generated
+    by the commands above to contain valid content.
 
 **d. Report pre-flight status:**
 
@@ -116,6 +156,10 @@ ls docs/workstreams/[feature-name]/STATUS.md
     | BATCH_EXECUTION_PLAN.md exists | ✅ |
     | WORKSTREAM.md exists | ✅ |
     | STATUS.md exists | ✅ |
+    | BREAKDOWN.md exists | ✅ (proves /breakdown-design was run) |
+    | CODEBASE_ANALYSIS.md exists | ✅ (proves /explore-codebase was run) |
+    | MERGE_POINTS.md exists | ✅ (proves /create-workstream fully completed) |
+    | PIPELINE_STATE.md exists | ✅ (proves user approved plan at /run-plan checkpoint) |
 
     **Tasks in this batch:** [count]
     **Waves:** [count]
@@ -123,126 +167,39 @@ ls docs/workstreams/[feature-name]/STATUS.md
 
     Proceeding with batch execution...
 
-### Step 3: Extract Contract Skeletons
+### Step 3: Create Task Specifications
 
-> **WHY THIS STEP EXISTS:** When spec/ticket creation and implementation run in parallel, the implementation agent lacks access to the spec's refined interfaces and acceptance criteria, causing drift. Skeletons are the shared contract that prevents this. See `docs/parallel-spec-implementation-strategy.md` for full rationale.
+Invoke `/create-task-spec` for this batch:
 
-Before launching any subagents, extract a lightweight contract skeleton for each task. This is done **inline by the main agent** (~2 min per task).
+    /create-task-spec [batch-number] [feature-name]
 
-**For each task in the batch, create:**
+This creates spec files for all tasks in the batch at:
 
-    docs/workstreams/[feature-name]/skeletons/WS-[ID]-skeleton.md
+    docs/workstreams/[feature-name]/specs/[WS-ID]-spec.md
 
-**Each skeleton MUST contain:**
-
-| Section | Content | Source |
-|---------|---------|--------|
-| **Component Interface** | TypeScript interfaces, prop types, data shapes | Design doc, existing codebase |
-| **API Endpoints** | Method, path, request/response shapes | Design doc, `BATCH_EXECUTION_PLAN.md` |
-| **Key UI Elements** | Component names, layout, data bindings | Design doc |
-| **Acceptance Criteria** | Checkbox list of verifiable requirements | Design doc, spec template |
-| **Files** | Files to create and modify | Design doc, `BATCH_EXECUTION_PLAN.md` |
-
-**Each skeleton MUST NOT contain:** narrative descriptions, test case tables, validation commands, implementation notes, or references. Those belong in the full spec.
-
-**Template:**
-
-```markdown
-# Skeleton: WS-[ID] [Task Name]
-
-## Component Interface
-\`\`\`typescript
-// Key types and interfaces for this task
-\`\`\`
-
-## API Endpoints
-- `METHOD /path` — Description
-
-## Key UI Elements
-- [Element] — [Component] — [Data Source]
-
-## Acceptance Criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-
-## Files
-- `path/to/file.tsx` — Create/Modify
-```
-
-**Verification:** After skeleton extraction, confirm all skeletons exist:
+**Verification:** After spec creation, confirm all spec files exist:
 
 ```bash
-for TASK_ID in [list of task IDs]; do
-  ls docs/workstreams/[feature-name]/skeletons/${TASK_ID}-skeleton.md 2>/dev/null && echo "✅ $TASK_ID skeleton" || echo "❌ $TASK_ID skeleton MISSING"
-done
-```
-
-### Step 4: Create Specs/Tickets + Execute in Parallel
-
-Launch spec/ticket creation and implementation as **parallel subagents**, both reading from the shared skeletons.
-
-#### 4a. Spec/Ticket Subagent (background)
-
-Spawn a background subagent for spec and ticket creation:
-
-```
-Task(
-    subagent_type="generalPurpose",
-    description="Create specs + tickets for Batch [N]",
-    prompt="""
-    Create full task specifications and task tickets for these tasks: [task list]
-    
-    CONTEXT:
-    - Feature: [feature-name]
-    - Workstream root: docs/workstreams/[feature-name]/
-    - Contract skeletons: docs/workstreams/[feature-name]/skeletons/WS-*-skeleton.md
-    
-    INSTRUCTIONS:
-    1. Read each skeleton — it defines the contract (interfaces, endpoints, criteria)
-    2. For each task, create:
-       a. Spec at: docs/workstreams/[feature-name]/specs/WS-[ID]-spec.md
-          - Expand skeleton into full spec per spec template
-          - Add narrative, test cases, validation commands, references
-          - DO NOT change interfaces or acceptance criteria from skeleton
-       b. Ticket at: docs/workstreams/[feature-name]/tasks/WS-[ID]-[name].md
-          - Follow ticket template
-          - Reference the spec
-    3. Verify all files exist
-    """,
-    run_in_background=True
-)
-```
-
-#### 4b. Implementation — Execute Waves (inline or parallel)
-
-Proceed to Step 5 immediately. The implementation reads skeletons, NOT specs. The skeleton is the contract.
-
-**Verification (after spec/ticket subagent completes):**
-
-```bash
-# Verify specs
 for TASK_ID in [list of task IDs]; do
   ls docs/workstreams/[feature-name]/specs/${TASK_ID}-spec.md 2>/dev/null && echo "✅ $TASK_ID spec" || echo "❌ $TASK_ID spec MISSING"
 done
+```
 
-# Verify tickets
+### Step 4: Create Task Tickets
+
+Create a ticket for each task in the batch:
+
+    /create-task-ticket [WS-ID] [feature-name]
+
+Repeat for every task in the batch. Create tickets in wave order (Wave 1 first, then Wave 2) so that dependencies are clear when creating downstream tickets.
+
+**Verification:** After ticket creation, confirm all ticket files exist:
+
+```bash
 for TASK_ID in [list of task IDs]; do
   ls docs/workstreams/[feature-name]/tasks/${TASK_ID}-*.md 2>/dev/null && echo "✅ $TASK_ID ticket" || echo "❌ $TASK_ID ticket MISSING"
 done
 ```
-
-#### 4c. Post-Parallel Reconciliation Check
-
-After BOTH spec/ticket subagent AND implementation complete, run a light reconciliation:
-
-1. For each task, diff the spec's acceptance criteria against the skeleton's criteria
-2. Verify implementation exports match skeleton interfaces
-3. Confirm all skeleton-listed files were created
-4. Flag any structural drift (new interfaces, changed endpoints)
-
-**If drift >10% of acceptance criteria:** Fix implementation to match specs (as done in Batch 4). Consider falling back to sequential (Step 3 → wait → Step 5) for the next batch.
-
-**If drift <5%:** No action needed. Proceed to verification.
 
 ### Step 5: Execute Waves
 
@@ -282,15 +239,12 @@ For each task in the wave, spawn a subagent with this prompt:
     - Main repo: /Users/imaxxs/repositories/deepsecure-mvp
     - Feature: [feature-name]
     - Task ID: [WS-ID]
-    - Contract skeleton: docs/workstreams/[feature-name]/skeletons/[WS-ID]-skeleton.md
-    - Task ticket (if exists): docs/workstreams/[feature-name]/tasks/[WS-ID]-[task-name].md
-    - Task spec (if exists): docs/workstreams/[feature-name]/specs/[WS-ID]-spec.md
+    - Task ticket: docs/workstreams/[feature-name]/tasks/[WS-ID]-[task-name].md
 
     INSTRUCTIONS:
-    1. Read the contract skeleton FIRST — it defines the interfaces, endpoints, and acceptance criteria
-    2. If the task ticket/spec exist, read them for additional context
-    3. If ticket/spec do NOT exist yet (parallel creation in progress), use the skeleton as the sole contract
-    4. Follow the /execute-task workflow:
+    1. Read the task ticket at the path above
+    2. Read the task spec at docs/workstreams/[feature-name]/specs/[WS-ID]-spec.md
+    3. Follow the /execute-task workflow:
        a. Update STATUS.md — mark task as in progress
        b. Verify dependencies are complete
        c. Implement the code as specified in the ticket
@@ -406,7 +360,7 @@ For each gap found, classify severity:
 
 #### 6c. Report Gaps
 
-Present audit findings to the agent log (not the user — this is an internal step):
+Present audit findings:
 
     ## Spec-Implementation Audit: Batch [N]
 
@@ -516,11 +470,6 @@ Present the batch completion report:
     - Tests: ✅ [X] tests passing
     - Acceptance criteria: ✅ All met
 
-    ### Spec-Implementation Audit
-    - Gaps found: [count] (Critical: [n], Medium: [n], Minor: [n], Negligible: [n])
-    - Gaps fixed: [count]
-    - Status: ✅ All gaps closed
-
     ### What This Batch Unblocks
     - Batch [N+1]: [description]
     - Tasks: [list of newly unblocked tasks]
@@ -585,16 +534,14 @@ The exact tag names are feature-specific — read them from `BATCH_EXECUTION_PLA
 
 | Rationalization | Why It Is Wrong |
 |----------------|----------------|
-| "I will skip skeletons — the design doc is detailed enough" | Batch 4 proved this wrong. Design docs describe intent, skeletons define contracts. Without skeletons, parallel agents drift. |
 | "I will skip specs for simple tasks" | Specs define contracts. Without them, tickets lack precision and agents guess. |
 | "3 tasks is enough to parallelize" | Subagent startup overhead (~30s) exceeds benefit for 2-3 small tasks. Sequential is faster. |
 | "Wave gating is unnecessary — all tasks are independent" | The batch plan analyzed dependencies. Trust the wave analysis. |
 | "I will skip the checkpoint — the user said to keep going" | Checkpoints catch errors early. One bad task can cascade through all downstream batches. |
 | "I will create all tickets at once, then execute all at once" | Tickets for Wave 2 tasks may reference Wave 1 outputs. Create in wave order. |
 | "The batch failed, I will re-run everything" | Check which tasks succeeded. Re-running completed tasks wastes time and may cause conflicts. |
-| "The audit found 0 gaps — I will skip reporting" | Always report the audit summary, even when clean. Zero gaps is a valuable signal to record. |
-| "These gaps are minor, I will fix them later" | Minor gaps accumulate into major drift. Fix them now while context is fresh. |
-| "The implementation is better than the spec, no fix needed" | Classify as Negligible and document why. But do NOT silently skip — the spec should eventually be updated too. |
+| "The audit step is redundant — tests already pass" | Tests verify behavior, not spec compliance. Batch 6 found 3 CRITICAL security gaps and 10 MEDIUM gaps despite 414 passing tests. |
+| "I will skip the audit for simple batches" | Every batch in Batch 4-6 had spec-implementation gaps. The audit takes ~2 minutes and catches real issues. Never skip it. |
 
 ## Red Flags
 
@@ -602,13 +549,10 @@ The exact tag names are feature-specific — read them from `BATCH_EXECUTION_PLA
 - Spawning subagents for 2-3 tasks (overhead exceeds benefit)
 - Not checking for already-completed tasks when resuming
 - Skipping `/verify-batch-completion` after the last wave
+- **Skipping the Step 6 spec-implementation audit**
 - Not creating the merge point tag when required
 - Proceeding past a failed task without user acknowledgment
 - Not presenting the checkpoint report to the user
-- **Launching implementation without skeletons** — this guarantees drift when specs run in parallel
-- **Skipping post-parallel reconciliation** — even with skeletons, verify drift is <5%
-- **Skipping the spec-implementation audit** — gaps accumulate silently and cascade into downstream batches
-- **Marking batch complete with unfixed gaps** — every gap must be fixed or classified as negligible before proceeding
 
 ---
 
@@ -663,12 +607,6 @@ echo "=== Done ==="
 | `/verify-batch-completion` | Invoked internally for batch verification (sub-step) |
 | `/pipeline` | Can invoke `/run-batch` in its EXECUTE phase (parent) |
 
-## Related Documents
-
-| Document | Purpose |
-|----------|---------|
-| `docs/parallel-spec-implementation-strategy.md` | Full analysis of parallel spec/implementation strategies, trade-offs, and the recommendation for Option 4 (Skeleton + Parallel) |
-
 ---
 
 ## Example: Running Batch 1 of frontend-architecture
@@ -681,17 +619,13 @@ The agent will:
 
 1. **Parse** `BATCH_EXECUTION_PLAN.md` — find Batch 1: 4 tasks (A1, A3, A4, A5), 2 waves
 2. **Pre-flight** — create branch `feature/frontend-architecture`, verify directories
-3. **Skeletons** — extract contract skeletons for WS-A1, WS-A3, WS-A4, WS-A5 (~8 min)
-4. **Parallel launch:**
-   - **Background:** Subagent creates full specs + tickets (reads skeletons)
-   - **Inline:** Wave execution begins immediately (reads skeletons as contract)
+3. **Specs** — `/create-task-spec 1 frontend-architecture` (creates 4 spec files)
+4. **Tickets** — create tickets for WS-A1, WS-A3, WS-A4, WS-A5
 5. **Wave 1** — execute WS-A1 inline (single task, no parallelization)
 6. **Wave gate** — verify A1 completion report exists
 7. **Wave 2** — execute WS-A3, WS-A4, WS-A5 sequentially (3 tasks = below parallel threshold)
-8. **Reconciliation** — light check: spec criteria vs skeleton criteria, flag drift
-9. **Audit** — compare each task's spec/ticket against implementation, identify gaps
-10. **Fix gaps** — automatically fix all Critical, Medium, Minor gaps; run tests to verify
-11. **Verify** — `/verify-batch-completion 1 frontend-architecture`
-12. **Checkpoint** — report results (including audit summary), ask user to proceed
+8. **Audit** — read all 4 specs/tickets, compare against implementations, fix any gaps
+9. **Verify** — `/verify-batch-completion 1 frontend-architecture`
+10. **Checkpoint** — report results, ask user to proceed
 
 Total time: ~1 session instead of manually running 13 commands.

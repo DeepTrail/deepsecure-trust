@@ -128,6 +128,10 @@ This returns the **monotonic attenuation boundary** -- the maximum set of permis
 
 The agent's cryptographic identity. The public key goes to the server; the private key stays with the agent.
 
+> **Two registration flows:**
+> - **Developer flow (this guide):** You generate the keypair here and upload only the public key. You control the private key from the start.
+> - **Console/employee flow:** The server generates the keypair for you and returns the private key once in the UI. See `docs/UI_FLOWS_BY_PERSONA.md` Phase 2 for the employee-facing approach.
+
 ```bash
 python3 -c "
 from nacl.signing import SigningKey
@@ -194,6 +198,11 @@ Permissions follow the URN format `{service}:{resource}:{action}`. You can only 
 ## Step 4: Authenticate the Agent
 
 The agent proves its identity via Ed25519 challenge-response and receives an **Agent Session JWT** (Layer 3).
+
+> **In production you don't write this code.** The DeepSecure SDK handles the full
+> challenge-response at agent startup automatically when initialised with `agent_id` and
+> `private_key`. The curl steps below are for understanding the protocol and for
+> debugging — not for application code. See `SDK_REFERENCE.md` for the SDK usage.
 
 ```bash
 # 4a. Request a challenge

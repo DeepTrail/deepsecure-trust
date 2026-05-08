@@ -22,13 +22,22 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          PLANNING PHASE (Agent Mode)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  1. /breakdown-design     →  Analyze design doc, create workstreams/tasks  │
-│                              (internally runs /explore-codebase first)     │
-│  2. /create-workstream    →  Create folder structure (WORKSTREAM.md, etc.) │
-│  3. /create-batch-execution-plan → Create batched execution plan           │
-│  3.5 /setup-worktrees     →  Create parallel worktrees from batch plan     │
-│  4. /create-task-spec     →  Define contracts/interfaces ⚠️ PLAN MODE      │
-│  5. /create-task-ticket   →  Create detailed executable tickets            │
+│  ✅ AUTOMATED (Recommended):                                                │
+│     /run-plan [design-doc] [feature-name]                                  │
+│        Chains: /breakdown-design → /create-workstream →                    │
+│                /create-batch-execution-plan → /setup-worktrees (if needed) │
+│        Verifies all 8 required files, checkpoints before execution.        │
+│                                                                             │
+│  Manual alternative (individual steps):                                    │
+│  1. /breakdown-design     →  Explore codebase + create workstreams/tasks   │
+│                              (auto-chains /create-workstream +             │
+│                               /create-batch-execution-plan internally)     │
+│  2. /create-workstream    →  Already run by /breakdown-design (manual only)│
+│  3. /create-batch-execution-plan → Already run by /breakdown-design        │
+│  3.5 /setup-worktrees     →  Create parallel worktrees (if multi-service)  │
+│                                                                             │
+│  ⚠️  /create-task-spec and /create-task-ticket are NOT manual PLAN steps.  │
+│     They run automatically inside /run-batch at the start of each batch.   │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
@@ -186,7 +195,32 @@ Save exploration results before breakdown:
 
 ## Phase 1: Planning (Agent Mode)
 
-Most planning commands run in **Agent Mode** since they create files. The exception is `/create-task-spec` which runs in **Plan Mode**.
+All planning commands run in **Agent Mode** since they create files. Task specs and tickets are **not** created here — they are created automatically by `/run-batch` at the start of each batch during the Execution phase.
+
+### Recommended: /run-plan (Automated)
+
+**Mode:** Agent Mode
+
+```
+/run-plan [design-doc-path] [feature-name]
+```
+
+**What it does (one command):**
+1. Runs `/breakdown-design` (which internally runs `/explore-codebase`, `/create-workstream`, `/create-batch-execution-plan`)
+2. Verifies all 8 required workstream files exist
+3. Decides on and optionally runs `/setup-worktrees` for multi-service features
+4. Checkpoints with user — shows workstream summary, task count, critical path, Batch 1 preview
+5. Hands off to `/run-batch 1 [feature-name]`
+
+**Output:** Complete workstream scaffold ready for `/run-batch`
+
+**Example:**
+```
+/run-plan docs/design/agent-auth-flow.md agent-auth
+/run-plan plans/claude_code_integration.plan.md claude-code-integration
+```
+
+> This is the PLAN-phase equivalent of `/run-batch`. Use it for every new workstream.
 
 ### Step 1: Breakdown Design
 
@@ -318,11 +352,11 @@ docs/workstreams/[feature-name]/
 # → Reports results, asks to proceed
 ```
 
-### Step 4-alt: Manual Batch Execution (Alternative)
+### Step 4-alt: Manual Batch Execution (Legacy — Use `/run-batch` Instead)
 
-If you prefer manual control over individual steps, use Steps 4a-5 below instead of `/run-batch`:
+> **⚠️ Superseded by `/run-batch`.** Steps 4a and 5 below describe the manual workflow that `/run-batch` replaced. Only use this if you need fine-grained control over individual tasks (e.g., re-running a single failed spec or ticket). For normal workstream execution, always use `/run-batch`.
 
-#### Step 4a: Create Task Specifications
+#### Step 4a: Create Task Specifications (manual — normally handled by /run-batch)
 
 **Mode:** ⚠️ Plan Mode (switch from Agent Mode)
 
@@ -337,11 +371,9 @@ If you prefer manual control over individual steps, use Steps 4a-5 below instead
 - **Required for:** All tasks involving code
 - **Skip for:** Documentation-only tasks (no code)
 
-**Why Plan Mode:** Spec creation benefits from collaborative design thinking and iteration before committing to implementation details.
-
 **Output:** `docs/workstreams/[feature-name]/specs/[WS-ID]-spec.md`
 
-#### Step 5: Create Task Tickets
+#### Step 5: Create Task Tickets (manual — normally handled by /run-batch)
 
 **Mode:** Agent Mode (switch back from Plan Mode)
 
@@ -556,8 +588,8 @@ For Batch N:
 
 | Mode | When to Use | Commands/Actions |
 |------|-------------|------------------|
-| **Plan Mode** | Collaborative spec iteration, task spec design | `/spec` (optional), `/create-task-spec` |
-| **Agent Mode** | Everything else — design, planning, execution, review, shipping | `/spec`, `/create-design-doc`, `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/setup-worktrees`, `/run-batch`, `/create-task-ticket`, `/execute-task`, `/debug`, `/complete-task`, `/sync-worktree-status`, `/verify-batch-completion`, `/run-checks`, `/review`, `/security-audit`, `/commit-push-pr`, `/ship` |
+| **Plan Mode** | Collaborative spec iteration only (rare, manual) | `/spec` (optional), `/create-task-spec` (manual alternative only — normally handled inside `/run-batch`) |
+| **Agent Mode** | Everything else — design, planning, execution, review, shipping | `/spec`, `/create-design-doc`, `/run-plan` (automates PLAN phase), `/breakdown-design`, `/create-workstream`, `/create-batch-execution-plan`, `/setup-worktrees`, `/run-batch` (automates EXECUTE phase), `/create-task-spec` (internal), `/create-task-ticket` (internal), `/execute-task`, `/debug`, `/complete-task`, `/sync-worktree-status`, `/verify-batch-completion`, `/run-checks`, `/review`, `/security-audit`, `/commit-push-pr`, `/ship` |
 
 ### Mode Switching Pattern
 
@@ -572,18 +604,28 @@ Agent Mode: /breakdown-design → /create-workstream → /create-batch-execution
                      │          (internally runs /explore-codebase)
                      │
                      ▼
-Agent Mode: /setup-worktrees (Step 3.5) ◄── Optional: parallel execution setup
-                     │
-                     ▼
-Agent Mode: /run-batch (Step 4) ◄── Automated: specs → tickets → execute → verify
-                     │               (internally handles Plan Mode for specs)
+Agent Mode: /run-plan [doc] [feature] ◄── Automated PLAN phase (recommended)
+                     │               (internally: breakdown → workstream →
+                     │                batch plan → worktrees if needed)
                      │
                      │  OR (manual alternative):
                      │
-Plan Mode:  /create-task-spec (Step 4a) ◄── Switch to Plan Mode for specs
+Agent Mode: /breakdown-design → /create-workstream → /create-batch-execution-plan
+                     │
+Agent Mode: /setup-worktrees (Step 3.5) ◄── Optional: parallel execution setup
                      │
                      ▼
-Agent Mode: /create-task-ticket → /execute-task (/debug if errors) → ...
+Agent Mode: /run-batch (Step 4) ◄── Automated EXECUTE phase
+                     │
+                     │  OR (manual alternative):
+                     │
+Plan Mode:  /create-task-spec (Step 4a) ◄── Manual alternative only
+                     │
+                     ▼
+Agent Mode: /create-task-ticket (Step 5) ◄── Manual alternative only
+                     │
+                     ▼
+Agent Mode: /execute-task (/debug if errors) → ...
                      │
                      ▼
 Agent Mode: /run-checks → /review → /security-audit → /commit-push-pr → /ship
@@ -597,13 +639,14 @@ Agent Mode: /run-checks → /review → /security-audit → /commit-push-pr → 
 |-------|---------|------|-------------------|
 | **Define** | `/spec` | Agent/Plan | `docs/spec/[feature-name]-spec.md` |
 | **Define** | `/create-design-doc` | Agent | Transform spec → `docs/design/[feature-name].md` |
-| Breakdown | `/breakdown-design` | Agent | `[feature]-breakdown.md` (runs `/explore-codebase` internally → `CODEBASE_ANALYSIS.md`) |
-| Workstream | `/create-workstream` | Agent | `WORKSTREAM.md`, `STATUS.md`, directories |
-| Batch Plan | `/create-batch-execution-plan` | Agent | `BATCH_EXECUTION_PLAN.md` |
-| **Parallel** | `/setup-worktrees` | Agent | Git worktrees + copied config per service |
+| **Plan Phase** | `/run-plan` *(recommended)* | Agent | Orchestrates breakdown → workstream → batch plan → worktrees (automated) |
+| Breakdown | `/breakdown-design` *(internal to /run-plan)* | Agent | `BREAKDOWN.md`, `CODEBASE_ANALYSIS.md` (runs `/explore-codebase` internally; auto-chains workstream + batch plan) |
+| Workstream | `/create-workstream` *(internal to /run-plan)* | Agent | `WORKSTREAM.md`, `STATUS.md`, `MERGE_POINTS.md`, directories |
+| Batch Plan | `/create-batch-execution-plan` *(internal to /run-plan)* | Agent | `BATCH_EXECUTION_PLAN.md` |
+| Parallel Setup | `/setup-worktrees` *(internal to /run-plan, conditional)* | Agent | Git worktrees + copied config per service |
 | **Batch Run** | `/run-batch` | Agent | Orchestrates specs → tickets → execute → verify (automated) |
-| Task Specs | `/create-task-spec` | **Plan** | `specs/[WS-ID]-spec.md` (manual alternative) |
-| Task Tickets | `/create-task-ticket` | Agent | `tasks/[WS-ID]-[name].md` (manual alternative) |
+| Task Specs | `/create-task-spec` *(internal to /run-batch)* | Agent (Plan in manual mode) | `specs/[WS-ID]-spec.md` — created automatically by `/run-batch` |
+| Task Tickets | `/create-task-ticket` *(internal to /run-batch)* | Agent | `tasks/[WS-ID]-[name].md` — created automatically by `/run-batch` |
 | Execution | `/execute-task` | Agent | Code files |
 | **Debug** | `/debug` | Agent | Fix + regression test |
 | Completion | `/complete-task` | Agent | `reports/[WS-ID]-completion.md` |
@@ -681,41 +724,29 @@ Consolidates status from all worktrees back to main repo.
  PLAN
 ═══════════════════════════════════════════════════
        │
-/breakdown-design ◄──── Internally runs /explore-codebase, then creates workstreams
-       │
-/create-workstream
-       │
-/create-batch-execution-plan
+┌──────────────────────────────────────────────────────┐
+│ /run-plan [design-doc] [feature]  ◄── Recommended   │
+│   ├─ /breakdown-design (internal)                    │◄── Explores codebase, creates workstreams
+│   │    ├─ /explore-codebase                          │
+│   │    ├─ /create-workstream                         │
+│   │    └─ /create-batch-execution-plan               │
+│   ├─ Verifies all 8 required files                   │
+│   └─ /setup-worktrees (internal, if multi-service)   │
+└──────────────────────────────────────────────────────┘
        │
        ▼
-┌──────────────────────────┐
-│   For each batch:        │
-│   ┌────────────────────┐ │
-│   │ /create-task-spec  │ │◄── ⚠️ Switch to PLAN MODE
-│   └─────────┬──────────┘ │
-│             ▼            │
-│   ┌────────────────────┐ │
-│   │ /create-task-ticket│ │◄── Back to AGENT MODE
-│   └─────────┬──────────┘ │
-│             ▼            │
-│ ═════════════════════════│═══
-│  BUILD                   │
-│ ═════════════════════════│═══
-│   ┌────────────────────┐ │
-│   │ /execute-task      │ │◄── Repeat for each task
-│   │  └─ /debug (error) │ │    (/debug if things break)
-│   │ (/complete-task)   │ │    (auto-completes)
-│   └─────────┬──────────┘ │
-│             ▼            │
-│   ┌────────────────────┐ │
-│   │/sync-worktree-status│ │◄── If using worktrees
-│   └─────────┬──────────┘ │
-│             ▼            │
-│   ┌────────────────────┐ │
-│   │/verify-batch-       │ │◄── Must pass before next batch
-│   │ completion          │ │
-│   └────────────────────┘ │
-└──────────────────────────┘
+┌──────────────────────────────────────────┐
+│   For each batch:                        │
+│   ┌──────────────────────────────────┐   │
+│   │ /run-batch N [feature]           │   │◄── Automated: specs → tickets → execute → verify
+│   │   ├─ /create-task-spec (internal)│   │    (spec + ticket creation happen inside here)
+│   │   ├─ /create-task-ticket (int.)  │   │
+│   │   ├─ /execute-task (per wave)    │   │
+│   │   │    └─ /debug (if errors)     │   │
+│   │   ├─ /sync-worktree-status       │   │◄── If using worktrees
+│   │   └─ /verify-batch-completion    │   │◄── Must pass before next batch
+│   └──────────────────────────────────┘   │
+└──────────────────────────────────────────┘
        │
        ▼
 ═══════════════════════════════════════════════════
@@ -792,12 +823,14 @@ If using `questionary` with `asyncio`, use `.ask_async()` instead of `.ask()` in
 |-------|---------|-------------|
 | Define | `/spec` | Structured requirements before design |
 | Define | `/create-design-doc` | Transform spec/plan into formal design doc |
-| Plan | `/breakdown-design` | Create workstreams and tasks (runs `/explore-codebase` internally) |
-| Plan | `/create-workstream` | Create folder structure |
-| Plan | `/create-batch-execution-plan` | Create batched execution plan |
-| Plan | `/setup-worktrees` | Create parallel worktrees from batch plan |
-| Plan | `/create-task-spec` | Define contracts/interfaces (Plan Mode) |
-| Plan | `/create-task-ticket` | Create executable tickets |
+| Plan | `/run-plan` | **Automated PLAN phase** — chains breakdown + workstream + batch plan + worktrees (one command) |
+| Plan | `/breakdown-design` | Explore codebase + create workstreams/tasks — *internal to /run-plan, manual alternative* |
+| Plan | `/create-workstream` | Create folder structure — *internal to /breakdown-design* |
+| Plan | `/create-batch-execution-plan` | Create batched execution plan — *internal to /breakdown-design* |
+| Plan | `/setup-worktrees` | Create parallel worktrees — *internal to /run-plan (conditional)* |
+| Build | `/run-batch` | **Automated EXECUTE phase** — create specs + tickets → execute → verify (one command per batch) |
+| Build | `/create-task-spec` | Define contracts/interfaces — *manual alternative only, internal to /run-batch* |
+| Build | `/create-task-ticket` | Create executable tickets — *manual alternative only, internal to /run-batch* |
 | Build | `/execute-task` | Implement a task |
 | Build | `/debug` | Systematic root-cause debugging |
 | Build | `/complete-task` | Generate completion report |
@@ -890,4 +923,6 @@ Hooks are deterministic (unlike rules) and run outside the LLM loop, making them
 | Feb 2026 | Added codebase exploration (embedded in `/breakdown-design`) after learning from MVP Production Readiness over-scoping |
 | Feb 2026 | Added Lessons Learned section documenting process improvements |
 | Feb 2026 | Corrected mode assignments: Plan Mode only for design doc + `/create-task-spec`; Agent Mode for all other commands |
+| May 2026 | Moved `/create-task-spec` and `/create-task-ticket` out of PLAN phase — they run automatically inside `/run-batch` at the start of each batch; manual steps kept as legacy alternative only |
+| May 2026 | Added `/run-plan` command — automates the full PLAN phase (breakdown + workstream + batch plan + worktrees) as the PLAN-phase equivalent of `/run-batch` |
 | Feb 2026 | Initial workflow documentation |

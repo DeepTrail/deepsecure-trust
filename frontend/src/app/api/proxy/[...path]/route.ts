@@ -16,7 +16,8 @@ function getUpstreamUrl(pathSegments: string[]): string {
     return `${gatewayUrl}/api/v1/${cleanPath}`;
   }
 
-  return `${controlUrl}/api/v1/${pathSegments.join("/")}`;
+  const joined = pathSegments.join("/");
+  return `${controlUrl}/api/v1/${joined}`;
 }
 
 async function proxyHandler(
@@ -50,6 +51,8 @@ async function proxyHandler(
 
   const { path } = await params;
   const upstream = getUpstreamUrl(path);
+  const search = request.nextUrl.search;
+  const upstreamWithQuery = search ? `${upstream}${upstream.includes("?") ? "&" : "?"}${search.slice(1)}` : upstream;
 
   const headers = new Headers();
   headers.set("Authorization", `Bearer ${jwt}`);
@@ -70,11 +73,25 @@ async function proxyHandler(
   }
 
   try {
-    const upstream_response = await fetch(upstream, {
+    const fetchOptions: RequestInit = {
       method: request.method,
       headers,
       body: hasBody ? body : undefined,
-    });
+      redirect: "manual",
+    };
+
+    let upstream_response = await fetch(upstreamWithQuery, fetchOptions);
+
+    // Handle 307/308 redirects manually to preserve method and body
+    if (upstream_response.status === 307 || upstream_response.status === 308) {
+      const location = upstream_response.headers.get("Location");
+      if (location) {
+        const redirectUrl = location.startsWith("http")
+          ? location
+          : new URL(location, upstreamWithQuery).toString();
+        upstream_response = await fetch(redirectUrl, fetchOptions);
+      }
+    }
 
     const responseBody = await upstream_response.arrayBuffer();
     const responseHeaders = new Headers();

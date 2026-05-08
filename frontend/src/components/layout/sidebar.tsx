@@ -10,6 +10,7 @@ import {
   ScrollText,
   Lock,
   ListTodo,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/services", label: "Services", icon: Plug },
   { href: "/dashboard/audit", label: "Audit Trail", icon: ScrollText },
   { href: "/dashboard/vault", label: "Vault", icon: Lock },
+  { href: "/dashboard/delegation", label: "Delegation", icon: KeyRound },
   { href: "/dashboard/tasks", label: "Tasks", icon: ListTodo },
 ];
 

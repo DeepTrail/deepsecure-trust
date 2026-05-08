@@ -123,7 +123,7 @@ describe("AgentsPage", () => {
     expect(screen.getByText("No agents registered")).toBeInTheDocument();
   });
 
-  it("toggles the create form when Register Agent is clicked", async () => {
+  it("Register Agent links to /dashboard/agents/create", async () => {
     mockApiClient.mockResolvedValueOnce(AGENTS);
     render(<AgentsPage />);
 
@@ -131,33 +131,23 @@ describe("AgentsPage", () => {
       expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /register agent/i }));
-    expect(screen.getByLabelText("Agent ID")).toBeInTheDocument();
-    expect(screen.getByLabelText("Name")).toBeInTheDocument();
-    expect(screen.getByLabelText(/public key/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /register agent/i }));
-    expect(screen.queryByLabelText("Agent ID")).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /register agent/i });
+    expect(link).toHaveAttribute("href", "/dashboard/agents/create");
   });
 
-  it("shows Register Agent button in empty state that opens the form", async () => {
-    mockApiClient
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+  it("Register Agent link exists in empty state too", async () => {
+    mockApiClient.mockResolvedValueOnce([]);
     render(<AgentsPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("empty-state")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /register agent/i }));
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("Agent ID")).toBeInTheDocument();
-    });
+    const link = screen.getByRole("link", { name: /register agent/i });
+    expect(link).toHaveAttribute("href", "/dashboard/agents/create");
   });
 
-  it("submits create form with correct payload", async () => {
+  it("agent cards link to activity page", async () => {
     mockApiClient.mockResolvedValueOnce(AGENTS);
     render(<AgentsPage />);
 
@@ -165,65 +155,15 @@ describe("AgentsPage", () => {
       expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /register agent/i }));
-
-    fireEvent.change(screen.getByLabelText("Agent ID"), {
-      target: { value: "new-agent" },
-    });
-    fireEvent.change(screen.getByLabelText("Name"), {
-      target: { value: "New Agent" },
-    });
-    fireEvent.change(screen.getByLabelText(/public key/i), {
-      target: { value: "c29tZWtleQ==" },
-    });
-
-    mockApiClient
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(AGENTS);
-
-    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
-
-    await waitFor(() => {
-      expect(mockApiClient).toHaveBeenCalledWith("agents/", {
-        method: "POST",
-        body: JSON.stringify({
-          agent_id: "new-agent",
-          name: "New Agent",
-          public_key: "c29tZWtleQ==",
-        }),
-      });
-    });
-  });
-
-  it("uses agent_id as name when name field is empty", async () => {
-    mockApiClient.mockResolvedValueOnce(AGENTS);
-    render(<AgentsPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /register agent/i }));
-
-    fireEvent.change(screen.getByLabelText("Agent ID"), {
-      target: { value: "my-agent" },
-    });
-
-    mockApiClient
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(AGENTS);
-
-    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
-
-    await waitFor(() => {
-      expect(mockApiClient).toHaveBeenCalledWith("agents/", {
-        method: "POST",
-        body: JSON.stringify({
-          agent_id: "my-agent",
-          name: "my-agent",
-        }),
-      });
-    });
+    const links = screen.getAllByRole("link");
+    const activityLinks = links.filter((l) =>
+      l.getAttribute("href")?.includes("/activity")
+    );
+    expect(activityLinks).toHaveLength(3);
+    expect(activityLinks[0]).toHaveAttribute(
+      "href",
+      "/dashboard/agents/agent-1/activity"
+    );
   });
 
   it("shows confirmation dialog on delete and calls API when confirmed", async () => {
@@ -307,56 +247,6 @@ describe("AgentsPage", () => {
     expect(screen.getByText("Failed to load agents")).toBeInTheDocument();
   });
 
-  it("shows 409 conflict error message in create form", async () => {
-    mockApiClient.mockResolvedValueOnce(AGENTS);
-    render(<AgentsPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /register agent/i }));
-    fireEvent.change(screen.getByLabelText("Agent ID"), {
-      target: { value: "existing-agent" },
-    });
-
-    mockApiClient.mockRejectedValueOnce(
-      new ApiError(409, "Conflict")
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("An agent with this ID already exists.")
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("shows generic create error for non-409 failures", async () => {
-    mockApiClient.mockResolvedValueOnce(AGENTS);
-    render(<AgentsPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /register agent/i }));
-    fireEvent.change(screen.getByLabelText("Agent ID"), {
-      target: { value: "fail-agent" },
-    });
-
-    mockApiClient.mockRejectedValueOnce(new Error("Network error"));
-
-    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Failed to create agent. Please try again.")
-      ).toBeInTheDocument();
-    });
-  });
-
   describe("status badge variants", () => {
     it('renders "active" status with default variant', async () => {
       mockApiClient.mockResolvedValueOnce([
@@ -427,22 +317,13 @@ describe("AgentsPage", () => {
     });
   });
 
-  it("cancel button in create form hides the form", async () => {
-    mockApiClient.mockResolvedValueOnce(AGENTS);
+  it("unwraps paginated { agents: [...] } response format", async () => {
+    mockApiClient.mockResolvedValueOnce({ agents: AGENTS });
     render(<AgentsPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
     });
-
-    fireEvent.click(screen.getByRole("button", { name: /register agent/i }));
-    expect(screen.getByLabelText("Agent ID")).toBeInTheDocument();
-
-    mockApiClient.mockResolvedValueOnce(AGENTS);
-    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByLabelText("Agent ID")).not.toBeInTheDocument();
-    });
+    expect(screen.getByText("Beta Agent")).toBeInTheDocument();
   });
 });

@@ -11,6 +11,7 @@ from .delegation import DelegationToken  # noqa
 from .idp_session import IdPSession  # noqa
 from .nonce import Nonce  # noqa
 from .policy import Policy  # noqa
+from .user import User  # noqa
 from .user_session import UserSession  # noqa
 from .vault_token import VaultToken  # noqa
 from .task_token import (  # noqa
@@ -27,6 +28,7 @@ from .task_token import (  # noqa
 
 __all__ = [
     "Agent",
+    "User",
     "AgentSession",
     "AttestationPolicy",
     "AuditEvent",

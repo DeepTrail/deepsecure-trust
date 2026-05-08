@@ -331,6 +331,62 @@ pytest tests/[module]/test_[file].py -v
 - Create Task Ticket Command: `.cursor/commands/create-task-ticket.md`
 - Create Task Spec Command: `.cursor/commands/create-task-spec.md`
 
+## Workstream Prerequisites (MANDATORY)
+
+**CRITICAL:** Never run `/run-batch` on a workstream that was not set up through the full PLAN phase. This is NOT optional.
+
+### Required Files Before Any `/run-batch` Call
+
+Before running `/run-batch N [feature-name]`, ALL six of the following files MUST exist:
+
+| File | Proves | Created By |
+|------|--------|------------|
+| `docs/workstreams/[feature]/BREAKDOWN.md` | `/breakdown-design` was run | `/breakdown-design` |
+| `docs/workstreams/[feature]/CODEBASE_ANALYSIS.md` | `/explore-codebase` was run (codebase was actually checked) | `/breakdown-design` internally |
+| `docs/workstreams/[feature]/MERGE_POINTS.md` | `/create-workstream` fully completed | `/create-workstream` |
+| `docs/workstreams/[feature]/BATCH_EXECUTION_PLAN.md` | Batches and waves were planned | `/create-batch-execution-plan` |
+| `docs/workstreams/[feature]/WORKSTREAM.md` | Workstream overview exists | `/create-workstream` |
+| `docs/workstreams/[feature]/STATUS.md` | Progress tracking initialized | `/create-workstream` |
+| `docs/workstreams/[feature]/PIPELINE_STATE.md` | User reviewed and **approved** the plan at the `/run-plan` checkpoint | `/run-plan` (written only after user approval) |
+
+**`/run-batch` enforces this at pre-flight** — it will STOP with `"Pre-Flight FAILED: PLAN Phase Incomplete"` if any of the first three files are missing.
+
+### Verification Command (run before any `/run-batch`)
+
+```bash
+FEATURE="[feature-name]"
+echo "=== Workstream Prerequisite Check ==="
+[ -f "docs/workstreams/${FEATURE}/BREAKDOWN.md" ] && echo "✅ BREAKDOWN.md" || echo "❌ MISSING — run /run-plan first"
+[ -f "docs/workstreams/${FEATURE}/CODEBASE_ANALYSIS.md" ] && echo "✅ CODEBASE_ANALYSIS.md" || echo "❌ MISSING — run /run-plan first"
+[ -f "docs/workstreams/${FEATURE}/MERGE_POINTS.md" ] && echo "✅ MERGE_POINTS.md" || echo "❌ MISSING — run /run-plan first"
+[ -f "docs/workstreams/${FEATURE}/BATCH_EXECUTION_PLAN.md" ] && echo "✅ BATCH_EXECUTION_PLAN.md" || echo "❌ MISSING — run /run-plan first"
+[ -f "docs/workstreams/${FEATURE}/WORKSTREAM.md" ] && echo "✅ WORKSTREAM.md" || echo "❌ MISSING — run /run-plan first"
+[ -f "docs/workstreams/${FEATURE}/STATUS.md" ] && echo "✅ STATUS.md" || echo "❌ MISSING — run /run-plan first"
+[ -f "docs/workstreams/${FEATURE}/PIPELINE_STATE.md" ] && echo "✅ PIPELINE_STATE.md (plan approved)" || echo "❌ MISSING — /run-plan not approved by user yet"
+echo "=== If all ✅: ready for /run-batch ==="
+```
+
+### The Fix
+
+If any prerequisite file is missing, do NOT manually create it to bypass the check. Run the full PLAN phase instead:
+
+```
+/run-plan [feature-name] [design-doc-path]
+```
+
+This is the lesson from the `mvp-foundation` workstream: files were created manually without running the pipeline, which meant codebase exploration was skipped, MERGE_POINTS.md was absent, and `/run-batch` had no way to detect the incomplete setup until execution failed mid-batch.
+
+### Why This Matters
+
+| Without full PLAN phase | With full PLAN phase |
+|-------------------------|----------------------|
+| Tasks may duplicate existing code (exploration not done) | Existing code inventoried — tasks correctly classified as Modify/Verify instead of Create |
+| No merge points defined — parallel tracks diverge | Merge points defined upfront — convergence is planned |
+| Batches may have incorrect wave ordering | Wave ordering is dependency-analyzed |
+| `/run-batch` accepts the workstream as valid | `/run-batch` pre-flight enforces completeness |
+
+---
+
 ## Status Verification Requirements (MANDATORY)
 
 **CRITICAL:** Status files MUST be kept consistent with completion reports. This is NOT optional.
@@ -944,6 +1000,7 @@ async def client():
 | Feb 2026 | MERGE_POINTS.md missing critical sections | Added 18-section template requirement | MERGE_POINTS.md Required Sections |
 | Feb 2026 | Task tickets must have mandatory sections | Standardized across workstreams | Task Ticket Structure Requirements |
 | Feb 2026 | MCP Gateway requires `initialize` before `tools/call` | Fixed "Session not found" errors in validation | MCP Gateway Protocol Flow |
+| May 2026 | Workstream created manually without full pipeline — `/run-batch` accepted it because it only checked 3 files | Added 3 new pre-flight checks to `/run-batch` (BREAKDOWN.md, CODEBASE_ANALYSIS.md, MERGE_POINTS.md); added "Workstream Prerequisites (MANDATORY)" section | Workstream Prerequisites |
 
 ### How to Add New Lessons
 
