@@ -183,22 +183,18 @@ def get_agent_tools(
 
     # Collect all delegated permissions across active delegations
     delegated_permissions: set = set()
-    try:
-        active_delegations = (
-            db.query(DelegationToken)
-            .filter(
-                DelegationToken.agent_id == agent_id,
-                DelegationToken.revoked_at.is_(None),
-            )
-            .all()
+    active_delegations = (
+        db.query(DelegationToken)
+        .filter(
+            DelegationToken.agent_id == agent_id,
+            DelegationToken.revoked_at.is_(None),
         )
-        for delegation in active_delegations:
-            if delegation.is_valid:
-                perms = delegation.delegated_permissions or []
-                delegated_permissions.update(perms)
-    except Exception as e:
-        logger.warning(f"Could not query delegations for {agent_id}: {e}")
-        db.rollback()
+        .all()
+    )
+    for delegation in active_delegations:
+        if delegation.is_valid:
+            perms = delegation.delegated_permissions or []
+            delegated_permissions.update(perms)
 
     # Build tools list from the permission-to-tool map
     tools = []

@@ -332,39 +332,49 @@ class AgentSessionService:
         party_type: PartyType = PartyType.FIRST_PARTY,
         delegation_id: Optional[str] = None,
     ) -> "MVPSession":
-        """Create an in-memory session for MVP (no database).
-        
-        This bypasses the database tables that don't exist yet.
+        """Create an in-memory session for MVP.
+
+        Looks up the most recent valid DelegationToken from the database.
         """
-        from app.api.v1.endpoints.delegation import get_delegation_for_agent
-        
         session_id = f"asess-{uuid.uuid4().hex[:12]}"
         expires_at = datetime.now(timezone.utc) + timedelta(
             hours=self.SESSION_TTL_HOURS
         )
-        
-        # MVP: Get actual permissions from in-memory delegation storage
-        delegation = get_delegation_for_agent(agent_id)
+
+        delegation = (
+            self.db_session.query(DelegationToken)
+            .filter(
+                DelegationToken.agent_id == agent_id,
+                DelegationToken.revoked_at.is_(None),
+            )
+            .order_by(DelegationToken.created_at.desc())
+            .first()
+        )
+
         resolved_delegation_id = delegation_id
-        if delegation:
-            scoped_permissions = delegation.get("permissions", [])
-            owner_email = delegation.get("user_id", "sarah@acme.com")
-            organization_id = delegation.get("organization_id")
+        if delegation and delegation.is_valid:
+            scoped_permissions = delegation.delegated_permissions or []
+            owner_email = delegation.delegator or "sarah@acme.com"
+            organization_id = delegation.organization_id
             if not resolved_delegation_id:
-                resolved_delegation_id = delegation.get("id")
+                resolved_delegation_id = delegation.id
             logger.info(
-                f"Found delegation for agent {agent_id} with "
-                f"{len(scoped_permissions)} permissions, "
-                f"delegation_id={resolved_delegation_id}, org={organization_id}"
+                "Found delegation for agent %s with %d permissions, "
+                "delegation_id=%s, org=%s",
+                agent_id,
+                len(scoped_permissions),
+                resolved_delegation_id,
+                organization_id,
             )
         else:
             scoped_permissions = []
             owner_email = "sarah@acme.com"
             organization_id = None
             logger.warning(
-                f"No delegation found for agent {agent_id}, using empty permissions"
+                "No valid delegation found for agent %s, using empty permissions",
+                agent_id,
             )
-        
+
         return MVPSession(
             id=session_id,
             agent_id=agent_id,

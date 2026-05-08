@@ -10,23 +10,19 @@ These endpoints support:
 - Step 10 of Sarah's Journey: Sarah Reviews Audit Trail
 """
 
+import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.api import deps
+from app.models.audit_event import AuditEvent
 from app.services.audit_logger_service import AuditLoggerService
 
 router = APIRouter()
-
-
-# =============================================================================
-# MVP In-memory audit storage (bypasses database)
-# =============================================================================
-
-_mvp_audit_events: list[dict[str, Any]] = []
 
 
 # Request/Response Models
@@ -168,45 +164,45 @@ AuditLoggerServiceDep = Annotated[
 )
 def log_event(
     request: LogEventRequest,
+    db: Session = Depends(deps.get_db),
 ) -> LogEventResponse:
     """Log an audit event.
 
     Called by the Gateway's audit middleware to log tool calls.
-    MVP: Uses in-memory storage instead of database.
     """
-    import uuid
-    
-    # Generate event ID
     event_id = f"evt-{uuid.uuid4().hex[:12]}"
-    timestamp = datetime.now(timezone.utc)
-    
-    # Store event in memory
-    event = {
-        "id": event_id,
-        "timestamp": timestamp.isoformat(),
-        "event_type": request.event_type,
-        "on_behalf_of": request.on_behalf_of,
-        "agent_id": request.agent_id,
-        "organization_id": request.organization_id,
-        "tool": request.tool,
-        "arguments": request.arguments,
-        "result_summary": request.result_summary,
-        "error": request.error,
-        "reason": request.error,
-        "duration_ms": request.duration_ms,
-        "session_id": request.session_id,
-        "agent_session_id": request.agent_session_id,
-        "mcp_session_id": request.mcp_session_id,
-        "delegation_id": request.delegation_id,
-        "success": request.success,
-        "extra_data": request.extra_data,
-    }
-    
-    _mvp_audit_events.append(event)
-    
+    now = datetime.now(timezone.utc)
+
+    extra = dict(request.extra_data) if request.extra_data else {}
+    if request.duration_ms is not None:
+        extra["duration_ms"] = request.duration_ms
+    if request.error is not None:
+        extra["error"] = request.error
+
+    audit_event = AuditEvent(
+        id=event_id,
+        timestamp=now,
+        event_type=request.event_type,
+        on_behalf_of=request.on_behalf_of,
+        agent_id=request.agent_id,
+        organization_id=request.organization_id,
+        tool=request.tool,
+        arguments=request.arguments,
+        result_summary=request.result_summary,
+        reason=request.error,
+        session_id=request.session_id,
+        agent_session_id=request.agent_session_id,
+        mcp_session_id=request.mcp_session_id,
+        delegation_id=request.delegation_id,
+        success=request.success,
+        extra_data=extra or None,
+    )
+    db.add(audit_event)
+    db.commit()
+
     return LogEventResponse(
         event_id=event_id,
-        timestamp=timestamp,
+        timestamp=now,
     )
 
 
@@ -227,53 +223,61 @@ def query_events(
     delegation_id: Optional[str] = Query(None, description="Filter by delegation ID"),
     limit: int = Query(100, ge=1, le=1000, description="Max results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
+    db: Session = Depends(deps.get_db),
 ) -> QueryEventsResponse:
     """Query audit events.
 
     Used by the dashboard to display Sarah's audit trail.
-    MVP: Uses in-memory storage instead of database.
     """
-    # MVP: Use in-memory storage instead of database
-    filtered_events = _mvp_audit_events.copy()
-    
-    # Apply filters
+    query = db.query(AuditEvent)
+
     if agent_id:
-        filtered_events = [e for e in filtered_events if e.get("agent_id") == agent_id]
+        query = query.filter(AuditEvent.agent_id == agent_id)
     if on_behalf_of:
-        filtered_events = [e for e in filtered_events if e.get("on_behalf_of") == on_behalf_of]
+        query = query.filter(AuditEvent.on_behalf_of == on_behalf_of)
     if event_type:
-        filtered_events = [e for e in filtered_events if e.get("event_type") == event_type]
+        query = query.filter(AuditEvent.event_type == event_type)
     if tool:
-        filtered_events = [e for e in filtered_events if e.get("tool") == tool]
-    
-    # Sort by timestamp descending
-    filtered_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
-    
-    # Apply pagination
-    total = len(filtered_events)
-    paginated = filtered_events[offset:offset + limit]
-    
-    # Convert to response format
+        query = query.filter(AuditEvent.tool == tool)
+    if organization_id:
+        query = query.filter(AuditEvent.organization_id == organization_id)
+    if delegation_id:
+        query = query.filter(AuditEvent.delegation_id == delegation_id)
+    if start_time:
+        query = query.filter(AuditEvent.timestamp >= start_time)
+    if end_time:
+        query = query.filter(AuditEvent.timestamp <= end_time)
+
+    total = query.count()
+
+    rows = (
+        query.order_by(AuditEvent.timestamp.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
     events = []
-    for e in paginated:
+    for e in rows:
+        duration_ms = (e.extra_data or {}).get("duration_ms") if e.extra_data else None
         events.append(AuditEventResponse(
-            id=e.get("id", "unknown"),
-            timestamp=datetime.fromisoformat(e.get("timestamp", datetime.now(timezone.utc).isoformat())),
-            event_type=e.get("event_type", "unknown"),
-            agent_id=e.get("agent_id"),
-            on_behalf_of=e.get("on_behalf_of", "unknown"),
-            organization_id=e.get("organization_id"),
-            tool=e.get("tool"),
-            success=e.get("success"),
-            arguments=e.get("arguments"),
-            result_summary=e.get("result_summary"),
-            reason=e.get("reason"),
-            session_id=e.get("session_id"),
-            agent_session_id=e.get("agent_session_id"),
-            mcp_session_id=e.get("mcp_session_id"),
-            delegation_id=e.get("delegation_id"),
-            extra_data=e.get("extra_data"),
-            duration_ms=e.get("duration_ms"),
+            id=e.id,
+            timestamp=e.timestamp,
+            event_type=e.event_type,
+            agent_id=e.agent_id,
+            on_behalf_of=e.on_behalf_of,
+            organization_id=e.organization_id,
+            tool=e.tool,
+            success=e.success,
+            arguments=e.arguments,
+            result_summary=e.result_summary,
+            reason=e.reason,
+            session_id=e.session_id,
+            agent_session_id=e.agent_session_id,
+            mcp_session_id=e.mcp_session_id,
+            delegation_id=e.delegation_id,
+            extra_data=e.extra_data,
+            duration_ms=duration_ms,
         ))
 
     return QueryEventsResponse(
