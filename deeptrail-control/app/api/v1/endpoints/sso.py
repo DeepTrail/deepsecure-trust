@@ -11,10 +11,9 @@ import hashlib
 import logging
 import secrets
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import jwt as pyjwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -25,7 +24,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.config import settings
-from app.core.idp_config import IdPConfig, IdPProviderType, get_idp_config_for_provider
+from app.core.idp_config import IdPProviderType, get_idp_config_for_provider
+from app.models.pending_oauth_state import PendingOAuthState
 from app.schemas.sso import (
     SSOAuthorizeResponse,
     SSOCallbackResponse,
@@ -79,38 +79,17 @@ SUPPORTED_IDPS = {t.value for t in IdPProviderType}
 
 
 # ============================================================================
-# SSO State Management
+# SSO State Management  (DB-backed — replaces former _pending_sso dict)
 # ============================================================================
 
 
-@dataclass
-class PendingSSO:
-    """Stored state for an in-flight SSO authorization."""
-
-    state: str
-    idp: str
-    redirect_uri: str
-    code_verifier: Optional[str] = None
-    post_login_redirect: Optional[str] = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    expires_in: int = 300  # 5 minutes
-
-    @property
-    def is_expired(self) -> bool:
-        return datetime.now(timezone.utc) > self.created_at + timedelta(
-            seconds=self.expires_in
-        )
-
-
-# In-memory store; for production use Redis or DB-backed storage.
-_pending_sso: Dict[str, PendingSSO] = {}
-
-
-def _cleanup_expired() -> None:
-    """Remove expired pending SSO entries (lazy garbage collection)."""
-    expired = [k for k, v in _pending_sso.items() if v.is_expired]
-    for k in expired:
-        del _pending_sso[k]
+def _cleanup_expired(db: Session) -> None:
+    """Delete expired pending SSO rows (lazy garbage collection)."""
+    now = datetime.now(timezone.utc)
+    db.query(PendingOAuthState).filter(PendingOAuthState.expires_at < now).delete(
+        synchronize_session=False
+    )
+    db.commit()
 
 
 def _generate_pkce_pair() -> tuple[str, str]:
@@ -168,6 +147,7 @@ async def sso_authorize(
     redirect_uri: Optional[str] = Query(None),
     response_mode: str = Query("json"),
     post_login_redirect: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
 ):
     """Initiate SSO login via the specified IdP.
 
@@ -210,15 +190,18 @@ async def sso_authorize(
 
     code_verifier, code_challenge = _generate_pkce_pair()
 
-    pending = PendingSSO(
+    ttl_seconds = 300
+    pending = PendingOAuthState(
         state=state,
         idp=idp,
         redirect_uri=effective_redirect,
         code_verifier=code_verifier,
         post_login_redirect=post_login_redirect,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
     )
-    _pending_sso[state] = pending
-    _cleanup_expired()
+    db.add(pending)
+    db.commit()
+    _cleanup_expired(db)
 
     auth_kwargs: dict = {
         "state": state,
@@ -232,14 +215,11 @@ async def sso_authorize(
 
     try:
         authorization_url = await provider.get_authorization_url(**auth_kwargs)
-    except OIDCProviderUnavailableError:
-        del _pending_sso[state]
-        raise HTTPException(
-            status_code=status.HTTP_503_UNAVAILABLE,
-            detail="IdP service unavailable",
+    except (OIDCProviderUnavailableError, Exception):
+        db.query(PendingOAuthState).filter(PendingOAuthState.state == state).delete(
+            synchronize_session=False
         )
-    except Exception:
-        del _pending_sso[state]
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_503_UNAVAILABLE,
             detail="IdP service unavailable",
@@ -289,8 +269,10 @@ async def sso_callback(
             detail="Missing state parameter",
         )
 
-    # Validate & consume state (one-time use)
-    pending = _pending_sso.pop(state, None)
+    # Validate & consume state (one-time use) — DB-backed
+    pending = db.query(PendingOAuthState).filter(
+        PendingOAuthState.state == state
+    ).first()
     if pending is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -298,10 +280,16 @@ async def sso_callback(
         )
 
     if pending.is_expired:
+        db.delete(pending)
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired state parameter",
         )
+
+    # Consume: delete now so the state cannot be replayed
+    db.delete(pending)
+    db.commit()
 
     if pending.idp != idp:
         raise HTTPException(

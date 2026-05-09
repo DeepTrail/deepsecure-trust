@@ -12,7 +12,7 @@ MVP Simplification: Tokens stored in-memory vault only (no database table).
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Header, status
 from pydantic import BaseModel, Field
@@ -28,10 +28,6 @@ from app.models.connected_service import ConnectedService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# In-memory storage for connected services (MVP only)
-# Format: {user_id: {service_id: connection_info}}
-_connected_services: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
 # Shared vault instance for MVP
 _vault_client: Optional[VaultClient] = None
@@ -339,19 +335,6 @@ def connect_service(
             db.refresh(connection)
             logger.info(f"User {current_user} connected service {request.service_id}")
 
-        # Also store in memory for backward compatibility
-        connection_info = {
-            "id": connection_id,
-            "service_id": request.service_id,
-            "service_name": service_name,
-            "scopes_granted": scopes,
-            "connected_at": connected_at.isoformat(),
-            "token_ref": token_ref,
-        }
-        if current_user not in _connected_services:
-            _connected_services[current_user] = {}
-        _connected_services[current_user][request.service_id] = connection_info
-
         return ConnectServiceResponseModel(
             success=True,
             connection=ConnectedServiceResponse(
@@ -473,10 +456,6 @@ def disconnect_service(
     # Mark as disconnected (soft delete)
     connection.disconnected_at = datetime.now(timezone.utc)
     db.commit()
-
-    # Remove from in-memory storage for backward compatibility
-    if current_user in _connected_services:
-        _connected_services[current_user].pop(service_id, None)
 
     # Publish cache invalidation event
     publish_service_disconnected(current_user, service_id)
