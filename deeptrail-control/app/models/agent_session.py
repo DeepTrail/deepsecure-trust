@@ -229,6 +229,13 @@ class AgentSession(Base):
         comment="Organization identifier for multi-tenant deployments",
     )
 
+    # Network context
+    source_ip = Column(
+        String(45),
+        nullable=True,
+        comment="IP address of the authenticating agent (IPv4 or IPv6)",
+    )
+
     # Indexes for efficient lookups
     __table_args__ = (
         Index("ix_agent_session_agent_owner", "agent_id", "owner_email"),

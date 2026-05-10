@@ -8,7 +8,9 @@ from typing import List, Any
 
 from app import schemas, crud
 from app.api import deps
+from app.models.agent_session import AgentSession
 from app.models.delegation import DelegationToken
+from app.services.lifecycle_service import LifecycleService
 from app.services.scope_mapper import ScopeMapper
 
 logger = logging.getLogger(__name__)
@@ -110,11 +112,19 @@ def register_agent(agent_in: schemas.AgentCreate, db: Session = Depends(deps.get
 
 @router.get("/{agent_id}", response_model=schemas.Agent)
 def read_agent(agent_id: str, db: Session = Depends(deps.get_db)):
-    """Get agent details by agent_id."""
+    """Get agent details by agent_id, enriched with lifecycle state."""
     db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
     if db_agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    return db_agent # Pydantic will serialize this using schemas.Agent
+
+    lifecycle = LifecycleService(db)
+    agent_data = schemas.Agent.model_validate(db_agent)
+    agent_data.lifecycle_state = lifecycle.compute_state(agent_id)
+    agent_data.last_authenticated_at = lifecycle.get_last_authenticated_at(agent_id)
+    agent_data.last_active_at = lifecycle.get_last_active_at(agent_id)
+    agent_data.session_count = lifecycle.get_session_count(agent_id)
+    agent_data.delegation_count = lifecycle.get_delegation_count(agent_id)
+    return agent_data
 
 @router.get("/", response_model=schemas.AgentList)
 def list_agents(
@@ -122,14 +132,20 @@ def list_agents(
     skip: int = Query(0, ge=0, description="Number of records to skip for pagination"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return")
 ):
-    """Retrieve a list of agents with pagination."""
+    """Retrieve a list of agents with pagination, enriched with lifecycle states."""
     try:
         agents = crud.agent.get_multi(db, skip=skip, limit=limit)
-        # logger.info(f"[ENDPOINT_DEBUG] crud.agent.get_multi returned: {len(agents)} agents. First one if any: {agents[0].__dict__ if agents else 'None'}")
-        
-        agent_list_response = schemas.AgentList(agents=agents, total=len(agents))
-        # logger.info(f"[ENDPOINT_DEBUG] AgentList Pydantic model created. Number of agents in model: {len(agent_list_response.agents)}")
-        return agent_list_response
+        lifecycle = LifecycleService(db)
+        agent_ids = [a.agent_id for a in agents]
+        states = lifecycle.compute_state_bulk(agent_ids) if agent_ids else {}
+
+        enriched = []
+        for a in agents:
+            agent_data = schemas.Agent.model_validate(a)
+            agent_data.lifecycle_state = states.get(a.agent_id, "registered")
+            enriched.append(agent_data)
+
+        return schemas.AgentList(agents=enriched, total=len(enriched))
     except Exception as e:
         logger.error(f"Error listing agents in endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve agent list.")
@@ -165,6 +181,38 @@ def delete_agent(agent_id: str, db: Session = Depends(deps.get_db)):
     
     logger.info(f"Agent {agent_id} successfully deactivated (soft deleted). Status: {deactivated_agent.status}")
     return deactivated_agent
+
+
+@router.get("/{agent_id}/sessions", response_model=schemas.AgentSessionList)
+def list_agent_sessions(
+    agent_id: str,
+    db: Session = Depends(deps.get_db),
+    active_only: bool = Query(False, description="If true, return only active sessions"),
+):
+    """List sessions for an agent, ordered by most recent first."""
+    db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
+    if db_agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    query = db.query(AgentSession).filter(AgentSession.agent_id == agent_id)
+    if active_only:
+        query = query.filter(AgentSession.is_active.is_(True))
+    sessions = query.order_by(AgentSession.created_at.desc()).all()
+
+    items = []
+    for s in sessions:
+        items.append(schemas.AgentSessionSummary(
+            session_id=s.id,
+            agent_id=s.agent_id,
+            delegation_id=s.delegation_id or "",
+            is_active=s.is_active,
+            source_ip=s.source_ip,
+            created_at=s.created_at,
+            expires_at=s.expires_at,
+            last_activity_at=getattr(s, "last_activity_at", None),
+        ))
+
+    return schemas.AgentSessionList(sessions=items, total=len(items))
 
 
 @router.get("/{agent_id}/tools", response_model=schemas.AgentToolsResponse)
