@@ -67,6 +67,13 @@ class Agent(AgentInDBBase): # Inherits fields from AgentInDBBase, including publ
     # Override the public_key field to return a base64 string instead of bytes
     public_key: str = Field(serialization_alias="publicKey")
 
+    # Lifecycle fields (populated by LifecycleService, not stored in DB)
+    lifecycle_state: Optional[str] = Field(None, description="Computed lifecycle state: registered, delegated, authenticated, active")
+    last_authenticated_at: Optional[datetime] = None
+    last_active_at: Optional[datetime] = None
+    session_count: Optional[int] = Field(None, description="Total sessions for this agent")
+    delegation_count: Optional[int] = Field(None, description="Active delegation count")
+
     @field_validator('public_key', mode='before')
     @classmethod
     def encode_public_key_bytes(cls, v: Any) -> str:
@@ -87,6 +94,26 @@ class Agent(AgentInDBBase): # Inherits fields from AgentInDBBase, including publ
 # For listing multiple agents
 class AgentList(BaseModel):
     agents: List[Agent]
+    total: int
+
+
+class AgentSessionSummary(BaseModel):
+    """Summary of an agent session for the sessions endpoint."""
+    session_id: str
+    agent_id: str
+    delegation_id: str
+    is_active: bool
+    source_ip: Optional[str] = None
+    created_at: datetime
+    expires_at: datetime
+    last_activity_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AgentSessionList(BaseModel):
+    """Response schema for GET /agents/{agent_id}/sessions."""
+    sessions: List[AgentSessionSummary]
     total: int
 
 # Schema for agent public key rotation request (if needed as separate endpoint)

@@ -1,7 +1,7 @@
 """Expose Pydantic schemas for easier importing."""
 
 from .token import Token
-from .agent import Agent, AgentCreate, AgentUpdate, AgentList, AgentCreateResponse, AgentToolInfo, AgentToolsResponse  # noqa
+from .agent import Agent, AgentCreate, AgentUpdate, AgentList, AgentCreateResponse, AgentToolInfo, AgentToolsResponse, AgentSessionSummary, AgentSessionList  # noqa
 from .user import UserUpdate, UserResponse  # noqa
 from .credential import Credential, CredentialIssueRequest, CredentialIssueResponse, CredentialRevokeResponse, CredentialVerifyResponse # noqa
 from .policy import Policy, PolicyCreate, PolicyUpdate # noqa
@@ -64,6 +64,8 @@ __all__ = [
     "AgentCreateResponse",
     "AgentToolInfo",
     "AgentToolsResponse",
+    "AgentSessionSummary",
+    "AgentSessionList",
     # User
     "UserUpdate",
     "UserResponse",

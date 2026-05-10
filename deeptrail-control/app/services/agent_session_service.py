@@ -442,6 +442,7 @@ class AgentSessionService:
         agent_id: str,
         delegation: DelegationToken,
         party_type: PartyType = PartyType.FIRST_PARTY,
+        source_ip: Optional[str] = None,
     ) -> AgentSession:
         """Create a new AgentSession from a delegation.
 
@@ -449,6 +450,7 @@ class AgentSessionService:
             agent_id: Agent's identifier
             delegation: The delegation providing permissions
             party_type: The agent's party type
+            source_ip: IP address of the authenticating client
 
         Returns:
             Newly created AgentSession
@@ -460,10 +462,11 @@ class AgentSessionService:
             scoped_permissions=delegation.delegated_permissions or [],
             owner_email=delegation.delegator,
             idp_issuer=delegation.delegator_idp,
-            groups=[],  # MVP: empty; could be passed from delegation or user session
+            groups=[],
             is_active=True,
             expires_at=datetime.now(timezone.utc)
             + timedelta(hours=self.SESSION_TTL_HOURS),
+            source_ip=source_ip,
         )
 
         self.db.add(session)
