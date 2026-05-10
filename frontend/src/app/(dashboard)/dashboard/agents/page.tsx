@@ -5,16 +5,17 @@ import Link from "next/link";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
+import { LifecycleBadge, type LifecycleState } from "@/components/agents";
 import { Bot, Plus, Trash2 } from "lucide-react";
 
 interface Agent {
   agent_id: string;
   name: string;
   status?: string;
+  lifecycle_state?: string;
   created_at?: string;
   public_key?: string;
 }
@@ -23,18 +24,6 @@ type PageState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "data"; agents: Agent[] };
-
-function statusBadgeVariant(status?: string): "default" | "destructive" | "secondary" {
-  switch (status) {
-    case "active":
-      return "default";
-    case "suspended":
-    case "revoked":
-      return "destructive";
-    default:
-      return "secondary";
-  }
-}
 
 export default function AgentsPage() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
@@ -115,11 +104,9 @@ export default function AgentsPage() {
                   <Bot className="h-4 w-4 text-muted-foreground" />
                   {agent.name || agent.agent_id}
                 </CardTitle>
-                <div className="flex items-center gap-2">
-                  <Badge variant={statusBadgeVariant(agent.status)}>
-                    {agent.status || "registered"}
-                  </Badge>
-                </div>
+                <LifecycleBadge
+                  state={(agent.lifecycle_state as LifecycleState) ?? "registered"}
+                />
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">

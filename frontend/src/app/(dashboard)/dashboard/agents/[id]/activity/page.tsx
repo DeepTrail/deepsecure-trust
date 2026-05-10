@@ -8,6 +8,13 @@ import { ErrorCard } from "@/components/feedback/error-card";
 import { ToolsList, type AgentTool } from "@/components/agents/ToolsList";
 import { ActivityFeed, type ActivityEvent } from "@/components/agents/ActivityFeed";
 import { AgentAuthenticator } from "@/components/agents/AgentAuthenticator";
+import {
+  LifecycleBadge,
+  LifecycleProgressBar,
+  DeployConfigSection,
+  SessionHistoryTable,
+  type LifecycleState,
+} from "@/components/agents";
 import { useSSE } from "@/hooks/useSSE";
 import {
   Bot,
@@ -40,6 +47,11 @@ interface AgentInfo {
   agent_id: string;
   name: string;
   status?: string;
+  lifecycle_state?: string;
+  session_count?: number;
+  delegation_count?: number;
+  last_authenticated_at?: string;
+  last_active_at?: string;
   created_at?: string;
   public_key?: string;
   description?: string;
@@ -170,17 +182,20 @@ export default function AgentDetailPage() {
             <Radio className="h-3 w-3" />
             {sseConnected ? "Live" : "Polling"}
           </Badge>
-          {agent?.status && (
-            <Badge
-              variant={
-                agent.status === "active" ? "default" : "secondary"
-              }
-            >
-              {agent.status}
-            </Badge>
+          {agent && (
+            <LifecycleBadge
+              state={(agent.lifecycle_state as LifecycleState) ?? "registered"}
+            />
           )}
         </div>
       </div>
+
+      {/* Lifecycle Progress */}
+      {agent && (
+        <LifecycleProgressBar
+          state={(agent.lifecycle_state as LifecycleState) ?? "registered"}
+        />
+      )}
 
       {/* Delegations for this agent */}
       {delegations.length > 0 ? (
@@ -273,11 +288,17 @@ export default function AgentDetailPage() {
         delegationId={latestDelegation?.delegation_id}
       />
 
+      {/* Deploy Configuration */}
+      <DeployConfigSection agentId={agentId} />
+
       {/* Tools and Activity */}
       <div className="grid gap-6 lg:grid-cols-2">
         <ToolsList tools={tools} />
         <ActivityFeed events={allEvents} />
       </div>
+
+      {/* Session History */}
+      <SessionHistoryTable agentId={agentId} />
     </div>
   );
 }

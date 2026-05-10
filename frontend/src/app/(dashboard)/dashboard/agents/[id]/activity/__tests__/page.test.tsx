@@ -1,8 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { fireEvent } from "@testing-library/react";
-import AgentActivityPage from "../page";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import AgentDetailPage from "../page";
 import { apiClient, ApiError } from "@/lib/api/client";
 
 vi.mock("@/lib/api/client", () => ({
@@ -26,7 +25,14 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/useSSE", () => ({
-  useSSE: () => ({ data: [], lastEvent: null, error: null, status: "disconnected", connected: false, clear: vi.fn() }),
+  useSSE: () => ({
+    data: [],
+    lastEvent: null,
+    error: null,
+    status: "disconnected",
+    connected: false,
+    clear: vi.fn(),
+  }),
 }));
 
 vi.mock("next/link", () => ({
@@ -62,6 +68,23 @@ vi.mock("@/components/feedback/error-card", () => ({
 }));
 
 const mockApiClient = vi.mocked(apiClient);
+
+const AGENT_INFO = {
+  agent_id: "sdr-assistant-001",
+  name: "SDR Assistant",
+  lifecycle_state: "authenticated",
+  status: "active",
+};
+
+const DELEGATIONS = [
+  {
+    delegation_id: "del-001",
+    agent_id: "sdr-assistant-001",
+    permissions: ["notion:pages:read", "slack:messages:write"],
+    expires_in: 3600,
+    created_at: "2026-05-06T10:00:00Z",
+  },
+];
 
 const TOOLS_RESPONSE = {
   agent_id: "sdr-assistant-001",
@@ -99,7 +122,15 @@ const EVENTS_RESPONSE = [
   },
 ];
 
-describe("AgentActivityPage", () => {
+function mockSuccessfulFetch() {
+  mockApiClient
+    .mockResolvedValueOnce(AGENT_INFO)
+    .mockResolvedValueOnce(DELEGATIONS)
+    .mockResolvedValueOnce(TOOLS_RESPONSE)
+    .mockResolvedValueOnce(EVENTS_RESPONSE);
+}
+
+describe("AgentDetailPage", () => {
   beforeEach(() => {
     mockApiClient.mockReset();
   });
@@ -110,28 +141,71 @@ describe("AgentActivityPage", () => {
 
   it("shows loading skeleton initially", () => {
     mockApiClient.mockReturnValue(new Promise(() => {}));
-    render(<AgentActivityPage />);
+    render(<AgentDetailPage />);
     expect(screen.getByTestId("page-skeleton")).toBeInTheDocument();
   });
 
-  it("renders agent ID in the page header", async () => {
-    mockApiClient
-      .mockResolvedValueOnce(TOOLS_RESPONSE)
-      .mockResolvedValueOnce(EVENTS_RESPONSE);
-
-    render(<AgentActivityPage />);
+  it("renders agent name and ID in header", async () => {
+    mockSuccessfulFetch();
+    render(<AgentDetailPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("sdr-assistant-001")).toBeInTheDocument();
+      expect(screen.getByText("SDR Assistant")).toBeInTheDocument();
+    });
+    expect(screen.getByText("sdr-assistant-001")).toBeInTheDocument();
+  });
+
+  it("renders LifecycleBadge with correct state", async () => {
+    mockSuccessfulFetch();
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+    render(<AgentDetailPage />);
+
+    await waitFor(() => {
+      const badges = screen.getAllByText("Authenticated");
+      expect(badges.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("renders LifecycleProgressBar step labels", async () => {
+    mockSuccessfulFetch();
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+    render(<AgentDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Registered").length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByText("Delegated").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Authenticated").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
+  });
+
+  it("renders Deploy Configuration section", async () => {
+    mockSuccessfulFetch();
+    render(<AgentDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Deploy Configuration")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/DEEPSECURE_AGENT_ID="sdr-assistant-001"/)
+    ).toBeInTheDocument();
+  });
+
+  it("renders Session History section", async () => {
+    mockSuccessfulFetch();
+    // SessionHistoryTable also calls apiClient for sessions
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+    render(<AgentDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Session History")).toBeInTheDocument();
     });
   });
 
   it("renders tools list with tools from API", async () => {
-    mockApiClient
-      .mockResolvedValueOnce(TOOLS_RESPONSE)
-      .mockResolvedValueOnce(EVENTS_RESPONSE);
-
-    render(<AgentActivityPage />);
+    mockSuccessfulFetch();
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+    render(<AgentDetailPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Tools (2)")).toBeInTheDocument();
@@ -142,11 +216,9 @@ describe("AgentActivityPage", () => {
   });
 
   it("renders activity feed with events from API", async () => {
-    mockApiClient
-      .mockResolvedValueOnce(TOOLS_RESPONSE)
-      .mockResolvedValueOnce(EVENTS_RESPONSE);
-
-    render(<AgentActivityPage />);
+    mockSuccessfulFetch();
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+    render(<AgentDetailPage />);
 
     await waitFor(() => {
       expect(screen.getByText("slack.post_message")).toBeInTheDocument();
@@ -155,63 +227,87 @@ describe("AgentActivityPage", () => {
     expect(screen.getByText("Recent Activity (2)")).toBeInTheDocument();
   });
 
-  it("calls correct API endpoints with agent ID", async () => {
-    mockApiClient
-      .mockResolvedValueOnce(TOOLS_RESPONSE)
-      .mockResolvedValueOnce(EVENTS_RESPONSE);
-
-    render(<AgentActivityPage />);
+  it("calls 4 API endpoints on mount", async () => {
+    mockSuccessfulFetch();
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+    render(<AgentDetailPage />);
 
     await waitFor(() => {
-      expect(mockApiClient).toHaveBeenCalledWith(
-        "agents/sdr-assistant-001/tools"
-      );
-      expect(mockApiClient).toHaveBeenCalledWith(
-        "audit/events?agent_id=sdr-assistant-001&limit=20"
-      );
+      expect(screen.getByText("SDR Assistant")).toBeInTheDocument();
+    });
+
+    expect(mockApiClient).toHaveBeenCalledWith("agents/sdr-assistant-001");
+    expect(mockApiClient).toHaveBeenCalledWith("auth/delegations");
+    expect(mockApiClient).toHaveBeenCalledWith(
+      "agents/sdr-assistant-001/tools"
+    );
+    expect(mockApiClient).toHaveBeenCalledWith(
+      "audit/events?agent_id=sdr-assistant-001&limit=20"
+    );
+  });
+
+  it("renders delegations section with permissions", async () => {
+    mockSuccessfulFetch();
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+    render(<AgentDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Delegations (1)")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("2 permissions")).toBeInTheDocument();
+    expect(screen.getByText("del-001")).toBeInTheDocument();
+  });
+
+  it("shows 'No delegations' card when there are none", async () => {
+    mockApiClient
+      .mockResolvedValueOnce(AGENT_INFO)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(TOOLS_RESPONSE)
+      .mockResolvedValueOnce(EVENTS_RESPONSE);
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+
+    render(<AgentDetailPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("No delegations assigned")
+      ).toBeInTheDocument();
     });
   });
 
-  it("shows ErrorCard on API failure with status code", async () => {
-    mockApiClient.mockRejectedValueOnce(new ApiError(404, "Not Found"));
+  it("shows ErrorCard when API calls throw synchronously", async () => {
+    mockApiClient.mockImplementation(() => {
+      throw new ApiError(500, "Server Error");
+    });
 
-    render(<AgentActivityPage />);
+    render(<AgentDetailPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("error-card")).toBeInTheDocument();
     });
 
     expect(
-      screen.getByText("Failed to load agent data (404)")
+      screen.getByText("Failed to load agent data (500)")
     ).toBeInTheDocument();
+
+    mockApiClient.mockReset();
   });
 
-  it("shows generic error message for non-ApiError failures", async () => {
-    mockApiClient.mockRejectedValueOnce(new Error("Network failure"));
+  it("retry button refetches data after error", async () => {
+    mockApiClient.mockImplementation(() => {
+      throw new ApiError(500, "Server Error");
+    });
 
-    render(<AgentActivityPage />);
+    render(<AgentDetailPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("error-card")).toBeInTheDocument();
     });
 
-    expect(
-      screen.getByText("Failed to load agent data")
-    ).toBeInTheDocument();
-  });
-
-  it("retry button refetches data", async () => {
-    mockApiClient.mockRejectedValueOnce(new ApiError(500, "Server Error"));
-
-    render(<AgentActivityPage />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("error-card")).toBeInTheDocument();
-    });
-
-    mockApiClient
-      .mockResolvedValueOnce(TOOLS_RESPONSE)
-      .mockResolvedValueOnce(EVENTS_RESPONSE);
+    mockApiClient.mockReset();
+    mockSuccessfulFetch();
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
 
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
 
@@ -221,14 +317,12 @@ describe("AgentActivityPage", () => {
   });
 
   it("renders back link pointing to agents list", async () => {
-    mockApiClient
-      .mockResolvedValueOnce(TOOLS_RESPONSE)
-      .mockResolvedValueOnce(EVENTS_RESPONSE);
-
-    render(<AgentActivityPage />);
+    mockSuccessfulFetch();
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+    render(<AgentDetailPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("sdr-assistant-001")).toBeInTheDocument();
+      expect(screen.getByText("SDR Assistant")).toBeInTheDocument();
     });
 
     const backLink = screen.getByText("Back").closest("a");
@@ -237,10 +331,13 @@ describe("AgentActivityPage", () => {
 
   it("handles tools response with empty tools array", async () => {
     mockApiClient
+      .mockResolvedValueOnce(AGENT_INFO)
+      .mockResolvedValueOnce(DELEGATIONS)
       .mockResolvedValueOnce({ agent_id: "sdr-assistant-001", tools: [] })
       .mockResolvedValueOnce([]);
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
 
-    render(<AgentActivityPage />);
+    render(<AgentDetailPage />);
 
     await waitFor(() => {
       expect(
@@ -255,13 +352,34 @@ describe("AgentActivityPage", () => {
 
   it("handles events response in { events: [] } format", async () => {
     mockApiClient
+      .mockResolvedValueOnce(AGENT_INFO)
+      .mockResolvedValueOnce(DELEGATIONS)
       .mockResolvedValueOnce(TOOLS_RESPONSE)
       .mockResolvedValueOnce({ events: EVENTS_RESPONSE });
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
 
-    render(<AgentActivityPage />);
+    render(<AgentDetailPage />);
 
     await waitFor(() => {
       expect(screen.getByText("slack.post_message")).toBeInTheDocument();
     });
+  });
+
+  it("defaults to 'Registered' when agent has no lifecycle_state", async () => {
+    mockApiClient
+      .mockResolvedValueOnce({ agent_id: "sdr-assistant-001", name: "Agent" })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ agent_id: "sdr-assistant-001", tools: [] })
+      .mockResolvedValueOnce([]);
+    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+
+    render(<AgentDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Agent")).toBeInTheDocument();
+    });
+
+    const registeredBadges = screen.getAllByText("Registered");
+    expect(registeredBadges.length).toBeGreaterThan(0);
   });
 });
