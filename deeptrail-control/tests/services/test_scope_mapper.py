@@ -3,6 +3,8 @@
 Tests the mapping of OAuth scopes to DeepSecure permission strings.
 """
 
+import pytest
+
 from app.services.scope_mapper import ScopeMapper
 
 
@@ -10,11 +12,12 @@ class TestGetPermissionsForScope:
     """Test single scope → permissions."""
     
     def test_notion_read_pages(self):
-        """Notion read_pages scope grants read and search permissions."""
+        """Notion read_pages scope grants read, search, and blocks:read permissions."""
         perms = ScopeMapper.get_permissions_for_scope("notion", "read_pages")
         assert "notion:pages:read" in perms
         assert "notion:pages:search" in perms
-        assert len(perms) == 2
+        assert "notion:blocks:read" in perms
+        assert len(perms) == 3
     
     def test_notion_read_content(self):
         """Notion read_content scope grants multiple permissions."""
@@ -85,10 +88,11 @@ class TestGetPermissionsForScopes:
         perms = ScopeMapper.get_permissions_for_scopes(
             "notion", ["read_pages", "search_content"]
         )
-        # Both scopes grant notion:pages:search
+        # Both scopes grant notion:pages:search; read_pages also grants blocks:read
         assert "notion:pages:search" in perms
-        # Total should be unique set
-        assert len(perms) == 2
+        assert "notion:pages:read" in perms
+        assert "notion:blocks:read" in perms
+        assert len(perms) == 3
     
     def test_empty_scopes(self):
         """Empty scope list returns empty set."""
@@ -109,7 +113,8 @@ class TestGetPermissionsForScopes:
         )
         assert "notion:pages:read" in perms
         assert "notion:pages:search" in perms
-        assert len(perms) == 2
+        assert "notion:blocks:read" in perms
+        assert len(perms) == 3
 
 
 class TestGetAllAllowedPermissions:
@@ -457,6 +462,40 @@ class TestGoogleScopeMappings:
                 assert action not in write_actions, f"Write permission found: {p}"
 
 
+class TestComputeAvailablePermissions:
+    """Test compute_available_permissions class method."""
+
+    def test_single_scope(self):
+        """Single scope returns sorted permissions."""
+        result = ScopeMapper.compute_available_permissions("notion", ["read_pages"])
+        assert result == sorted(result)
+        assert "notion:pages:read" in result
+        assert "notion:pages:search" in result
+
+    def test_multiple_scopes_deduplicates(self):
+        """Multiple overlapping scopes produce a deduplicated sorted list."""
+        result = ScopeMapper.compute_available_permissions(
+            "notion", ["read_pages", "read_content"]
+        )
+        assert result == sorted(set(result))
+
+    def test_empty_scopes(self):
+        """Empty scopes returns empty list."""
+        result = ScopeMapper.compute_available_permissions("notion", [])
+        assert result == []
+
+    def test_unknown_service(self):
+        """Unknown service returns empty list."""
+        result = ScopeMapper.compute_available_permissions("unknown", ["read_pages"])
+        assert result == []
+
+    def test_slack_full_access(self):
+        """Slack full_access returns all Slack permissions sorted."""
+        result = ScopeMapper.compute_available_permissions("slack", ["full_access"])
+        all_perms = ScopeMapper.get_all_permissions_for_service("slack")
+        assert set(result) == all_perms
+
+
 class TestPermissionConsistency:
     """Test that permission strings are consistent with Gateway PermissionMapper."""
     
@@ -471,6 +510,7 @@ class TestPermissionConsistency:
             "notion:pages:create",
             "notion:pages:update",
             "notion:pages:delete",
+            "notion:blocks:read",
             "notion:databases:list",
             "notion:databases:query",
         }
@@ -484,8 +524,10 @@ class TestPermissionConsistency:
             "slack:messages:send",
             "slack:channels:list",
             "slack:channels:join",
+            "slack:channels:history",
             "slack:reactions:write",
             "slack:users:list",
+            "slack:users:search",
         }
         actual = ScopeMapper.get_all_permissions_for_service("slack")
         assert expected == actual
@@ -503,3 +545,32 @@ class TestPermissionConsistency:
         }
         actual = ScopeMapper.get_all_permissions_for_service("hubspot")
         assert expected == actual
+
+    def test_all_gateway_permissions_present_in_scope_mapper(self):
+        """Every permission in Gateway's PermissionMapper exists in ScopeMapper (L1 golden-set)."""
+        import importlib
+        import sys
+        import os
+
+        gateway_perms_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "deeptrail-gateway"
+        )
+        sys.path.insert(0, gateway_perms_path)
+        try:
+            mod = importlib.import_module("app.mcp.permission_mapper")
+            PermissionMapper = mod.PermissionMapper
+        except (ImportError, ModuleNotFoundError, AttributeError):
+            pytest.skip("Gateway PermissionMapper not importable (run from repo root)")
+        finally:
+            sys.path.pop(0)
+
+        gateway_permissions = set(PermissionMapper.TOOL_TO_PERMISSION.values())
+        scope_mapper_permissions: set[str] = set()
+        for service_map in ScopeMapper.SCOPE_TO_PERMISSIONS.values():
+            for perms in service_map.values():
+                scope_mapper_permissions.update(perms)
+
+        missing = gateway_permissions - scope_mapper_permissions
+        assert missing == set(), (
+            f"Gateway permissions missing from ScopeMapper: {sorted(missing)}"
+        )

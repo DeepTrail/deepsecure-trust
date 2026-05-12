@@ -5,9 +5,16 @@ import { useParams } from "next/navigation";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
-import { ToolsList, type AgentTool } from "@/components/agents/ToolsList";
+import { DelegatedToolsCard, UnavailableToolsDisclosure, type AgentTool } from "@/components/agents/ToolsList";
 import { ActivityFeed, type ActivityEvent } from "@/components/agents/ActivityFeed";
 import { AgentAuthenticator } from "@/components/agents/AgentAuthenticator";
+import {
+  LifecycleBadge,
+  LifecycleProgressBar,
+  DeployConfigSection,
+  SessionHistoryTable,
+  type LifecycleState,
+} from "@/components/agents";
 import { useSSE } from "@/hooks/useSSE";
 import {
   Bot,
@@ -16,6 +23,7 @@ import {
   Shield,
   Clock,
   KeyRound,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +48,11 @@ interface AgentInfo {
   agent_id: string;
   name: string;
   status?: string;
+  lifecycle_state?: string;
+  session_count?: number;
+  delegation_count?: number;
+  last_authenticated_at?: string;
+  last_active_at?: string;
   created_at?: string;
   public_key?: string;
   description?: string;
@@ -170,17 +183,20 @@ export default function AgentDetailPage() {
             <Radio className="h-3 w-3" />
             {sseConnected ? "Live" : "Polling"}
           </Badge>
-          {agent?.status && (
-            <Badge
-              variant={
-                agent.status === "active" ? "default" : "secondary"
-              }
-            >
-              {agent.status}
-            </Badge>
+          {agent && (
+            <LifecycleBadge
+              state={(agent.lifecycle_state as LifecycleState) ?? "registered"}
+            />
           )}
         </div>
       </div>
+
+      {/* Lifecycle Progress */}
+      {agent && (
+        <LifecycleProgressBar
+          state={(agent.lifecycle_state as LifecycleState) ?? "registered"}
+        />
+      )}
 
       {/* Delegations for this agent */}
       {delegations.length > 0 ? (
@@ -207,33 +223,62 @@ export default function AgentDetailPage() {
                   if (!permsByService[svc]) permsByService[svc] = [];
                   permsByService[svc].push(rest.join(":"));
                 }
+                const isExpired = d.created_at
+                  ? Date.now() > new Date(d.created_at).getTime() + d.expires_in * 1000
+                  : false;
+
+                const handleRevoke = async () => {
+                  if (!window.confirm("Revoke this delegation? The agent will lose these permissions immediately.")) return;
+                  try {
+                    await apiClient(`auth/delegations/${d.delegation_id}`, { method: "DELETE" });
+                    fetchData();
+                  } catch {
+                    alert("Failed to revoke delegation");
+                  }
+                };
+
                 return (
                   <div
                     key={d.delegation_id}
-                    className="rounded-md border p-3 space-y-2"
+                    className={`rounded-md border p-3 space-y-2 ${isExpired ? "opacity-60" : ""}`}
                   >
                     <div className="flex items-center justify-between">
                       <code className="text-xs font-mono text-muted-foreground">
                         {d.delegation_id}
                       </code>
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-xs">
-                          <Clock className="mr-1 h-3 w-3" />
-                          TTL {formatTtl(d.expires_in)}
-                        </Badge>
+                        {isExpired ? (
+                          <Badge variant="destructive" className="text-xs">
+                            Expired
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">
+                            <Clock className="mr-1 h-3 w-3" />
+                            TTL {formatTtl(d.expires_in)}
+                          </Badge>
+                        )}
                         <Badge variant="default" className="text-xs">
                           {d.permissions.length} permissions
                         </Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                          onClick={handleRevoke}
+                          title="Revoke delegation"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {Object.entries(permsByService).map(([svc, perms]) => (
                         <Badge
                           key={svc}
                           variant="outline"
                           className="text-xs"
                         >
-                          {svc}: {perms.join(", ")}
+                          {svc} ({perms.length})
                         </Badge>
                       ))}
                     </div>
@@ -267,17 +312,27 @@ export default function AgentDetailPage() {
         </Card>
       )}
 
-      {/* Agent Authentication */}
+      {/* 4. Delegated Tools */}
+      <DelegatedToolsCard tools={tools} />
+
+      {/* 5. Agent Authentication */}
       <AgentAuthenticator
         agentId={agentId}
         delegationId={latestDelegation?.delegation_id}
+        lifecycleState={agent?.lifecycle_state}
       />
 
-      {/* Tools and Activity */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ToolsList tools={tools} />
-        <ActivityFeed events={allEvents} />
-      </div>
+      {/* 6. Session History */}
+      <SessionHistoryTable agentId={agentId} />
+
+      {/* 7. Deploy Configuration */}
+      <DeployConfigSection agentId={agentId} />
+
+      {/* 8. Activity Feed (full width) */}
+      <ActivityFeed events={allEvents} />
+
+      {/* 9. Unavailable Tools (collapsed) */}
+      <UnavailableToolsDisclosure tools={tools} />
     </div>
   );
 }

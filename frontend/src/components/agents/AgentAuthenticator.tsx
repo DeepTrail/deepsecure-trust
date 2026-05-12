@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import nacl from "tweetnacl";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,7 @@ interface DecodedJwt {
 interface AgentAuthenticatorProps {
   agentId: string;
   delegationId?: string;
+  lifecycleState?: string;
   onAuthenticated?: (jwt: string, sessionId: string) => void;
 }
 
@@ -79,17 +80,57 @@ type AuthState =
   | { step: "signing" }
   | { step: "verifying" }
   | { step: "authenticated"; jwt: string; sessionId: string; decoded: DecodedJwt }
+  | { step: "session-exists"; sessionId: string; expiresAt: string; delegationId?: string }
   | { step: "error"; message: string };
+
+interface SessionInfo {
+  session_id: string;
+  agent_id: string;
+  delegation_id: string;
+  is_active: boolean;
+  created_at: string;
+  expires_at: string;
+  last_activity_at?: string;
+}
+
+interface SessionListResponse {
+  sessions: SessionInfo[];
+  total: number;
+}
 
 export function AgentAuthenticator({
   agentId,
   delegationId,
+  lifecycleState,
   onAuthenticated,
 }: AgentAuthenticatorProps) {
   const [state, setState] = useState<AuthState>({ step: "idle" });
   const [privateKeyInput, setPrivateKeyInput] = useState("");
   const [copied, setCopied] = useState(false);
   const [showRawJwt, setShowRawJwt] = useState(false);
+
+  useEffect(() => {
+    if (
+      lifecycleState === "authenticated" ||
+      lifecycleState === "active"
+    ) {
+      apiClient<SessionListResponse>(
+        `agents/${agentId}/sessions?active_only=true`
+      )
+        .then((data) => {
+          const latest = data.sessions?.[0];
+          if (latest) {
+            setState({
+              step: "session-exists",
+              sessionId: latest.session_id,
+              expiresAt: latest.expires_at,
+              delegationId: latest.delegation_id || undefined,
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [agentId, lifecycleState]);
 
   const handleAuthenticate = useCallback(async () => {
     const trimmed = privateKeyInput.trim();
@@ -207,6 +248,58 @@ export function AgentAuthenticator({
           ? "Verifying signature..."
           : "";
 
+  if (state.step === "session-exists") {
+    return (
+      <Card className="border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
+            <ShieldCheck className="h-4 w-4" />
+            Agent Authenticated
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Agent ID</span>
+              <code className="font-mono text-xs">{agentId}</code>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Session ID</span>
+              <code className="font-mono text-xs">{state.sessionId}</code>
+            </div>
+            {state.delegationId && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Delegation</span>
+                <code className="font-mono text-xs">
+                  {state.delegationId.slice(0, 24)}...
+                </code>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Expires</span>
+              <span className="text-xs">
+                {new Date(state.expiresAt).toLocaleString()}
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            This agent has an active session. Re-authenticate to obtain a fresh JWT with current permissions.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setState({ step: "input" });
+              setPrivateKeyInput("");
+            }}
+          >
+            Re-authenticate
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (state.step === "authenticated") {
     const { decoded, sessionId, jwt } = state;
     const permissions = (decoded.payload.delegated_permissions as string[]) || [];
@@ -228,16 +321,20 @@ export function AgentAuthenticator({
         <CardContent className="space-y-4">
           <div className="grid gap-2 text-sm">
             <div className="flex justify-between">
+              <span className="text-muted-foreground">Agent ID</span>
+              <code className="font-mono text-xs">{decoded.payload.sub as string}</code>
+            </div>
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Session ID</span>
               <code className="font-mono text-xs">{sessionId}</code>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Subject</span>
-              <code className="font-mono text-xs">{decoded.payload.sub as string}</code>
-            </div>
-            <div className="flex justify-between">
               <span className="text-muted-foreground">Owner</span>
-              <code className="font-mono text-xs">{decoded.payload.owner as string}</code>
+              <code className="font-mono text-xs">
+                {decoded.payload.owner === "no-delegation"
+                  ? "No delegation — create one to assign an owner"
+                  : (decoded.payload.owner as string)}
+              </code>
             </div>
             {typeof decoded.payload.delegation_id === "string" && (
               <div className="flex justify-between">

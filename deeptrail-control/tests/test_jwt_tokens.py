@@ -60,7 +60,6 @@ class TestJWTAccessToken:
             "agent_id": agent.id,
             "name": agent.name,
             "public_key": agent.public_key,
-            "status": agent.status
         }
     
     def _get_valid_jwt_token(self, agent_data: Dict[str, Any]) -> str:

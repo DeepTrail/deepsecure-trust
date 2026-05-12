@@ -64,6 +64,7 @@ const AGENTS = [
     agent_id: "agent-1",
     name: "Alpha Agent",
     status: "active",
+    lifecycle_state: "active",
     created_at: "2026-01-15T00:00:00Z",
     public_key: "c29tZWJhc2U2NHB1YmtleQ==",
   },
@@ -71,6 +72,7 @@ const AGENTS = [
     agent_id: "agent-2",
     name: "Beta Agent",
     status: "suspended",
+    lifecycle_state: "delegated",
   },
   {
     agent_id: "agent-3",
@@ -94,7 +96,7 @@ describe("AgentsPage", () => {
     expect(screen.getByTestId("page-skeleton")).toBeInTheDocument();
   });
 
-  it("renders agent cards with name, status badge, and agent_id", async () => {
+  it("renders agent cards with name and agent_id", async () => {
     mockApiClient.mockResolvedValueOnce(AGENTS);
     render(<AgentsPage />);
 
@@ -105,12 +107,21 @@ describe("AgentsPage", () => {
     expect(screen.getByText("Beta Agent")).toBeInTheDocument();
     expect(screen.getByText("Gamma Agent")).toBeInTheDocument();
 
-    expect(screen.getByText("active")).toBeInTheDocument();
-    expect(screen.getByText("suspended")).toBeInTheDocument();
-    expect(screen.getByText("registered")).toBeInTheDocument();
-
     const idText = screen.getAllByText(/^ID:/);
     expect(idText[0].textContent).toContain("agent-1");
+  });
+
+  it("renders LifecycleBadge with correct state labels", async () => {
+    mockApiClient.mockResolvedValueOnce(AGENTS);
+    render(<AgentsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.getByText("Delegated")).toBeInTheDocument();
+    expect(screen.getByText("Registered")).toBeInTheDocument();
   });
 
   it("shows EmptyState when there are no agents", async () => {
@@ -247,37 +258,37 @@ describe("AgentsPage", () => {
     expect(screen.getByText("Failed to load agents")).toBeInTheDocument();
   });
 
-  describe("status badge variants", () => {
-    it('renders "active" status with default variant', async () => {
+  describe("lifecycle badge rendering", () => {
+    it("renders 'Active' badge for lifecycle_state='active'", async () => {
       mockApiClient.mockResolvedValueOnce([
-        { agent_id: "a1", name: "Active", status: "active" },
+        { agent_id: "a1", name: "Active Agent", lifecycle_state: "active" },
       ]);
       render(<AgentsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText("active")).toBeInTheDocument();
+        expect(screen.getByText("Active")).toBeInTheDocument();
       });
     });
 
-    it('renders "suspended" status with destructive variant', async () => {
+    it("renders 'Delegated' badge for lifecycle_state='delegated'", async () => {
       mockApiClient.mockResolvedValueOnce([
-        { agent_id: "a2", name: "Suspended", status: "suspended" },
+        { agent_id: "a2", name: "Delegated Agent", lifecycle_state: "delegated" },
       ]);
       render(<AgentsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText("suspended")).toBeInTheDocument();
+        expect(screen.getByText("Delegated")).toBeInTheDocument();
       });
     });
 
-    it('renders missing status as "registered"', async () => {
+    it("renders 'Registered' badge when lifecycle_state is absent", async () => {
       mockApiClient.mockResolvedValueOnce([
-        { agent_id: "a3", name: "NoStatus" },
+        { agent_id: "a3", name: "NoState" },
       ]);
       render(<AgentsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText("registered")).toBeInTheDocument();
+        expect(screen.getByText("Registered")).toBeInTheDocument();
       });
     });
   });

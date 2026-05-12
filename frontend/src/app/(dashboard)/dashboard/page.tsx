@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,7 +40,7 @@ export default function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setState({ kind: "loading" });
     try {
       const [rawAgents, rawPolicies, events] = await Promise.all([
@@ -70,11 +70,21 @@ export default function DashboardPage() {
           : "Failed to load dashboard data";
       setState({ kind: "error", message });
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        fetchData();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [fetchData]);
 
   if (state.kind === "loading") return <PageSkeleton />;
   if (state.kind === "error")

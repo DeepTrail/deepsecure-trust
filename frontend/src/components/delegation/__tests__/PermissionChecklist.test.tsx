@@ -54,9 +54,9 @@ describe("PermissionChecklist", () => {
       />,
     );
 
-    expect(screen.getByText("notion")).toBeInTheDocument();
-    expect(screen.getByText("github")).toBeInTheDocument();
-    expect(screen.getByText("slack")).toBeInTheDocument();
+    expect(screen.getByText(/^notion/i)).toBeInTheDocument();
+    expect(screen.getByText(/^github/i)).toBeInTheDocument();
+    expect(screen.getByText(/^slack/i)).toBeInTheDocument();
   });
 
   it("renders permission scope:action labels", () => {
@@ -113,7 +113,11 @@ describe("PermissionChecklist", () => {
       />,
     );
 
-    expect(screen.getByText("Needs repo:write scope")).toBeInTheDocument();
+    const oauthIcons = screen.getAllByTestId("oauth-lock-icon");
+    const iconWithReason = oauthIcons.find(
+      (el) => el.parentElement?.getAttribute("title") === "Needs repo:write scope",
+    );
+    expect(iconWithReason).toBeTruthy();
   });
 
   it("disables checkboxes for locked permissions", () => {

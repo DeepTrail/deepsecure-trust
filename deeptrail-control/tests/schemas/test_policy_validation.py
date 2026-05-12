@@ -258,7 +258,8 @@ class TestPolicySchemaValidation:
                 # Missing agent_id
             )
         
-        assert "agent_id" in str(exc_info.value)
+        error_str = str(exc_info.value)
+        assert "agent_id" in error_str or "agentId" in error_str
         
         # Test missing actions
         with pytest.raises(ValidationError) as exc_info:

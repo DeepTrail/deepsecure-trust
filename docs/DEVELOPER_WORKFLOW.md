@@ -44,29 +44,37 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          EXECUTION PHASE (Agent Mode)                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
+│  ✅ AUTOMATED (Recommended):                                                │
+│     /run-batch [batch-id] [feature-name]                                   │
+│        Chains: /create-task-spec → /create-task-ticket →                   │
+│                /execute-task (per wave, parallel if 4+) →                  │
+│                /verify-batch-completion                                     │
+│        Includes spec-implementation audit + merge point handling.          │
+│                                                                             │
+│  Manual alternative (individual steps):                                    │
 │  6. /execute-task         →  Implement the task (reads ticket, codes)      │
 │     /debug                →  Use when execution hits errors (triage)       │
 │  7. /complete-task        →  Auto-runs after execute; generates report     │
+│  8. /verify-batch-completion → Verify status consistency before next batch │
 │                                                                             │
-│  [Repeat 6-7 for each task in the batch]                                   │
-│  [Move to next batch when current batch complete]                          │
+│  [Repeat per batch: /run-batch P0-B1 → checkpoint → /run-batch P0-B2]     │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        REVIEW & FINALIZATION PHASE (Agent Mode)             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  8. /run-checks           →  Run linting, tests, type checks               │
-│  9. /review               →  Five-axis code review (+ subagent reviews)    │
-│ 9.5 /security-audit       →  OWASP/STRIDE security audit (auth changes)   │
-│ 10. /commit-push-pr       →  Commit changes and create PR                  │
+│  9. /run-checks           →  Run linting, tests, type checks               │
+│ 10. /review               →  Five-axis code review (+ subagent reviews)    │
+│ 10.5 /security-audit      →  OWASP/STRIDE security audit (auth changes)   │
+│ 11. /commit-push-pr       →  Commit changes and create PR                  │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          SHIP PHASE (Agent Mode)                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ 11. /ship                 →  Deploy, smoke test, monitor, rollback plan    │
+│ 12. /ship                 →  Deploy, smoke test, monitor, rollback plan    │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -209,8 +217,8 @@ All planning commands run in **Agent Mode** since they create files. Task specs 
 1. Runs `/breakdown-design` (which internally runs `/explore-codebase`, `/create-workstream`, `/create-batch-execution-plan`)
 2. Verifies all 8 required workstream files exist
 3. Decides on and optionally runs `/setup-worktrees` for multi-service features
-4. Checkpoints with user — shows workstream summary, task count, critical path, Batch 1 preview
-5. Hands off to `/run-batch 1 [feature-name]`
+4. Checkpoints with user — shows workstream summary, task count, critical path, first batch preview
+5. Hands off to `/run-batch P0-B1 [feature-name]`
 
 **Output:** Complete workstream scaffold ready for `/run-batch`
 
@@ -321,8 +329,13 @@ docs/workstreams/[feature-name]/
 **Mode:** Agent Mode
 
 ```
-/run-batch [batch-number] [feature-name]
+/run-batch [batch-id] [feature-name]
 ```
+
+**Parameters:**
+- `[batch-id]`: The batch identifier from the **Quick Reference** table in `BATCH_EXECUTION_PLAN.md`.
+  Format: `P{Phase}-B{Batch}` (e.g., `P0-B1`, `P1-B2`).
+- `[feature-name]`: The workstream/feature name.
 
 **What it does (automatically, in one command):**
 1. Reads `BATCH_EXECUTION_PLAN.md` — extracts task list, wave analysis, dependency graph
@@ -343,12 +356,11 @@ docs/workstreams/[feature-name]/
 
 **Example:**
 ```
-/run-batch 1 frontend-architecture
-# → Creates specs for A1,A3,A4,A5
-# → Creates tickets for A1,A3,A4,A5
-# → Executes Wave 1: A1 (inline)
-# → Executes Wave 2: A3,A4,A5 (sequential — 3 tasks)
-# → Runs /verify-batch-completion 1 frontend-architecture
+/run-batch P0-B1 agent-lifecycle
+# → Creates specs for WS-A1, WS-A2
+# → Creates tickets for each task
+# → Executes Wave 1: WS-A1, WS-A2 (sequential — 2 tasks)
+# → Runs /verify-batch-completion P0-B1 agent-lifecycle
 # → Reports results, asks to proceed
 ```
 
@@ -361,7 +373,7 @@ docs/workstreams/[feature-name]/
 **Mode:** ⚠️ Plan Mode (switch from Agent Mode)
 
 ```
-/create-task-spec [batch-number] [feature-name]
+/create-task-spec [batch-id] [feature-name]
 ```
 
 **What it does:**
@@ -395,7 +407,30 @@ docs/workstreams/[feature-name]/
 
 All execution commands run in **Agent Mode**.
 
-### Step 6: Execute Task
+### Recommended: /run-batch (Automated)
+
+```
+/run-batch [batch-id] [feature-name]
+```
+
+**What it does (one command per batch):**
+1. Parses `BATCH_EXECUTION_PLAN.md` — extracts task list, wave analysis, dependency graph
+2. Runs `/create-task-spec` for all tasks in the batch
+3. Runs `/create-task-ticket` for each task
+4. Executes waves in order, parallelizing independent tasks via subagents
+5. Runs spec-implementation audit to catch drift between specs and code
+6. Runs `/verify-batch-completion` after all waves
+7. Handles merge point tagging if applicable
+8. Checkpoints with the user — reports results and asks to proceed
+
+**Output:** Specs, tickets, code, completion reports — everything the manual steps produce.
+
+> This is the EXECUTE-phase equivalent of `/run-plan`. Use it for every batch.
+
+### Step 6-alt: Execute Task (Manual — Use `/run-batch` Instead)
+
+> **Superseded by `/run-batch`.** Only use this for re-running a single failed task
+> or when you need fine-grained control over individual tasks.
 
 ```
 /execute-task [task-id] [feature-name]
@@ -407,29 +442,43 @@ All execution commands run in **Agent Mode**.
 - Updates STATUS.md (task → in progress)
 - Implements the code following the spec
 - Runs tests
-- Updates STATUS.md (task → complete)
+- Runs inline completion (Steps 8a-8i: report, status updates, unblock tracking)
 
 **Output:** Actual code files as specified in ticket
 
-### Step 7: Complete Task (Auto-runs)
+### Step 7-alt: Complete Task (Auto-runs inside /execute-task)
 
 ```
 /complete-task [task-id] [feature-name]
 ```
 
 **What it does:**
-- Automatically triggered after `/execute-task`
+- Automatically triggered at the end of `/execute-task` (Steps 8a-8i)
 - Generates completion report
 - Updates WORKSTREAM.md and STATUS.md
 - Records any deviations from plan
 
 **Output:** `docs/workstreams/[feature-name]/reports/[WS-ID]-completion.md`
 
+### Step 8: Verify Batch Completion (Runs inside /run-batch)
+
+```
+/verify-batch-completion [batch-id] [feature-name]
+```
+
+**What it does:**
+- Cross-references completion reports against STATUS.md, WORKSTREAM.md, BATCH_EXECUTION_PLAN.md
+- Verifies progress percentages match actual completion count
+- Checks merge point status if applicable
+- **BLOCKING** — do NOT proceed to next batch if verification fails
+
+**Output:** Verification report (PASS/FAIL with detailed findings)
+
 ---
 
 ## Phase 3: Review & Finalization
 
-### Step 8: Run Checks
+### Step 9: Run Checks
 
 ```
 /run-checks
@@ -442,7 +491,7 @@ All execution commands run in **Agent Mode**.
 - Tests (`pytest`)
 - Security scanning (`bandit`)
 
-### Step 8.5: Debug (If Checks Fail)
+### Step 9.5: Debug (If Checks Fail)
 
 ```
 /debug
@@ -456,7 +505,7 @@ All execution commands run in **Agent Mode**.
 - DeepSecure-specific error patterns (token types, async fixtures, MCP protocol)
 - Requires a regression test before declaring the bug fixed
 
-### Step 9: Code Review
+### Step 10: Code Review
 
 ```
 /review
@@ -472,7 +521,7 @@ All execution commands run in **Agent Mode**.
   - `.cursor/agents/test-engineer.md` — Test coverage analysis
   - `.cursor/agents/security-auditor.md` — Security-focused audit
 
-### Step 9.5: Security Audit (If Security-Relevant)
+### Step 10.5: Security Audit (If Security-Relevant)
 
 ```
 /security-audit
@@ -490,7 +539,7 @@ All execution commands run in **Agent Mode**.
 
 **Output:** Security audit report with STRIDE model, OWASP assessment, and verdict (Secure / Needs Fixes / Design Review Required)
 
-### Step 10: Commit and Create PR
+### Step 11: Commit and Create PR
 
 ```
 /commit-push-pr
@@ -505,7 +554,7 @@ All execution commands run in **Agent Mode**.
 
 ## Phase 4: Ship (Agent Mode)
 
-### Step 11: Deploy to Production
+### Step 12: Deploy to Production
 
 ```
 /ship
@@ -533,23 +582,29 @@ All execution commands run in **Agent Mode**.
 Use `/run-batch` to automate the entire batch lifecycle:
 
 ```
-For Batch N:
-  /run-batch N [feature]
+For each batch (from Quick Reference table in BATCH_EXECUTION_PLAN.md):
+  /run-batch [batch-id] [feature]
   # Internally: specs → tickets → execute waves (parallel where possible) → verify → checkpoint
-  # DO NOT proceed to Batch N+1 until checkpoint passes
+  # DO NOT proceed to next batch until checkpoint passes
 ```
 
-### Example: 4-Batch Feature (Automated)
+### Example (Automated)
 
 ```bash
 # ══════════════════════════════════════════════════════════════
 # AUTOMATED BATCH EXECUTION
+# Batch IDs from BATCH_EXECUTION_PLAN.md Quick Reference table
+# Format: P{Phase}-B{Batch} (e.g., P0-B1, P1-B2)
 # ══════════════════════════════════════════════════════════════
 
-/run-batch 1 my-feature    # Foundation — specs, tickets, execute, verify, checkpoint
-/run-batch 2 my-feature    # Core — specs, tickets, execute (parallel waves), verify, checkpoint
-/run-batch 3 my-feature    # Integration — specs, tickets, execute, verify, checkpoint
-/run-batch 4 my-feature    # Polish — specs, tickets, execute, verify, checkpoint
+# Phase 0 — Foundation
+/run-batch P0-B1 my-feature    # Foundation — specs, tickets, execute, verify, checkpoint
+/run-batch P0-B2 my-feature    # Core — specs, tickets, execute, verify, checkpoint
+/run-batch P0-B3 my-feature    # Tests — specs, tickets, execute, verify, checkpoint
+
+# Phase 1 — Integration
+/run-batch P1-B1 my-feature    # Components — specs, tickets, execute, verify, checkpoint
+/run-batch P1-B2 my-feature    # Wiring — specs, tickets, execute, verify, checkpoint
 
 # ══════════════════════════════════════════════════════════════
 # FINALIZATION [AGENT MODE]
@@ -560,12 +615,12 @@ For Batch N:
 
 ### Manual (Alternative)
 
-If you prefer manual control, replace `/run-batch N` with the individual steps:
+If you prefer manual control, replace `/run-batch [batch-id]` with the individual steps:
 
 ```
-For Batch N:
+For each batch (from Quick Reference table):
   1. Switch to PLAN MODE
-     /create-task-spec N [feature]     # Create specs for all batch tasks
+     /create-task-spec [batch-id] [feature]     # Create specs for all batch tasks
   
   2. Switch to AGENT MODE
      For each task in batch:
@@ -578,8 +633,8 @@ For Batch N:
   4. If using worktrees:
        /sync-worktree-status [feature]   # Sync status from worktrees to main repo
   
-  5. /verify-batch-completion N [feature]  # Verify all tasks done, status consistent
-     # DO NOT proceed to Batch N+1 if verification fails
+  5. /verify-batch-completion [batch-id] [feature]  # Verify all tasks done, status consistent
+     # DO NOT proceed to next batch if verification fails
 ```
 
 ---
@@ -615,7 +670,9 @@ Agent Mode: /breakdown-design → /create-workstream → /create-batch-execution
 Agent Mode: /setup-worktrees (Step 3.5) ◄── Optional: parallel execution setup
                      │
                      ▼
-Agent Mode: /run-batch (Step 4) ◄── Automated EXECUTE phase
+Agent Mode: /run-batch [batch-id] [feature] ◄── Automated EXECUTE phase (recommended)
+                     │             (internally: task-spec → ticket → execute →
+                     │              verify-batch-completion → checkpoint)
                      │
                      │  OR (manual alternative):
                      │
@@ -625,7 +682,7 @@ Plan Mode:  /create-task-spec (Step 4a) ◄── Manual alternative only
 Agent Mode: /create-task-ticket (Step 5) ◄── Manual alternative only
                      │
                      ▼
-Agent Mode: /execute-task (/debug if errors) → ...
+Agent Mode: /execute-task (/debug if errors) → /verify-batch-completion
                      │
                      ▼
 Agent Mode: /run-checks → /review → /security-audit → /commit-push-pr → /ship
@@ -738,7 +795,7 @@ Consolidates status from all worktrees back to main repo.
 ┌──────────────────────────────────────────┐
 │   For each batch:                        │
 │   ┌──────────────────────────────────┐   │
-│   │ /run-batch N [feature]           │   │◄── Automated: specs → tickets → execute → verify
+│   │ /run-batch [batch-id] [feature]  │   │◄── Automated: specs → tickets → execute → verify
 │   │   ├─ /create-task-spec (internal)│   │    (spec + ticket creation happen inside here)
 │   │   ├─ /create-task-ticket (int.)  │   │
 │   │   ├─ /execute-task (per wave)    │   │
@@ -831,11 +888,11 @@ If using `questionary` with `asyncio`, use `.ask_async()` instead of `.ask()` in
 | Build | `/run-batch` | **Automated EXECUTE phase** — create specs + tickets → execute → verify (one command per batch) |
 | Build | `/create-task-spec` | Define contracts/interfaces — *manual alternative only, internal to /run-batch* |
 | Build | `/create-task-ticket` | Create executable tickets — *manual alternative only, internal to /run-batch* |
-| Build | `/execute-task` | Implement a task |
+| Build | `/execute-task` | Implement a task — *internal to /run-batch, manual alternative for single tasks* |
 | Build | `/debug` | Systematic root-cause debugging |
-| Build | `/complete-task` | Generate completion report |
-| Verify | `/verify-batch-completion` | Verify batch status consistency |
-| Verify | `/sync-worktree-status` | Sync worktree status to main repo |
+| Build | `/complete-task` | Generate completion report — *auto-runs inside /execute-task* |
+| Build | `/verify-batch-completion` | Verify batch status consistency — *internal to /run-batch, blocks next batch* |
+| Build | `/sync-worktree-status` | Sync worktree status to main repo — *internal to /run-batch when using worktrees* |
 | Review | `/run-checks` | Lint, typecheck, tests |
 | Review | `/review` | Five-axis code review |
 | Review | `/security-audit` | OWASP/STRIDE security audit |
@@ -925,4 +982,5 @@ Hooks are deterministic (unlike rules) and run outside the LLM loop, making them
 | Feb 2026 | Corrected mode assignments: Plan Mode only for design doc + `/create-task-spec`; Agent Mode for all other commands |
 | May 2026 | Moved `/create-task-spec` and `/create-task-ticket` out of PLAN phase — they run automatically inside `/run-batch` at the start of each batch; manual steps kept as legacy alternative only |
 | May 2026 | Added `/run-plan` command — automates the full PLAN phase (breakdown + workstream + batch plan + worktrees) as the PLAN-phase equivalent of `/run-batch` |
+| May 2026 | Fixed EXECUTION PHASE to show `/run-batch` as primary command (matching pipeline.md); added `/verify-batch-completion` to overview; marked `/execute-task` and `/complete-task` as manual alternatives |
 | Feb 2026 | Initial workflow documentation |

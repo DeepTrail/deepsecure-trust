@@ -51,7 +51,7 @@ def test_agent_keys(db: Session) -> tuple[AgentModel, ed25519.Ed25519PrivateKey]
     """Fixture to create a test agent and return the model and private key."""
     agent_id = f"test-vault-agent-{uuid.uuid4()}"
     private_key, public_key_bytes = generate_ed25519_key_pair()
-    agent = AgentModel(agent_id=agent_id, current_public_key=public_key_bytes)
+    agent = AgentModel(agent_id=agent_id, public_key=public_key_bytes)
     db.add(agent)
     db.commit()
     db.refresh(agent)
@@ -234,7 +234,7 @@ def test_rotate_agent_key_success(client: TestClient, db: Session, test_agent_ke
 
     # Verify in DB
     db.refresh(agent)
-    assert agent.current_public_key == new_pub_key_bytes
+    assert agent.public_key == new_pub_key_bytes
 
 def test_rotate_agent_key_agent_not_found(client: TestClient, db: Session):
     _, new_pub_key_bytes = generate_ed25519_key_pair()

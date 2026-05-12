@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
@@ -123,12 +123,18 @@ def request_challenge(
 @router.post("/token", response_model=schemas.Token)
 def login_for_access_token(
     *,
+    request: Request,
     db: deps.DbDep,
     token_request: schemas.TokenRequest
 ):
     """
     Authenticate an agent by verifying a signed nonce and return a JWT access token.
     """
+    source_ip = (
+        request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or (request.client.host if request.client else None)
+    )
+
     # 1. Retrieve the agent's public key
     agent = crud.agent.get_by_agent_id(db, agent_id=token_request.agent_id)
     if not agent:

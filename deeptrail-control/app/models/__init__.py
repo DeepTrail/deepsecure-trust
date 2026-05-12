@@ -10,6 +10,7 @@ from .credential import Credential  # noqa
 from .delegation import DelegationToken  # noqa
 from .idp_session import IdPSession  # noqa
 from .nonce import Nonce  # noqa
+from .pending_oauth_state import PendingOAuthState  # noqa
 from .policy import Policy  # noqa
 from .user import User  # noqa
 from .user_session import UserSession  # noqa
@@ -38,6 +39,7 @@ __all__ = [
     "DelegationToken",
     "IdPSession",
     "Nonce",
+    "PendingOAuthState",
     "PartyType",
     "PlatformType",
     "Policy",

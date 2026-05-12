@@ -324,6 +324,15 @@ class ScopeMapper:
         return result
     
     @classmethod
+    def compute_available_permissions(cls, service_id: str, scopes: list[str]) -> list[str]:
+        """Compute all available permissions for a service+scopes combination."""
+        permissions: set[str] = set()
+        for scope in scopes:
+            perms = cls.get_permissions_for_scope(service_id, scope)
+            permissions.update(perms)
+        return sorted(permissions)
+
+    @classmethod
     def get_supported_services(cls) -> List[str]:
         """Get list of services with scope mappings.
         

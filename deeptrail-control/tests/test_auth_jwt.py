@@ -57,6 +57,10 @@ except ImportError:
     CONTROL_IMPORTS_AVAILABLE = False
 
 
+@pytest.mark.skipif(
+    not (GATEWAY_IMPORTS_AVAILABLE and CONTROL_IMPORTS_AVAILABLE),
+    reason="Requires both gateway and control imports (run from repo root with both on sys.path)",
+)
 class TestPhase2JWTFix:
     """Test suite for Phase 2 JWT validation fix."""
     
@@ -304,6 +308,10 @@ class TestPhase2JWTFix:
         assert avg_time < 0.01, f"JWT validation too slow: {avg_time:.3f}s per request"
 
 
+@pytest.mark.skipif(
+    not (GATEWAY_IMPORTS_AVAILABLE and CONTROL_IMPORTS_AVAILABLE),
+    reason="Requires both gateway and control imports (run from repo root with both on sys.path)",
+)
 class TestPhase2JWTFixIntegration:
     """Integration tests for JWT validation between control and gateway."""
     
