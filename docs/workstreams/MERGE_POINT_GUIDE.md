@@ -22,6 +22,20 @@
 
 ---
 
+## Merge Point Naming Convention (MANDATORY)
+
+Merge point IDs MUST use sequential numeric format: `MP1`, `MP2`, `MP3`, etc.
+
+| Correct | Incorrect |
+|---------|-----------|
+| MP1, MP2, MP3 | MP-A, MP-B, MP-C |
+| "After MP1" | "After MP-Backend" |
+| `### Success Criteria — MP1` | `### Success Criteria — MP-A` |
+
+This matches the `P{N}-B{N}` batch numbering gold standard — both use sequential numbers.
+
+---
+
 ## What Are Merge Points?
 
 Merge points are **synchronization gates** in parallel development where:

@@ -153,7 +153,25 @@ Read the BREAKDOWN.md's "Parallelization Decision" section to determine the exec
 - Wave Analysis table has columns per worktree
 - Include `/sync-worktree-status` after each batch
 
-### 5. Generate the Execution Plan
+### 5. Assign Batch Numbers (MANDATORY — Phase-Batch format)
+
+**All batch numbers MUST use the Phase-Batch format: `P{Phase}-B{Batch}`**
+
+| Format | Example | Gold Standard |
+|--------|---------|---------------|
+| `P{N}-B{N}` | `P0-B1`, `P0-B2`, `P1-B1`, `P1-B2`, `P2-B1` | `mvp-production-readiness/BATCH_EXECUTION_PLAN.md` |
+
+**Rules:**
+- The Quick Reference table's first column (`Batch`) is the canonical batch ID list
+- `/run-batch` uses this ID as its first argument (e.g., `/run-batch P0-B1 my-feature`)
+- Phase number (`P0`, `P1`, `P2`) groups batches by execution phase — phases are sequential
+- Batch number (`B1`, `B2`, `B3`) is the sequence within a phase
+- Merge points trigger between phases (e.g., `MP1` after all `P0-B*` batches)
+- Merge point IDs MUST use numeric format: `MP1`, `MP2`, `MP3`. Do NOT use `MP-A`, `MP-B`, `MP-Backend`, etc.
+- Do NOT use track-based naming (e.g., `A-1`, `B-2`) or bare integers (e.g., `1`, `2`, `3`)
+- Single-phase features use `P0-B1`, `P0-B2`, `P0-B3`, etc. (still phase-prefixed)
+
+### 6. Generate the Execution Plan
 
 Create `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md` with ALL required sections below.
 
@@ -161,11 +179,29 @@ Create `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md` with ALL requir
 
 ## Output Template
 
-The quality bar is set by these proven gold-standard batch execution plans:
-- `docs/workstreams/idp-selector/BATCH_EXECUTION_PLAN.md` — 680 lines, single-branch, Quick Start
+**⚠️ MANDATORY PRE-WRITE STEP — DO NOT SKIP:**
+
+BEFORE writing BATCH_EXECUTION_PLAN.md, you MUST READ the following gold-standard reference
+file's first batch section in full. Your per-batch output must match its structure section-for-section:
+
+```
+READ docs/workstreams/frontend-architecture/BATCH_EXECUTION_PLAN.md
+```
+
+Specifically, read at least one complete Batch section (header, dependencies, wave analysis,
+visual dependency graph, execution strategy, commands, validation, post-batch verification,
+summary table) and match that structure exactly for every batch you write.
+
+This is not a suggestion — it is a prerequisite. If you skip this read, the output will
+lack wave analysis, dependency graphs, validation commands, and summary tables.
+
+Additional references (read at least ONE more for cross-referencing):
 - `docs/workstreams/idp-enhanced-sso/BATCH_EXECUTION_PLAN.md` — 942 lines, inline MP sections, Worktree Setup
-- `docs/workstreams/virtual-mcp-server-mvp/BATCH_EXECUTION_PLAN.md` — 1048 lines, Status+Complete columns, 4 MPs
 - `docs/workstreams/mvp-production-readiness/BATCH_EXECUTION_PLAN.md` — 2567 lines, Phase-organized, Optimal Execution, Troubleshooting
+
+> **Lesson (May 2026):** Referencing gold-standard files as hints ("quality bar is set by X")
+> causes models to generate structurally valid but shallow output. Explicit READ instructions
+> produce section-for-section matches. See: docs/content/linkedin-post-spec-drift-coordination-integrity.md Post 11b.
 
 **REQUIRED SECTIONS (all must be present):**
 
@@ -188,8 +224,9 @@ Pattern from all 4 gold-standard docs.
 
     | Batch | Total Tasks | Complete | Waves | Status | Worktrees |
     |-------|-------------|----------|-------|--------|-----------|
-    | 1 | [N] | 0 | [N] | ⏳ Pending | [list] |
-    | 2 | [N] | 0 | [N] | ⏳ Pending | [list] |
+    | P0-B1 | [N] | 0 | [N] | ⏳ Pending | [list] |
+    | P0-B2 | [N] | 0 | [N] | ⏳ Pending | [list] |
+    | P1-B1 | [N] | 0 | [N] | ⏳ Pending | [list] |
 
     **Total Tasks:** [N] | **Completed:** 0 | **Remaining:** [N]
 
@@ -214,7 +251,7 @@ Full lifecycle commands: cleanup old → create fresh → verify.
 Pattern from idp-enhanced-sso (3-step).
 For single-branch features, show branch creation.
 
-    ## Worktree Setup (run once before Batch 1)
+    ## Worktree Setup (run once before first batch)
 
     ### Step 1: Clean up old worktrees
     ```bash
@@ -234,11 +271,11 @@ Pattern from mvp-production-readiness.
     ## Phase Distribution
 
     ```
-    Phase 1 (Foundation)    Phase 2 (Core)    Phase 3 (Demo)    ...
-    ──────────────────     ──────────────     ──────────────
-    B1 │ B2 │ B3          B4 │ B5            B6 │ B7
-    ⏳   ⏳   ⏳           ⏳   ⏳             ⏳   ⏳
-                [MP1]                [MP2]                [MP3]
+    Phase 0 (Foundation)    Phase 1 (Core)    Phase 2 (Integration)
+    ──────────────────     ──────────────     ──────────────────
+    P0-B1 │ P0-B2          P1-B1 │ P1-B2     P2-B1 │ P2-B2
+    ⏳      ⏳              ⏳      ⏳         ⏳      ⏳
+                  [MP1]                [MP2]                [MP3]
     ```
 
     Skip this section for features with a single phase or <5 batches.
@@ -249,7 +286,7 @@ Each batch MUST include ALL of these subsections:
 
 **5a. Batch Header with Focus**
 
-    ## Batch [N]: [Description] ([X] tasks)
+    ## Batch P{N}-B{N}: [Description] ([X] tasks)
 
     **Focus:** [One-line description of what this batch accomplishes]
 
@@ -362,7 +399,7 @@ standalone merge point section. Pattern from idp-enhanced-sso.
     │                        ├──→ dev ──→ Batch [N+1]             │
     │  [branch/worktree 2] ──┘                                    │
     │                                                             │
-    │  Prerequisites: Batches 1-[N] complete ([X]/[Y] tasks)      │
+    │  Prerequisites: All prior batches complete ([X]/[Y] tasks)   │
     │  Action: [Merge/Tag/Rebuild description]                    │
     └─────────────────────────────────────────────────────────────┘
     ```
@@ -382,7 +419,7 @@ standalone merge point section. Pattern from idp-enhanced-sso.
 
     | Batch | Tasks | Waves | Parallel % | Cross-Worktree? | Status |
     |-------|-------|-------|------------|-----------------|--------|
-    | 1 | [N] | [N] | [N]% | [Yes/No] | ⏳ Pending |
+    | P0-B1 | [N] | [N] | [N]% | [Yes/No] | ⏳ Pending |
 
     ### Merge Points Summary
 
@@ -445,15 +482,12 @@ Pattern from all 4 gold-standard docs.
     cd /Users/imaxxs/repositories/deepsecure-mvp
     [branch/worktree creation commands]
 
-    # Batch 1
-    /create-task-spec 1 [feature]
-    /create-task-ticket WS-[ID] [feature]
-    ...
-    /execute-task WS-[ID] [feature] && /complete-task WS-[ID] [feature]
-    /verify-batch-completion 1 [feature]
+    # Phase 0
+    /run-batch P0-B1 [feature]
+    /run-batch P0-B2 [feature]
 
-    # Batch 2
-    ...
+    # Phase 1
+    /run-batch P1-B1 [feature]
 
     # Merge
     [merge commands]
@@ -591,9 +625,11 @@ After creating the execution plan:
 
 ---
 
-## Output Verification Checklist (MANDATORY)
+## ⚠️ BLOCKING Verification (MANDATORY — run this, fix failures, re-run until clean)
 
-**Before declaring the batch execution plan complete, verify ALL sections exist.**
+**This verification is BLOCKING. You MUST run it after creating the file. If ANY line
+shows ❌, fix the missing section and re-run. Do NOT declare complete with ❌ in output.
+Do NOT skip this step. This is the enforcement mechanism that prevents shallow output.**
 
 ### Required Sections Checklist
 
@@ -619,36 +655,54 @@ After creating the execution plan:
 | 9 | **Quick Start Commands** | YES | Condensed copy-paste lifecycle script |
 | 10 | **Worktree / Branch Cleanup** | YES | Cleanup with Troubleshooting table |
 
-### Verification Command
+### Verification Command (MUST RUN — BLOCKING)
 
 ```bash
 FEATURE="[feature-name]"
 FILE="docs/workstreams/${FEATURE}/BATCH_EXECUTION_PLAN.md"
+FAIL=0
 
 echo "=== BATCH_EXECUTION_PLAN.md Section Verification ==="
-grep -q "## Quick Reference" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING"
-grep -q "**Total Tasks:**" $FILE && echo "✅ Total/Completed counter" || echo "❌ MISSING"
-grep -q "## Worktree Reference\|## Branch Reference" $FILE && echo "✅ Worktree/Branch Reference" || echo "❌ MISSING"
-grep -q "## Worktree Setup\|## Branch Setup" $FILE && echo "✅ Setup section" || echo "❌ MISSING"
-grep -q "### Dependencies" $FILE && echo "✅ Dependencies tables" || echo "❌ MISSING"
-grep -q "### Wave Analysis" $FILE && echo "✅ Wave Analysis" || echo "❌ MISSING"
-grep -q "### Visual Dependency Graph" $FILE && echo "✅ Visual Graphs" || echo "❌ MISSING"
-grep -q "### Execution Strategy" $FILE && echo "✅ Execution Strategy" || echo "❌ MISSING"
-grep -q "### Commands" $FILE && echo "✅ Commands" || echo "❌ MISSING"
-grep -q "### Validation" $FILE && echo "✅ Validation" || echo "❌ MISSING"
-grep -q "/create-task-spec" $FILE && echo "✅ /create-task-spec" || echo "❌ MISSING"
-grep -q "/execute-task" $FILE && echo "✅ /execute-task" || echo "❌ MISSING"
-grep -q "/verify-batch-completion" $FILE && echo "✅ /verify-batch-completion" || echo "❌ MISSING"
-grep -q "### Summary" $FILE && echo "✅ Summary tables" || echo "❌ MISSING"
+grep -q "## Quick Reference" $FILE && echo "✅ Quick Reference" || { echo "❌ MISSING: Quick Reference"; FAIL=1; }
+grep -q "**Total Tasks:**" $FILE && echo "✅ Total/Completed counter" || { echo "❌ MISSING: Total/Completed counter"; FAIL=1; }
+grep -q "## Worktree Reference\|## Branch Reference" $FILE && echo "✅ Worktree/Branch Reference" || { echo "❌ MISSING: Worktree/Branch Reference"; FAIL=1; }
+grep -q "## Worktree Setup\|## Branch Setup" $FILE && echo "✅ Setup section" || { echo "❌ MISSING: Setup section"; FAIL=1; }
+grep -q "### Dependencies" $FILE && echo "✅ Dependencies tables" || { echo "❌ MISSING: Dependencies tables"; FAIL=1; }
+grep -q "### Wave Analysis" $FILE && echo "✅ Wave Analysis" || { echo "❌ MISSING: Wave Analysis"; FAIL=1; }
+grep -q "### Visual Dependency Graph" $FILE && echo "✅ Visual Graphs" || { echo "❌ MISSING: Visual Dependency Graph"; FAIL=1; }
+grep -q "### Execution Strategy" $FILE && echo "✅ Execution Strategy" || { echo "❌ MISSING: Execution Strategy"; FAIL=1; }
+grep -q "### Commands" $FILE && echo "✅ Commands" || { echo "❌ MISSING: Commands"; FAIL=1; }
+grep -q "### Validation" $FILE && echo "✅ Validation" || { echo "❌ MISSING: Validation"; FAIL=1; }
+grep -q "/create-task-spec" $FILE && echo "✅ /create-task-spec" || { echo "❌ MISSING: /create-task-spec commands"; FAIL=1; }
+grep -q "/execute-task" $FILE && echo "✅ /execute-task" || { echo "❌ MISSING: /execute-task commands"; FAIL=1; }
+grep -q "/verify-batch-completion" $FILE && echo "✅ /verify-batch-completion" || { echo "❌ MISSING: /verify-batch-completion commands"; FAIL=1; }
+grep -q "### Summary" $FILE && echo "✅ Summary tables" || { echo "❌ MISSING: Summary tables"; FAIL=1; }
 grep -q "MERGE POINT\|No merge points" $FILE && echo "✅ Merge Point sections" || echo "⚠️  Check if merge points needed"
-grep -q "## Overall Execution Summary" $FILE && echo "✅ Overall Summary" || echo "❌ MISSING"
-grep -q "## Optimal Execution Strategy" $FILE && echo "✅ Optimal Strategy" || echo "❌ MISSING"
-grep -q "## Quick Start Commands" $FILE && echo "✅ Quick Start" || echo "❌ MISSING"
-grep -q "## Worktree Cleanup\|## Branch Cleanup" $FILE && echo "✅ Cleanup" || echo "❌ MISSING"
-grep -q "### Troubleshooting" $FILE && echo "✅ Troubleshooting" || echo "❌ MISSING"
-grep -q "### Critical Path" $FILE && echo "✅ Critical Path" || echo "❌ MISSING"
+grep -q "## Overall Execution Summary" $FILE && echo "✅ Overall Summary" || { echo "❌ MISSING: Overall Execution Summary"; FAIL=1; }
+grep -q "## Optimal Execution Strategy" $FILE && echo "✅ Optimal Strategy" || { echo "❌ MISSING: Optimal Execution Strategy"; FAIL=1; }
+grep -q "## Quick Start Commands" $FILE && echo "✅ Quick Start" || { echo "❌ MISSING: Quick Start Commands"; FAIL=1; }
+grep -q "## Worktree Cleanup\|## Branch Cleanup" $FILE && echo "✅ Cleanup" || { echo "❌ MISSING: Cleanup section"; FAIL=1; }
+grep -q "### Troubleshooting" $FILE && echo "✅ Troubleshooting" || { echo "❌ MISSING: Troubleshooting"; FAIL=1; }
+grep -q "### Critical Path" $FILE && echo "✅ Critical Path" || { echo "❌ MISSING: Critical Path"; FAIL=1; }
+
+echo ""
+echo "=== Line Count Check ==="
+LINES=$(wc -l < "$FILE")
+echo "BATCH_EXECUTION_PLAN.md: ${LINES} lines"
+[ "$LINES" -gt 200 ] && echo "✅ Above 200-line minimum" || { echo "❌ UNDER 200 LINES — likely missing sections (gold standard is 680-2567 lines)"; FAIL=1; }
+
+echo ""
+if [ "$FAIL" -eq 0 ]; then
+  echo "✅✅✅ ALL CHECKS PASSED — batch execution plan complete"
+else
+  echo "❌❌❌ VERIFICATION FAILED — fix missing sections above and re-run this script"
+  echo "DO NOT declare this step complete until all ❌ are resolved."
+fi
 echo "=== Verification Complete ==="
 ```
+
+**If ANY ❌ appears: fix the missing section, then re-run the script. Repeat until all green.
+Do NOT proceed to the checkpoint until this passes.**
 
 ---
 

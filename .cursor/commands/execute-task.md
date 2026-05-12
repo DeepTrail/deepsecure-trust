@@ -448,7 +448,7 @@ git worktree add ../vmcp-gateway -b feature/vmcp-gateway dev
 cp -r .cursor ../vmcp-control/
 cp -r .cursor ../vmcp-gateway/
 
-# Batch 1 (parallel - run in separate terminals/worktrees)
+# P0-B1 (parallel - run in separate terminals/worktrees)
 # Terminal 1 (vmcp-control):
 /execute-task WS-A1 virtual-mcp-server-mvp
 /execute-task WS-E1 virtual-mcp-server-mvp
@@ -459,12 +459,12 @@ cp -r .cursor ../vmcp-gateway/
 
 For automated batch execution, use:
 ```
-/run-batch 1 [feature-name]
+/run-batch P0-B1 [feature-name]
 ```
 
 Or via the full pipeline (all phases):
 ```
-/pipeline @design-doc.md --phase=execute --batch=1
+/pipeline @design-doc.md --phase=execute --batch=P0-B1
 ```
 
 ---

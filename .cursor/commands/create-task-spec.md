@@ -35,11 +35,11 @@ than the relevant gold-standard example, add more detail.
 ## Usage
 
 ```
-/create-task-spec [batch-number] [feature-name]
+/create-task-spec [batch-id] [feature-name]
 ```
 
 **Parameters:**
-- `[batch-number]`: Which batch to create specs for (e.g., `1`, `2`)
+- `[batch-id]`: Which batch to create specs for (e.g., `P0-B1`, `P1-B2`)
 - `[feature-name]`: The feature/workstream name (e.g., `interactive-demo`, `virtual-mcp-server-mvp`)
 
 **Output:**
@@ -998,7 +998,7 @@ After creating all specs for a batch, verify completeness:
 
 ```bash
 FEATURE="[feature-name]"
-BATCH="[batch-number]"
+BATCH="[batch-id]"
 
 echo "=== Spec File Verification ==="
 ls docs/workstreams/${FEATURE}/specs/ 2>/dev/null | wc -l
@@ -1040,9 +1040,9 @@ echo "=== Complete ==="
 For the interactive demo workstream, tasks define Python classes/components:
 
 ```
-Batch 1: A1 (personas), A2 (context), C1 (api_client)
-         └── These are Python dataclasses and classes
-         └── Create specs for interface contracts and consistency
+P0-B1: A1 (personas), A2 (context), C1 (api_client)
+       └── These are Python dataclasses and classes
+       └── Create specs for interface contracts and consistency
 ```
 
 **Spec content for UI/demo tasks:**
@@ -1051,9 +1051,9 @@ Batch 1: A1 (personas), A2 (context), C1 (api_client)
 - `C1 (api_client)`: APIClient class interface, methods, Display Format Examples, URL Resolution
 
 ```bash
-# Create specs for Batch 1
+# Create specs for P0-B1
 /plan
-/create-task-spec 1 interactive-demo
+/create-task-spec P0-B1 interactive-demo
 ```
 
 ---
@@ -1063,10 +1063,10 @@ Batch 1: A1 (personas), A2 (context), C1 (api_client)
 For API-heavy workstreams like `virtual-mcp-server-mvp`:
 
 ```
-Batch 4: C1 (agent challenge endpoint), C2 (verify endpoint)
-         └── These are API endpoints
-         └── Each spec includes: API Contract + Request Headers + Implementation Notes + Error Handling Matrix
-         └── Create specs: /create-task-spec 4 virtual-mcp-server-mvp
+P1-B1: C1 (agent challenge endpoint), C2 (verify endpoint)
+       └── These are API endpoints
+       └── Each spec includes: API Contract + Request Headers + Implementation Notes + Error Handling Matrix
+       └── Create specs: /create-task-spec P1-B1 virtual-mcp-server-mvp
 ```
 
 ---
@@ -1076,10 +1076,10 @@ Batch 4: C1 (agent challenge endpoint), C2 (verify endpoint)
 For frontend workstreams with React/Next.js:
 
 ```
-Batch 1: F1 (Next.js scaffold), F2 (design tokens)
-         └── F1 needs: Frontend Component Spec with project structure, route layout
-         └── F2 needs: Component Spec with CSS variable contract, Tailwind config
-         └── Create specs: /create-task-spec 1 frontend-architecture
+P0-B1: F1 (Next.js scaffold), F2 (design tokens)
+       └── F1 needs: Frontend Component Spec with project structure, route layout
+       └── F2 needs: Component Spec with CSS variable contract, Tailwind config
+       └── Create specs: /create-task-spec P0-B1 frontend-architecture
 ```
 
 ---

@@ -282,7 +282,7 @@ The breakdown document MUST include all sections below. This is a **19-section t
 
 ## Pre-requisites (if any)
 
-[Include this section when there are manual or non-code tasks required BEFORE Batch 1 (e.g., creating API keys, provisioning infrastructure, external account setup). Omit if no pre-requisites exist.]
+[Include this section when there are manual or non-code tasks required BEFORE the first batch (e.g., creating API keys, provisioning infrastructure, external account setup). Omit if no pre-requisites exist.]
 
 | ID | Description | Type | Complexity |
 |----|-------------|------|------------|
@@ -383,9 +383,9 @@ The breakdown document MUST include all sections below. This is a **19-section t
 
 | Batch | Tasks (Parallel) | Depends On | Blocking For | Worktree | Effort |
 |-------|------------------|------------|--------------|----------|--------|
-| 1 | A1, B1 | None (or PRE-1) | Batch 2 | Control: A1; Gateway: B1 | 1S + 1M |
-| 2 | A2, A3, B2 | Batch 1 | Batch 3 | Control: A2, A3; Gateway: B2 | 2M + 1S |
-| 3 | C1, C2 | Batch 2, MP1 | Batch 4 | Control: C1; Gateway: C2 | 2M |
+| P0-B1 | A1, B1 | None (or PRE) | P0-B2 | Control: A1; Gateway: B1 | 1S + 1M |
+| P0-B2 | A2, A3, B2 | P0-B1 | P0-B3 | Control: A2, A3; Gateway: B2 | 2M + 1S |
+| P0-B3 | C1, C2 | P0-B2, MP1 | P1-B1 | Control: C1; Gateway: C2 | 2M |
 
 ---
 
@@ -393,8 +393,8 @@ The breakdown document MUST include all sections below. This is a **19-section t
 
 | Point | Converging From | Enables | When | Git Action |
 |-------|-----------------|---------|------|------------|
-| MP1 | A3 + B2 | C1 (auth) | After Batch 2 | Merge feature branches to dev |
-| MP2 | C3 + D2 | E1 (integration) | After Batch 4 | Merge all into dev |
+| MP1 | A3 + B2 | C1 (auth) | After P0-B2 | Merge feature branches to dev |
+| MP2 | C3 + D2 | E1 (integration) | After P1-B1 | Merge all into dev |
 
 ---
 
@@ -540,8 +540,8 @@ The breakdown document MUST include all sections below. This is a **19-section t
 
 | Batch | What | How |
 |-------|------|-----|
-| Batch 1 | Unit: [components tested] | `cd [service] && pytest tests/[module]/ -v` |
-| Batch 2 | Unit: [components tested] | `cd [service] && pytest tests/[module]/ -v` |
+| P0-B1 | Unit: [components tested] | `cd [service] && pytest tests/[module]/ -v` |
+| P0-B2 | Unit: [components tested] | `cd [service] && pytest tests/[module]/ -v` |
 | Batch N | E2E: [full flow description] | `cd [root] && pytest tests/e2e/ -v` or `python demos/[demo].py` |
 
 ### Technical Requirements Checklist
@@ -638,7 +638,7 @@ After saving this breakdown, the following commands are available:
    To create specs:
    ```
    /plan  # Switch to Plan mode
-   /create-task-spec [batch-number] [feature-name]
+   /create-task-spec [batch-id] [feature-name]
    ```
 
 13. **Ask the user** if they want to:

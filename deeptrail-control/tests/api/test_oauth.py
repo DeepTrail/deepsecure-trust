@@ -48,9 +48,9 @@ def mock_oauth_service():
 def mock_vault_client():
     """Create a mock VaultClient."""
     mock = MagicMock()
-    mock._generate_ref = MagicMock()
+    mock._generate_ref = MagicMock(return_value="vault://test-ref")
     mock.retrieve_token = MagicMock()
-    mock.store_token = MagicMock()
+    mock.store_token = MagicMock(return_value="vault://test-ref")
     mock.refresh_token = MagicMock()
     return mock
 

@@ -72,7 +72,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     # Default create method - may be overridden by subclasses (like CRUDCredential)
     def create(self, db: Session, *, obj_in: CreateSchemaType) -> ModelType:
         try:
-            obj_in_data = jsonable_encoder(obj_in)
+            obj_in_data = jsonable_encoder(obj_in, by_alias=False)
             db_obj = self.model(**obj_in_data)
             db.add(db_obj)
             db.commit()
@@ -93,9 +93,10 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             else:
                 # Use exclude_unset=True to only update fields explicitly passed
                 update_data = jsonable_encoder(
-                    obj_in, # Encode the input schema/dict
+                    obj_in,
                     exclude_unset=True,
-                    custom_encoder=CUSTOM_ENCODERS # Use custom encoder if needed for input
+                    by_alias=False,
+                    custom_encoder=CUSTOM_ENCODERS,
                 )
 
             # Iterate through the fields of the *database object*

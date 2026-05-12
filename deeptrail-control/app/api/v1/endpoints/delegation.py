@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -9,6 +11,7 @@ import jwt
 from app import models, schemas
 from app.api import deps
 from app.models.connected_service import ConnectedService
+from app.models.delegation import DelegationToken
 from app.services.macaroon_service import macaroon_service
 from app.services.scope_mapper import ScopeMapper
 from app.core.config import settings
@@ -40,27 +43,6 @@ class UserDelegationResponse(BaseModel):
     delegation_id: str
     permissions: List[str]
     expires_in: int = 28800  # 8 hours
-
-
-# =============================================================================
-# In-memory delegation storage (MVP only)
-# =============================================================================
-
-_delegations: Dict[str, Dict[str, Any]] = {}
-
-
-def get_delegation_for_agent(agent_id: str) -> Optional[Dict[str, Any]]:
-    """Get the most recent delegation for an agent.
-    
-    MVP helper function for the agent session service.
-    
-    Returns:
-        Delegation dict with permissions, or None if not found.
-    """
-    for delegation in _delegations.values():
-        if delegation.get("agent_id") == agent_id:
-            return delegation
-    return None
 
 
 def get_current_user_from_token(
@@ -177,10 +159,10 @@ def create_user_delegation(
     if request.constraints and "expires_in_hours" in request.constraints:
         ttl_hours = request.constraints["expires_in_hours"]
     ttl_seconds = ttl_hours * 3600
-    
+
     # Generate delegation ID
     delegation_id = f"del-{uuid.uuid4()}"
-    
+
     # Create delegation token using macaroon service
     delegation_token = macaroon_service.mint_delegation_macaroon(
         target_agent_id=request.agent_id,
@@ -188,25 +170,28 @@ def create_user_delegation(
         permissions=request.permissions,
         ttl_seconds=ttl_seconds,
     )
-    
-    from datetime import datetime, timezone
-    # Store delegation in memory (organization_id flows from User JWT)
-    _delegations[delegation_id] = {
-        "id": delegation_id,
-        "user_id": current_user,
-        "agent_id": request.agent_id,
-        "permissions": request.permissions,
-        "token": delegation_token,
-        "constraints": request.constraints,
-        "organization_id": user_org_id,
-        "expires_in": ttl_seconds,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    
-    logger.info(
-        f"User {current_user} created delegation {delegation_id} for agent {request.agent_id}"
+
+    now = datetime.now(timezone.utc)
+    delegation_row = DelegationToken(
+        id=delegation_id,
+        agent_id=request.agent_id,
+        delegator=current_user,
+        delegated_permissions=request.permissions,
+        constraints=request.constraints or {},
+        organization_id=user_org_id,
+        created_at=now,
+        expires_at=now + timedelta(seconds=ttl_seconds),
     )
-    
+    db.add(delegation_row)
+    db.commit()
+
+    logger.info(
+        "User %s created delegation %s for agent %s",
+        current_user,
+        delegation_id,
+        request.agent_id,
+    )
+
     return UserDelegationResponse(
         delegation_token=delegation_token,
         delegation_id=delegation_id,
@@ -230,25 +215,83 @@ class DelegationSummary(BaseModel):
     created_at: Optional[str] = None
 
 
+@router.delete("/delegations/{delegation_id}")
+def revoke_delegation(
+    delegation_id: str,
+    authorization: str = Header(...),
+    db: Session = Depends(deps.get_db),
+):
+    """
+    Revoke a delegation by setting its revoked_at timestamp.
+
+    Only the delegator (the user who created it) can revoke it.
+    """
+    current_user = get_current_user_from_token(authorization)
+
+    delegation = (
+        db.query(DelegationToken)
+        .filter(DelegationToken.id == delegation_id)
+        .first()
+    )
+
+    if not delegation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Delegation not found",
+        )
+
+    if delegation.delegator != current_user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only revoke your own delegations",
+        )
+
+    if delegation.is_revoked:
+        return {"detail": "Delegation already revoked", "delegation_id": delegation_id}
+
+    delegation.revoke()
+    db.commit()
+
+    logger.info(
+        "User %s revoked delegation %s for agent %s",
+        current_user,
+        delegation_id,
+        delegation.agent_id,
+    )
+
+    return {"detail": "Delegation revoked", "delegation_id": delegation_id}
+
+
 @router.get("/delegations", response_model=List[DelegationSummary])
 def list_user_delegations(
     authorization: str = Header(...),
+    db: Session = Depends(deps.get_db),
 ):
     """List all delegations created by the current user."""
     current_user = get_current_user_from_token(authorization)
 
+    rows = (
+        db.query(DelegationToken)
+        .filter(
+            DelegationToken.delegator == current_user,
+            DelegationToken.revoked_at.is_(None),
+        )
+        .order_by(DelegationToken.created_at.desc())
+        .all()
+    )
+
     result = []
-    for d in _delegations.values():
-        if d.get("user_id") == current_user:
-            result.append(
-                DelegationSummary(
-                    delegation_id=d["id"],
-                    agent_id=d["agent_id"],
-                    permissions=d["permissions"],
-                    expires_in=d.get("expires_in", 28800),
-                    created_at=d.get("created_at"),
-                )
+    for d in rows:
+        expires_in = int((d.expires_at - d.created_at).total_seconds()) if d.expires_at and d.created_at else 28800
+        result.append(
+            DelegationSummary(
+                delegation_id=d.id,
+                agent_id=d.agent_id,
+                permissions=d.delegated_permissions or [],
+                expires_in=expires_in,
+                created_at=d.created_at.isoformat() if d.created_at else None,
             )
+        )
     return result
 
 

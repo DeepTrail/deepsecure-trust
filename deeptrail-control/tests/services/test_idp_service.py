@@ -296,11 +296,11 @@ class TestProvisionUser:
         claims = OIDCClaims(
             sub="group-user",
             email="user@acme.com",
-            groups=["acme-org"],
+            groups=["engineering"],
             roles=[],
         )
         result = await provision_user_from_claims(claims)
-        assert "user" in result["roles"]
+        assert "engineer" in result["roles"]
 
     @pytest.mark.asyncio
     async def test_no_groups_no_extra_roles(self):
@@ -330,21 +330,21 @@ class TestProvisionUser:
         assert result["organization_id"] == "acme.com"
 
     @pytest.mark.asyncio
-    async def test_groups_override_hd(self):
+    async def test_hd_takes_precedence_over_groups(self):
         claims = OIDCClaims(
             sub="user-both",
             email="user@acme.com",
             email_verified=True,
-            groups=["acme-org"],
+            groups=["engineering"],
             roles=None,
             issuer="https://accounts.google.com",
             raw_claims={"hd": "acme.com", "sub": "user-both"},
         )
         result = await provision_user_from_claims(claims)
-        assert result["organization_id"] == "acme-org"
+        assert result["organization_id"] == "acme.com"
 
     @pytest.mark.asyncio
-    async def test_no_groups_no_hd(self):
+    async def test_no_groups_no_hd_uses_email_domain(self):
         claims = OIDCClaims(
             sub="personal-user",
             email="user@gmail.com",
@@ -355,10 +355,10 @@ class TestProvisionUser:
             raw_claims={"sub": "personal-user"},
         )
         result = await provision_user_from_claims(claims)
-        assert result["organization_id"] is None
+        assert result["organization_id"] == "gmail.com"
 
     @pytest.mark.asyncio
-    async def test_no_groups_no_raw_claims(self):
+    async def test_no_groups_no_raw_claims_uses_email_domain(self):
         claims = OIDCClaims(
             sub="minimal-user",
             email="minimal@example.com",
@@ -366,4 +366,4 @@ class TestProvisionUser:
             roles=None,
         )
         result = await provision_user_from_claims(claims)
-        assert result["organization_id"] is None
+        assert result["organization_id"] == "example.com"

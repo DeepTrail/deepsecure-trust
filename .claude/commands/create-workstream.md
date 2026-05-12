@@ -106,12 +106,27 @@ Downstream consumers of WORKSTREAM.md:
 3. **Create WORKSTREAM.md — THE MAIN OUTPUT**
 
    This is the central hub document for the entire feature. It MUST include ALL sections
-   listed below. The quality bar is set by proven gold-standard workstream docs:
+   listed below.
+
+   **⚠️ MANDATORY PRE-WRITE STEP — DO NOT SKIP:**
    
+   BEFORE writing WORKSTREAM.md, you MUST READ the following gold-standard reference file
+   in full. Your output must match its structure section-for-section:
+   
+   ```
+   READ docs/workstreams/frontend-architecture/WORKSTREAM.md
+   ```
+   
+   This is not a suggestion — it is a prerequisite. If you skip this read, the output will
+   be shallow (111 lines instead of 600+) and will fail the blocking verification below.
+   
+   Additional references (read at least ONE more for cross-referencing):
    - `docs/workstreams/idp-selector/WORKSTREAM.md` — 298 lines, Scope section, Verification Checkpoints, detailed History
-   - `docs/workstreams/idp-enhanced-sso/WORKSTREAM.md` — 189 lines, Feature Summary, Worktree Lifecycle, Key Files by WS, Batch Overview
-   - `docs/workstreams/virtual-mcp-server-mvp/WORKSTREAM.md` — 285 lines, Batch-organized Task Tickets, Completion Reports, Merge Points summary
    - `docs/workstreams/mvp-production-readiness/WORKSTREAM.md` — 197 lines, Executive Summary, Key Decisions, Critical Path, Phase-organized Specs
+   
+   > **Lesson (May 2026):** Referencing gold-standard files as hints ("quality bar is set by X")
+   > causes models to generate structurally valid but shallow output. Explicit READ instructions
+   > produce section-for-section matches. See: docs/content/linkedin-post-spec-drift-coordination-integrity.md Post 11b.
 
    **REQUIRED SECTIONS (all 20 — do not omit any):**
 
@@ -278,6 +293,17 @@ Downstream consumers of WORKSTREAM.md:
    
    **IMPORTANT:** Use the comprehensive template in `docs/workstreams/MERGE_POINT_GUIDE.md`
    
+   **Merge Point Naming (MANDATORY — gold standard):**
+   Merge points MUST use numeric IDs: `MP1`, `MP2`, `MP3`, etc.
+   Do NOT use letter-based IDs like `MP-A`, `MP-B` or `MP-Backend`.
+   This matches the `P{N}-B{N}` batch numbering gold standard — both use sequential numbers.
+   
+   | Correct | Incorrect |
+   |---------|-----------|
+   | MP1, MP2, MP3 | MP-A, MP-B, MP-C |
+   | "After MP1" | "After MP-Backend" |
+   | `### Success Criteria — MP1` | `### Success Criteria — MP-A` |
+   
    **Required sections** (see MERGE_POINT_GUIDE.md for full details):
    
    | Section | Purpose |
@@ -315,6 +341,8 @@ Downstream consumers of WORKSTREAM.md:
    grep -q "### Post-Merge Status Update" $FILE && echo "✅ Status Update" || echo "❌ MISSING"
    grep -q "## Quick Reference Commands" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING"
    grep -q "## Merge Point Status" $FILE && echo "✅ Status Table" || echo "❌ MISSING"
+   # Naming check: MP{N} only, no MP-{letter}
+   grep -qP "MP-[A-Z]" $FILE && echo "❌ FAIL: Found MP-{letter} naming — must use MP1, MP2, MP3" || echo "✅ Merge point naming (MP{N})"
    echo "=== Complete ==="
    ```
 
@@ -397,7 +425,11 @@ the BREAKDOWN.md. If a section is not applicable (e.g., single-workstream featur
 
 ---
 
-## ⚠️ Verification Checklist (MANDATORY)
+## ⚠️ BLOCKING Verification (MANDATORY — run this, fix failures, re-run until clean)
+
+**This verification is BLOCKING. You MUST run it after creating the files. If ANY line
+shows ❌, fix the missing section and re-run. Do NOT declare complete with ❌ in output.
+Do NOT skip this step. This is the enforcement mechanism that prevents shallow output.**
 
 Before declaring workstream creation complete, verify ALL files exist:
 
@@ -410,41 +442,59 @@ Before declaring workstream creation complete, verify ALL files exist:
 | `tasks/` | ✅ YES | Task ticket folder |
 | `reports/` | ✅ YES | Completion reports folder |
 
-**Verification command:**
+**Verification command (MUST RUN — BLOCKING):**
 ```bash
 FEATURE="[feature-name]"
+FAIL=0
+
 echo "=== Workstream File Verification ==="
-[ -f "docs/workstreams/${FEATURE}/WORKSTREAM.md" ] && echo "✅ WORKSTREAM.md" || echo "❌ MISSING"
-[ -f "docs/workstreams/${FEATURE}/STATUS.md" ] && echo "✅ STATUS.md" || echo "❌ MISSING"
-[ -f "docs/workstreams/${FEATURE}/MERGE_POINTS.md" ] && echo "✅ MERGE_POINTS.md" || echo "❌ MISSING"
-[ -d "docs/workstreams/${FEATURE}/specs" ] && echo "✅ specs/" || echo "❌ MISSING"
-[ -d "docs/workstreams/${FEATURE}/tasks" ] && echo "✅ tasks/" || echo "❌ MISSING"
-[ -d "docs/workstreams/${FEATURE}/reports" ] && echo "✅ reports/" || echo "❌ MISSING"
+[ -f "docs/workstreams/${FEATURE}/WORKSTREAM.md" ] && echo "✅ WORKSTREAM.md" || { echo "❌ MISSING"; FAIL=1; }
+[ -f "docs/workstreams/${FEATURE}/STATUS.md" ] && echo "✅ STATUS.md" || { echo "❌ MISSING"; FAIL=1; }
+[ -f "docs/workstreams/${FEATURE}/MERGE_POINTS.md" ] && echo "✅ MERGE_POINTS.md" || { echo "❌ MISSING"; FAIL=1; }
+[ -d "docs/workstreams/${FEATURE}/specs" ] && echo "✅ specs/" || { echo "❌ MISSING"; FAIL=1; }
+[ -d "docs/workstreams/${FEATURE}/tasks" ] && echo "✅ tasks/" || { echo "❌ MISSING"; FAIL=1; }
+[ -d "docs/workstreams/${FEATURE}/reports" ] && echo "✅ reports/" || { echo "❌ MISSING"; FAIL=1; }
+
 echo ""
 echo "=== WORKSTREAM.md Section Verification ==="
 FILE="docs/workstreams/${FEATURE}/WORKSTREAM.md"
-grep -q "## Executive Summary" $FILE && echo "✅ Executive Summary" || echo "❌ MISSING"
+grep -q "## Executive Summary" $FILE && echo "✅ Executive Summary" || { echo "❌ MISSING: Executive Summary"; FAIL=1; }
 grep -q "## Feature Summary" $FILE && echo "✅ Feature Summary" || echo "⚠️  Missing (OK if single-WS)"
-grep -q "## Workstreams" $FILE && echo "✅ Workstreams Table" || echo "❌ MISSING"
-grep -q "## Workstream Dependencies" $FILE && echo "✅ Dependencies" || echo "❌ MISSING"
-grep -q "## Parallelization Strategy" $FILE && echo "✅ Parallelization" || echo "❌ MISSING"
-grep -q "## Scope" $FILE && echo "✅ Scope" || echo "❌ MISSING"
-grep -q "## Key Decisions" $FILE && echo "✅ Key Decisions" || echo "❌ MISSING"
-grep -q "## Batch Overview" $FILE && echo "✅ Batch Overview" || echo "❌ MISSING"
-grep -q "## Merge Points" $FILE && echo "✅ Merge Points" || echo "❌ MISSING"
-grep -q "## Critical Path" $FILE && echo "✅ Critical Path" || echo "❌ MISSING"
-grep -q "## All Tasks" $FILE && echo "✅ All Tasks" || echo "❌ MISSING"
-grep -q "## Task Tickets" $FILE && echo "✅ Task Tickets" || echo "❌ MISSING"
-grep -q "## Specifications" $FILE && echo "✅ Specifications" || echo "❌ MISSING"
-grep -q "## Completion Reports" $FILE && echo "✅ Completion Reports" || echo "❌ MISSING"
-grep -q "## Key Files" $FILE && echo "✅ Key Files" || echo "❌ MISSING"
-grep -q "## Validation Criteria" $FILE && echo "✅ Validation Criteria" || echo "❌ MISSING"
-grep -q "## Progress" $FILE && echo "✅ Progress" || echo "❌ MISSING"
-grep -q "## History" $FILE && echo "✅ History" || echo "❌ MISSING"
+grep -q "## Workstreams" $FILE && echo "✅ Workstreams Table" || { echo "❌ MISSING: Workstreams Table"; FAIL=1; }
+grep -q "## Workstream Dependencies" $FILE && echo "✅ Dependencies" || { echo "❌ MISSING: Workstream Dependencies"; FAIL=1; }
+grep -q "## Parallelization Strategy" $FILE && echo "✅ Parallelization" || { echo "❌ MISSING: Parallelization Strategy"; FAIL=1; }
+grep -q "## Scope" $FILE && echo "✅ Scope" || { echo "❌ MISSING: Scope"; FAIL=1; }
+grep -q "## Key Decisions" $FILE && echo "✅ Key Decisions" || { echo "❌ MISSING: Key Decisions"; FAIL=1; }
+grep -q "## Batch Overview" $FILE && echo "✅ Batch Overview" || { echo "❌ MISSING: Batch Overview"; FAIL=1; }
+grep -q "## Merge Points" $FILE && echo "✅ Merge Points" || { echo "❌ MISSING: Merge Points"; FAIL=1; }
+grep -q "## Critical Path" $FILE && echo "✅ Critical Path" || { echo "❌ MISSING: Critical Path"; FAIL=1; }
+grep -q "## All Tasks" $FILE && echo "✅ All Tasks" || { echo "❌ MISSING: All Tasks"; FAIL=1; }
+grep -q "## Task Tickets" $FILE && echo "✅ Task Tickets" || { echo "❌ MISSING: Task Tickets"; FAIL=1; }
+grep -q "## Specifications" $FILE && echo "✅ Specifications" || { echo "❌ MISSING: Specifications"; FAIL=1; }
+grep -q "## Completion Reports" $FILE && echo "✅ Completion Reports" || { echo "❌ MISSING: Completion Reports"; FAIL=1; }
+grep -q "## Key Files" $FILE && echo "✅ Key Files" || { echo "❌ MISSING: Key Files"; FAIL=1; }
+grep -q "## Validation Criteria" $FILE && echo "✅ Validation Criteria" || { echo "❌ MISSING: Validation Criteria"; FAIL=1; }
+grep -q "## Progress" $FILE && echo "✅ Progress" || { echo "❌ MISSING: Progress"; FAIL=1; }
+grep -q "## History" $FILE && echo "✅ History" || { echo "❌ MISSING: History"; FAIL=1; }
+
+echo ""
+echo "=== Line Count Check ==="
+LINES=$(wc -l < "$FILE")
+echo "WORKSTREAM.md: ${LINES} lines"
+[ "$LINES" -gt 100 ] && echo "✅ Above 100-line minimum" || { echo "❌ UNDER 100 LINES — likely missing sections (gold standard is 600+ lines)"; FAIL=1; }
+
+echo ""
+if [ "$FAIL" -eq 0 ]; then
+  echo "✅✅✅ ALL CHECKS PASSED — workstream creation complete"
+else
+  echo "❌❌❌ VERIFICATION FAILED — fix missing sections above and re-run this script"
+  echo "DO NOT declare this step complete until all ❌ are resolved."
+fi
 echo "=== Complete ==="
 ```
 
-**If any required section is missing, add it BEFORE declaring complete.**
+**If ANY ❌ appears: fix the missing section, then re-run the script. Repeat until all green.
+Do NOT proceed to /create-batch-execution-plan until this passes.**
 
 ## Common Rationalizations
 

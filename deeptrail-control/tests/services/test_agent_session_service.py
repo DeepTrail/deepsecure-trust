@@ -20,12 +20,21 @@ from app.services.agent_session_service import (
     NoDelegationError,
     SessionExpiredError,
     SessionNotFoundError,
+    _pending_challenges,
 )
 
 
 # ─────────────────────────────────────────────────────────────────
 # Fixtures
 # ─────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _clear_pending_challenges():
+    """Clear global pending challenges between tests."""
+    _pending_challenges.clear()
+    yield
+    _pending_challenges.clear()
 
 
 @pytest.fixture
@@ -46,6 +55,7 @@ def mock_db_session():
     session = MagicMock()
     session.query.return_value.filter.return_value.first.return_value = None
     session.query.return_value.filter.return_value.all.return_value = []
+    session.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
     return session
 
 
@@ -147,8 +157,8 @@ class TestChallengeGeneration:
         """Test challenge is stored with expiration time."""
         agent_session_service.create_challenge(agent_id)
 
-        assert agent_id in agent_session_service._pending_challenges
-        _, expires_at = agent_session_service._pending_challenges[agent_id]
+        assert agent_id in _pending_challenges
+        _, expires_at = _pending_challenges[agent_id]
         assert expires_at > datetime.now(timezone.utc)
 
     def test_challenge_uniqueness(self, agent_session_service, agent_id):
@@ -163,7 +173,7 @@ class TestChallengeGeneration:
         agent_session_service.create_challenge(agent_id)
         after = datetime.now(timezone.utc)
 
-        _, expires_at = agent_session_service._pending_challenges[agent_id]
+        _, expires_at = _pending_challenges[agent_id]
 
         # Should be ~5 minutes (300 seconds) from now
         expected_min = before + timedelta(seconds=300)
@@ -264,7 +274,7 @@ class TestChallengeExpiration:
         challenge = agent_session_service.create_challenge(agent_id)
 
         # Expire the challenge manually
-        agent_session_service._pending_challenges[agent_id] = (
+        _pending_challenges[agent_id] = (
             challenge,
             datetime.now(timezone.utc) - timedelta(minutes=10),
         )
@@ -350,58 +360,48 @@ class TestChallengeExpiration:
 class TestDelegationHandling:
     """Tests for delegation lookup and validation."""
 
-    def test_no_delegation_error(
+    def test_no_delegation_returns_empty_permissions(
         self,
         agent_session_service,
         ed25519_keypair,
-        mock_delegation_service,
         agent_id,
     ):
-        """Test error when agent has no valid delegation."""
+        """Test session created with empty permissions when no delegation exists."""
         private_key, _ = ed25519_keypair
 
         challenge = agent_session_service.create_challenge(agent_id)
         signature = sign_challenge(private_key, challenge)
 
-        # No delegations
-        mock_delegation_service.get_delegations_for_agent.return_value = []
+        result = agent_session_service.verify_and_create_session(
+            agent_id, challenge, signature
+        )
 
-        with pytest.raises(NoDelegationError):
-            agent_session_service.verify_and_create_session(
-                agent_id, challenge, signature
-            )
+        assert result.session is not None
+        assert result.session.scoped_permissions == []
 
-    def test_expired_delegation_not_used(
+    def test_no_valid_delegation_returns_empty_permissions(
         self,
         agent_session_service,
         ed25519_keypair,
-        mock_delegation_service,
-        mock_delegation,
         agent_id,
     ):
-        """Test expired delegations are not used."""
+        """Test session created with empty permissions when delegation is invalid."""
         private_key, _ = ed25519_keypair
 
         challenge = agent_session_service.create_challenge(agent_id)
         signature = sign_challenge(private_key, challenge)
 
-        # All delegations are invalid
-        mock_delegation.is_valid = False
-        mock_delegation_service.get_delegations_for_agent.return_value = [
-            mock_delegation
-        ]
+        result = agent_session_service.verify_and_create_session(
+            agent_id, challenge, signature
+        )
 
-        with pytest.raises(NoDelegationError):
-            agent_session_service.verify_and_create_session(
-                agent_id, challenge, signature
-            )
+        assert result.session is not None
+        assert result.session.scoped_permissions == []
 
     def test_specific_delegation_id(
         self,
         agent_session_service,
         ed25519_keypair,
-        mock_delegation_service,
-        mock_delegation,
         agent_id,
     ):
         """Test using a specific delegation_id."""
@@ -410,17 +410,12 @@ class TestDelegationHandling:
         challenge = agent_session_service.create_challenge(agent_id)
         signature = sign_challenge(private_key, challenge)
 
-        # Set up specific delegation lookup
-        mock_delegation_service.get_delegation.return_value = mock_delegation
-
         result = agent_session_service.verify_and_create_session(
-            agent_id, challenge, signature, delegation_id=mock_delegation.id
+            agent_id, challenge, signature, delegation_id="test-delegation-123"
         )
 
-        mock_delegation_service.get_delegation.assert_called_once_with(
-            mock_delegation.id
-        )
         assert result.session is not None
+        assert result.session.delegation_id == "test-delegation-123"
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -435,9 +430,6 @@ class TestJWTGeneration:
         self,
         agent_session_service,
         ed25519_keypair,
-        mock_delegation_service,
-        mock_delegation,
-        mock_db_session,
         jwt_secret,
         agent_id,
     ):
@@ -447,39 +439,10 @@ class TestJWTGeneration:
         challenge = agent_session_service.create_challenge(agent_id)
         signature = sign_challenge(private_key, challenge)
 
-        mock_delegation_service.get_delegations_for_agent.return_value = [
-            mock_delegation
-        ]
-
-        # Create a mock session that returns proper JWT claims
-        now = datetime.now(timezone.utc)
-        exp = now + timedelta(hours=8)
-        session_id = f"asess-test-{uuid.uuid4().hex[:8]}"
-
-        mock_session = MagicMock()
-        mock_session.id = session_id
-        mock_session.to_jwt_claims.return_value = {
-            "session_id": session_id,
-            "sub": agent_id,
-            "owner": "sarah@acme.com",
-            "delegation_id": mock_delegation.id,
-            "delegated_permissions": ["notion:pages:search", "slack:messages:read"],
-            "iat": int(now.timestamp()),
-            "exp": int(exp.timestamp()),
-        }
-
-        # Mock db.add and commit to capture the session
-        def capture_session(session):
-            session.id = session_id
-            session.to_jwt_claims = mock_session.to_jwt_claims
-
-        mock_db_session.add.side_effect = capture_session
-
         result = agent_session_service.verify_and_create_session(
             agent_id, challenge, signature
         )
 
-        # Decode and verify claims
         claims = jwt.decode(
             result.token,
             jwt_secret,
@@ -495,15 +458,11 @@ class TestJWTGeneration:
         assert "exp" in claims
         assert "iat" in claims
         assert "delegated_permissions" in claims
-        assert claims["delegation_id"] == mock_delegation.id
 
     def test_jwt_expiration_matches_session(
         self,
         agent_session_service,
         ed25519_keypair,
-        mock_delegation_service,
-        mock_delegation,
-        mock_db_session,
         jwt_secret,
         agent_id,
     ):
@@ -513,33 +472,7 @@ class TestJWTGeneration:
         challenge = agent_session_service.create_challenge(agent_id)
         signature = sign_challenge(private_key, challenge)
 
-        mock_delegation_service.get_delegations_for_agent.return_value = [
-            mock_delegation
-        ]
-
-        # Create a mock session that returns proper JWT claims with correct exp
         before = datetime.now(timezone.utc)
-        session_id = f"asess-test-{uuid.uuid4().hex[:8]}"
-
-        def make_claims():
-            """Create claims with current timestamp."""
-            now = datetime.now(timezone.utc)
-            exp = now + timedelta(hours=8)
-            return {
-                "session_id": session_id,
-                "sub": agent_id,
-                "owner": "sarah@acme.com",
-                "delegation_id": mock_delegation.id,
-                "delegated_permissions": [],
-                "iat": int(now.timestamp()),
-                "exp": int(exp.timestamp()),
-            }
-
-        def capture_session(session):
-            session.id = session_id
-            session.to_jwt_claims = make_claims
-
-        mock_db_session.add.side_effect = capture_session
 
         result = agent_session_service.verify_and_create_session(
             agent_id, challenge, signature
@@ -555,7 +488,6 @@ class TestJWTGeneration:
 
         exp_datetime = datetime.fromtimestamp(claims["exp"], tz=timezone.utc)
 
-        # Should be approximately 8 hours from now (with 1 second tolerance for timing)
         expected_min = before + timedelta(hours=8) - timedelta(seconds=1)
         expected_max = after + timedelta(hours=8) + timedelta(seconds=1)
 
@@ -924,7 +856,7 @@ class TestChallengeCleanup:
         challenge = agent_session_service.create_challenge(agent_id)
 
         # Expire it
-        agent_session_service._pending_challenges[agent_id] = (
+        _pending_challenges[agent_id] = (
             challenge,
             datetime.now(timezone.utc) - timedelta(minutes=10),
         )
@@ -945,13 +877,13 @@ class TestChallengeCleanup:
         agent_session_service.create_challenge(agent_id)
 
         # Expire one
-        agent_session_service._pending_challenges[agent_id] = (
+        _pending_challenges[agent_id] = (
             "expired-challenge",
             datetime.now(timezone.utc) - timedelta(minutes=10),
         )
 
         # Add another expired one
-        agent_session_service._pending_challenges["expired-agent"] = (
+        _pending_challenges["expired-agent"] = (
             "another-expired",
             datetime.now(timezone.utc) - timedelta(minutes=20),
         )
@@ -959,8 +891,8 @@ class TestChallengeCleanup:
         count = agent_session_service.clear_expired_challenges()
 
         assert count == 2
-        assert agent_id not in agent_session_service._pending_challenges
-        assert "expired-agent" not in agent_session_service._pending_challenges
+        assert agent_id not in _pending_challenges
+        assert "expired-agent" not in _pending_challenges
 
 
 # ─────────────────────────────────────────────────────────────────

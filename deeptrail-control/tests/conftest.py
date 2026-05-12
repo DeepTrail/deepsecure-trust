@@ -23,6 +23,7 @@ from app.api.deps import get_db # Import the original dependency
 
 # Explicitly import models to ensure they are registered with Base metadata
 from app.models import agent, credential
+from app.models import agent_session, delegation  # noqa: F401 - ensure tables are created
 
 # Create a new engine and session for testing
 # Add connect_args for SQLite

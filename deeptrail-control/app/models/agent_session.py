@@ -114,7 +114,7 @@ class AgentSession(Base):
 
     # Party type for policy decisions
     party_type = Column(
-        SQLAlchemyEnum(PartyType),
+        SQLAlchemyEnum(PartyType, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=PartyType.FIRST_PARTY,
         comment="Agent party type (first_party, third_party, federated)",
@@ -227,6 +227,13 @@ class AgentSession(Base):
         nullable=True,
         index=True,
         comment="Organization identifier for multi-tenant deployments",
+    )
+
+    # Network context
+    source_ip = Column(
+        String(45),
+        nullable=True,
+        comment="IP address of the authenticating agent (IPv4 or IPv6)",
     )
 
     # Indexes for efficient lookups
