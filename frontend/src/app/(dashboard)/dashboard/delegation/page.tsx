@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
-import { KeyRound, Plus, Shield, Clock } from "lucide-react";
+import { KeyRound, Plus, Shield, Clock, Trash2 } from "lucide-react";
 
 interface Agent {
   agent_id: string;
@@ -129,21 +129,50 @@ export default function DelegationPage() {
             permsByService[svc].push(parts.slice(1).join(":"));
           }
 
+          const isExpired = d.created_at
+            ? Date.now() > new Date(d.created_at).getTime() + d.expires_in * 1000
+            : false;
+
+          const handleRevoke = async () => {
+            if (!window.confirm("Revoke this delegation? The agent will lose these permissions immediately.")) return;
+            try {
+              await apiClient(`auth/delegations/${d.delegation_id}`, { method: "DELETE" });
+              fetchData();
+            } catch {
+              alert("Failed to revoke delegation");
+            }
+          };
+
           return (
-            <Card key={d.delegation_id}>
+            <Card key={d.delegation_id} className={isExpired ? "opacity-60" : ""}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium">
                   <Shield className="h-4 w-4 text-muted-foreground" />
                   {agentNameMap[d.agent_id] || d.agent_id}
                 </CardTitle>
                 <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="text-xs">
-                    <Clock className="mr-1 h-3 w-3" />
-                    TTL {formatTtl(d.expires_in)}
-                  </Badge>
+                  {isExpired ? (
+                    <Badge variant="destructive" className="text-xs">
+                      Expired
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-xs">
+                      <Clock className="mr-1 h-3 w-3" />
+                      TTL {formatTtl(d.expires_in)}
+                    </Badge>
+                  )}
                   <Badge variant="default">
                     {d.permissions.length} permission{d.permissions.length !== 1 ? "s" : ""}
                   </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={handleRevoke}
+                    title="Revoke delegation"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               </CardHeader>
               <CardContent>

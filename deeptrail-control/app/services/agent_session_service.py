@@ -261,14 +261,55 @@ class AgentSessionService:
         # 4. Clear the used challenge (single-use)
         del _pending_challenges[agent_id]
 
-        # MVP: Simplified session creation without database
-        # Production would validate delegation and create database session
-        
-        # 5. Create in-memory session
-        session = self._create_mvp_session(agent_id, party_type, delegation_id)
+        # 5. Find delegation and create database-backed session
+        delegation = (
+            self.db.query(DelegationToken)
+            .filter(
+                DelegationToken.agent_id == agent_id,
+                DelegationToken.revoked_at.is_(None),
+            )
+            .order_by(DelegationToken.created_at.desc())
+            .first()
+        )
+
+        session_expires_at = datetime.now(timezone.utc) + timedelta(hours=self.SESSION_TTL_HOURS)
+
+        if delegation and delegation.is_valid:
+            session = AgentSession(
+                agent_id=agent_id,
+                delegation_id=delegation.id,
+                party_type=party_type,
+                scoped_permissions=delegation.delegated_permissions or [],
+                owner_email=delegation.delegator or "unknown",
+                idp_issuer=delegation.delegator_idp,
+                groups=[],
+                is_active=True,
+                expires_at=session_expires_at,
+            )
+        else:
+            # No delegation — still create a session but use the MVP in-memory approach
+            # since delegation_id is NOT NULL in the DB schema
+            mvp_session = self._create_mvp_session(agent_id, party_type, delegation_id)
+            token = self._generate_mvp_jwt(agent_id, mvp_session)
+            expires_in = int(self.SESSION_TTL_HOURS * 3600)
+
+            logger.info(
+                f"Agent {agent_id} authenticated (no delegation), "
+                f"session {mvp_session.id} created (in-memory)"
+            )
+
+            return AuthenticationResult(
+                token=token,
+                session=mvp_session,
+                expires_in=expires_in,
+            )
+
+        self.db.add(session)
+        self.db.commit()
+        self.db.refresh(session)
 
         # 6. Generate JWT
-        token = self._generate_mvp_jwt(agent_id, session)
+        token = self._generate_jwt(session)
 
         # 7. Calculate expires_in
         expires_in = int(self.SESSION_TTL_HOURS * 3600)
@@ -292,7 +333,7 @@ class AgentSessionService:
         Args:
             agent_id: Agent's identifier
             challenge: The message that was signed
-            signature: Base64url-encoded signature
+            signature: Base64url-encoded signature (padding optional)
 
         Returns:
             True if signature is valid, False otherwise
@@ -303,12 +344,14 @@ class AgentSessionService:
             if not public_key_b64:
                 return False
 
-            # Decode public key
-            public_key_bytes = base64.urlsafe_b64decode(public_key_b64)
+            # Decode public key (re-pad if needed)
+            public_key_padded = public_key_b64 + "=" * (-len(public_key_b64) % 4)
+            public_key_bytes = base64.urlsafe_b64decode(public_key_padded)
             public_key = Ed25519PublicKey.from_public_bytes(public_key_bytes)
 
-            # Decode signature
-            signature_bytes = base64.urlsafe_b64decode(signature)
+            # Decode signature (re-pad if needed — browsers strip '=' from base64url)
+            sig_padded = signature + "=" * (-len(signature) % 4)
+            signature_bytes = base64.urlsafe_b64decode(sig_padded)
 
             # Verify - Ed25519 signs the raw bytes
             challenge_bytes = challenge.encode("utf-8")
@@ -342,7 +385,7 @@ class AgentSessionService:
         )
 
         delegation = (
-            self.db_session.query(DelegationToken)
+            self.db.query(DelegationToken)
             .filter(
                 DelegationToken.agent_id == agent_id,
                 DelegationToken.revoked_at.is_(None),
@@ -354,7 +397,7 @@ class AgentSessionService:
         resolved_delegation_id = delegation_id
         if delegation and delegation.is_valid:
             scoped_permissions = delegation.delegated_permissions or []
-            owner_email = delegation.delegator or "sarah@acme.com"
+            owner_email = delegation.delegator or "unknown"
             organization_id = delegation.organization_id
             if not resolved_delegation_id:
                 resolved_delegation_id = delegation.id
@@ -368,7 +411,7 @@ class AgentSessionService:
             )
         else:
             scoped_permissions = []
-            owner_email = "sarah@acme.com"
+            owner_email = "no-delegation"
             organization_id = None
             logger.warning(
                 "No valid delegation found for agent %s, using empty permissions",

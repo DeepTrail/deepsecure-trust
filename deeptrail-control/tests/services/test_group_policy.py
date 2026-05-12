@@ -262,8 +262,8 @@ class TestShippedYaml:
         yaml_path = Path(__file__).resolve().parents[2] / "group_policies.yaml"
         return GroupPolicyMapper.from_yaml(yaml_path)
 
-    def test_loads_three_policies(self, shipped_mapper: GroupPolicyMapper):
-        assert len(shipped_mapper._policies) == 3
+    def test_loads_all_policies(self, shipped_mapper: GroupPolicyMapper):
+        assert len(shipped_mapper._policies) == 6
 
     def test_engineering_group(self, shipped_mapper: GroupPolicyMapper):
         result = shipped_mapper.resolve(["engineering@deeptrail.com"])
@@ -275,6 +275,12 @@ class TestShippedYaml:
         assert result.roles == ["sales"]
         assert "gcalendar:events:list" in result.default_permissions
 
-    def test_acme_group(self, shipped_mapper: GroupPolicyMapper):
-        result = shipped_mapper.resolve(["acme-org"])
-        assert result.roles == ["user"]
+    def test_domain_fallback_group(self, shipped_mapper: GroupPolicyMapper):
+        result = shipped_mapper.resolve(["deeptrail.com"])
+        assert result.roles == ["admin"]
+        assert "notion:pages:search" in result.default_permissions
+
+    def test_keycloak_engineering_group(self, shipped_mapper: GroupPolicyMapper):
+        result = shipped_mapper.resolve(["engineering"])
+        assert result.roles == ["engineer"]
+        assert "github:repos:read" in result.default_permissions

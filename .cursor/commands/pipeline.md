@@ -67,8 +67,8 @@ The pipeline maintains state in `docs/workstreams/[feature]/PIPELINE_STATE.md`:
 ### Current Batch
 | Batch | Tasks | Status |
 |-------|-------|--------|
-| Batch 1 | WS-A1, WS-B1 | ✅ Complete |
-| Batch 2 | WS-A2, WS-B2 | 🔄 In Progress |
+| P0-B1 | WS-A1, WS-B1 | ✅ Complete |
+| P0-B2 | WS-A2, WS-B2 | 🔄 In Progress |
 ```
 
 ---
@@ -95,7 +95,7 @@ The pipeline maintains state in `docs/workstreams/[feature]/PIPELINE_STATE.md`:
 /pipeline @design-doc.md --phase=explore
 /pipeline @design-doc.md --phase=plan
 /pipeline @design-doc.md --phase=execute
-/pipeline @design-doc.md --phase=execute --batch=2
+/pipeline @design-doc.md --phase=execute --batch=P0-B2
 /pipeline @design-doc.md --phase=review
 /pipeline @design-doc.md --phase=ship
 ```
@@ -185,7 +185,7 @@ Invoke `/run-plan [design-doc-path] [feature-name]`:
    - `/create-batch-execution-plan` — creates `BATCH_EXECUTION_PLAN.md` with wave analysis
 2. **Verifies all 8 required files** exist (`BREAKDOWN.md`, `WORKSTREAM.md`, `STATUS.md`, `BATCH_EXECUTION_PLAN.md`, `MERGE_POINTS.md`, `CODEBASE_ANALYSIS.md`, `tasks/`, `reports/`)
 3. **Decides on and optionally runs `/setup-worktrees`** — only for multi-service features with independent parallel work
-4. **Checkpoints with user** — presents workstream summary, task count, batch table, critical path, Batch 1 preview
+4. **Checkpoints with user** — presents workstream summary, task count, batch table, critical path, first batch preview
 
 ### Step 2.2 (Manual Alternative): Individual Commands
 
@@ -205,7 +205,7 @@ Show:
 - Codebase analysis highlights (existing vs new)
 - Worktree strategy
 
-Ask: "Proceed to Batch 1? (yes / review / pause)"
+Ask: "Proceed to first batch (P0-B1)? (yes / review / pause)"
 ```
 
 **Update pipeline state → PLAN ✅**
@@ -221,8 +221,8 @@ Ask: "Proceed to Batch 1? (yes / review / pause)"
 ### Step 3.1: Batch Loop (Automated)
 
 ```
-for batch_number in 1..total_batches:
-    /run-batch batch_number feature_name
+for batch_id in [batch IDs from Quick Reference table, e.g., P0-B1, P0-B2, P1-B1]:
+    /run-batch batch_id feature_name
     
     # /run-batch internally:
     #   1. Parses BATCH_EXECUTION_PLAN.md for this batch
@@ -438,7 +438,7 @@ After each phase, output:
 |-------|--------|
 | DEFINE | ✅ |
 | PLAN | ✅ |
-| EXECUTE | 🔄 Batch 2/4 |
+| EXECUTE | 🔄 P0-B2/4 batches |
 | REVIEW | ⏳ |
 | SHIP | ⏳ |
 

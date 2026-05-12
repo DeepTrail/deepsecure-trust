@@ -1,7 +1,13 @@
 import React from "react";
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { ToolsList, type AgentTool } from "../ToolsList";
+import userEvent from "@testing-library/user-event";
+import {
+  DelegatedToolsCard,
+  UnavailableToolsDisclosure,
+  ToolsList,
+  type AgentTool,
+} from "../ToolsList";
 
 const TOOLS: AgentTool[] = [
   {
@@ -25,76 +31,78 @@ const TOOLS: AgentTool[] = [
   },
 ];
 
-describe("ToolsList", () => {
-  it("renders all tools with their names", () => {
-    render(<ToolsList tools={TOOLS} />);
+describe("DelegatedToolsCard", () => {
+  it("renders only available tools as chips", () => {
+    render(<DelegatedToolsCard tools={TOOLS} />);
 
-    expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
-    expect(screen.getByText("notion.create_page")).toBeInTheDocument();
-    expect(screen.getByText("slack.post_message")).toBeInTheDocument();
+    expect(screen.getByText("search_pages")).toBeInTheDocument();
+    expect(screen.getByText("post_message")).toBeInTheDocument();
+    expect(screen.queryByText("create_page")).not.toBeInTheDocument();
   });
 
-  it("shows tool count in header", () => {
-    render(<ToolsList tools={TOOLS} />);
+  it("shows delegated tool count in header", () => {
+    render(<DelegatedToolsCard tools={TOOLS} />);
 
-    expect(screen.getByText(`Tools (${TOOLS.length})`)).toBeInTheDocument();
+    expect(screen.getByText(/Delegated Tools & Permissions/)).toBeInTheDocument();
   });
 
-  it("displays permission for each tool", () => {
-    render(<ToolsList tools={TOOLS} />);
+  it("groups tools by service", () => {
+    render(<DelegatedToolsCard tools={TOOLS} />);
 
-    expect(screen.getByText("notion:pages:read")).toBeInTheDocument();
-    expect(screen.getByText("notion:pages:create")).toBeInTheDocument();
-    expect(screen.getByText("slack:messages:write")).toBeInTheDocument();
-  });
-
-  it("displays backend badge for each tool", () => {
-    render(<ToolsList tools={TOOLS} />);
-
-    const notionBadges = screen.getAllByText("notion");
-    expect(notionBadges).toHaveLength(2);
+    expect(screen.getByText("notion")).toBeInTheDocument();
     expect(screen.getByText("slack")).toBeInTheDocument();
   });
 
-  it("shows green checkmark icon for available tools", () => {
-    render(<ToolsList tools={[TOOLS[0]]} />);
+  it("renders empty state when no tools are delegated", () => {
+    const unavailableOnly = TOOLS.filter((t) => !t.available);
+    render(<DelegatedToolsCard tools={unavailableOnly} />);
 
-    const icon = document.querySelector(".lucide-circle-check");
-    expect(icon).toBeInTheDocument();
-    expect(icon).toHaveClass("text-green-600");
+    expect(screen.getByText("No tools delegated yet")).toBeInTheDocument();
   });
 
-  it("shows red X icon for unavailable tools", () => {
-    render(<ToolsList tools={[TOOLS[1]]} />);
+  it("renders empty state when tools list is empty", () => {
+    render(<DelegatedToolsCard tools={[]} />);
 
-    const icon = document.querySelector(".lucide-circle-x");
-    expect(icon).toBeInTheDocument();
-    expect(icon).toHaveClass("text-red-500");
+    expect(screen.getByText("No tools delegated yet")).toBeInTheDocument();
   });
+});
 
-  it("shows reason text for unavailable tools", () => {
-    render(<ToolsList tools={TOOLS} />);
-
-    expect(screen.getByText("Not in delegation")).toBeInTheDocument();
-  });
-
-  it("does not show reason for available tools", () => {
-    render(<ToolsList tools={[TOOLS[0]]} />);
-
-    expect(screen.queryByText("Not in delegation")).not.toBeInTheDocument();
-  });
-
-  it("renders empty state when no tools provided", () => {
-    render(<ToolsList tools={[]} />);
+describe("UnavailableToolsDisclosure", () => {
+  it("renders collapsed by default", () => {
+    render(<UnavailableToolsDisclosure tools={TOOLS} />);
 
     expect(
-      screen.getByText("No tools configured for this agent.")
+      screen.getByText(/Show 1 unavailable tool/)
     ).toBeInTheDocument();
+    expect(screen.queryByText("create_page")).not.toBeInTheDocument();
   });
 
-  it("does not render header when tools list is empty", () => {
-    render(<ToolsList tools={[]} />);
+  it("expands to show unavailable tools on click", async () => {
+    const user = userEvent.setup();
+    render(<UnavailableToolsDisclosure tools={TOOLS} />);
 
-    expect(screen.queryByText(/^Tools \(/)).not.toBeInTheDocument();
+    await user.click(screen.getByText(/Show 1 unavailable tool/));
+
+    expect(screen.getByText("create_page")).toBeInTheDocument();
+  });
+
+  it("returns null when no unavailable tools", () => {
+    const availableOnly = TOOLS.filter((t) => t.available);
+    const { container } = render(
+      <UnavailableToolsDisclosure tools={availableOnly} />
+    );
+
+    expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("ToolsList (legacy wrapper)", () => {
+  it("renders both delegated and unavailable sections", () => {
+    render(<ToolsList tools={TOOLS} />);
+
+    expect(screen.getByText(/Delegated Tools & Permissions/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Show 1 unavailable tool/)
+    ).toBeInTheDocument();
   });
 });

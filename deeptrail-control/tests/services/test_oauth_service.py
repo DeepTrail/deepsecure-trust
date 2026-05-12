@@ -84,10 +84,10 @@ class TestGetAuthorizationUrl:
         assert len(response.code_verifier) >= 43
 
     @pytest.mark.asyncio
-    async def test_generates_slack_url_without_pkce(
+    async def test_generates_slack_url_with_pkce(
         self, oauth_service: OAuthService, mock_env_vars
     ):
-        """get_authorization_url should generate Slack URL without PKCE."""
+        """get_authorization_url should generate Slack URL with PKCE."""
         request = AuthorizationRequest(
             provider=OAuthProvider.SLACK,
             user_id="user-123",
@@ -96,9 +96,10 @@ class TestGetAuthorizationUrl:
         response = await oauth_service.get_authorization_url(request)
 
         assert "slack.com/oauth/v2/authorize" in response.authorization_url
-        assert "code_challenge" not in response.authorization_url
+        assert "code_challenge=" in response.authorization_url
+        assert "code_challenge_method=S256" in response.authorization_url
         assert "state=" in response.authorization_url
-        assert response.code_verifier is None
+        assert response.code_verifier is not None
 
     @pytest.mark.asyncio
     async def test_generates_hubspot_url_with_scopes(
@@ -522,7 +523,7 @@ class TestGetProviderConfig:
 
         assert config.provider == OAuthProvider.SLACK
         assert config.client_id == "slack_client_id_123"
-        assert config.uses_pkce is False
+        assert config.uses_pkce is True
         assert "slack.com" in config.authorization_url
 
     def test_returns_hubspot_config(self, oauth_service: OAuthService, mock_env_vars):
@@ -652,7 +653,7 @@ class TestTokenResponseNormalization:
         assert result.scope == "read write"
 
     def test_normalizes_slack_nested_response(self, oauth_service: OAuthService):
-        """Should normalize Slack's nested response structure."""
+        """Should normalize Slack's nested response, preferring authed_user token."""
         data = {
             "ok": True,
             "access_token": "bot_token",
@@ -665,8 +666,8 @@ class TestTokenResponseNormalization:
 
         result = oauth_service._normalize_token_response(OAuthProvider.SLACK, data)
 
-        # Should use top-level token
-        assert result.access_token == "bot_token"
+        # authed_user.access_token is preferred over top-level token
+        assert result.access_token == "user_token"
 
     def test_handles_missing_optional_fields(self, oauth_service: OAuthService):
         """Should handle missing optional fields gracefully."""
@@ -677,7 +678,7 @@ class TestTokenResponseNormalization:
         result = oauth_service._normalize_token_response(OAuthProvider.NOTION, data)
 
         assert result.access_token == "token123"
-        assert result.token_type == "Bearer"  # Default
+        assert result.token_type == "Bearer"
         assert result.expires_in is None
         assert result.refresh_token is None
-        assert result.scope is None
+        assert result.scope == "read_content update_content insert_content"

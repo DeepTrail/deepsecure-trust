@@ -9,6 +9,7 @@ import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { LifecycleBadge, type LifecycleState } from "@/components/agents";
+import { LifecycleTimeline } from "@/components/agents/LifecycleTimeline";
 import { Bot, Plus, Trash2 } from "lucide-react";
 
 interface Agent {
@@ -113,11 +114,10 @@ export default function AgentsPage() {
                   ID: <span className="font-mono">{agent.agent_id}</span>
                   {agent.created_at && ` · Created: ${new Date(agent.created_at).toLocaleDateString()}`}
                 </p>
-                {agent.public_key && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Key: <span className="font-mono">{agent.public_key.slice(0, 16)}...</span>
-                  </p>
-                )}
+                <LifecycleTimeline
+                  state={(agent.lifecycle_state as LifecycleState) ?? "registered"}
+                  className="mt-3"
+                />
               </CardContent>
             </Link>
             <div className="flex justify-end px-6 pb-4">

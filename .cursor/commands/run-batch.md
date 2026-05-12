@@ -18,14 +18,25 @@ Replaces the manual "Batch Execution Pattern" loop from DEVELOPER_WORKFLOW.md.
 ## Invocation
 
 ```
-/run-batch [batch-number] [feature-name]
+/run-batch [batch-id] [feature-name]
 ```
+
+**Parameters:**
+- `[batch-id]`: The batch identifier from the **first column** of the Quick Reference table
+  in `BATCH_EXECUTION_PLAN.md`. Format: `P{Phase}-B{Batch}` (e.g., `P0-B1`, `P1-B2`).
+- `[feature-name]`: The workstream/feature name (e.g., `agent-lifecycle`)
+
+**How to find the batch ID:**
+1. Open `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md`
+2. Look at the **Quick Reference** table — the first column (`Batch`) lists all batch IDs
+3. Use that exact value as the first argument
 
 **Examples:**
 
-    /run-batch 1 frontend-architecture
-    /run-batch 4 frontend-architecture
-    /run-batch 8 virtual-mcp-server-mvp
+    /run-batch P0-B1 agent-lifecycle
+    /run-batch P0-B2 agent-lifecycle
+    /run-batch P1-B1 agent-lifecycle
+    /run-batch P0-B1 mvp-production-readiness
 
 ---
 
@@ -74,15 +85,15 @@ Before executing anything, verify readiness:
 cd /Users/imaxxs/repositories/deepsecure-mvp
 ```
 
-**a. Verify feature branch exists (Batch 1 only):**
+**a. Verify feature branch exists (first batch only):**
 
 ```bash
 git branch --show-current
-# If not on feature branch and this is Batch 1:
+# If not on feature branch and this is the first batch:
 git checkout -b feature/[feature-name] dev 2>/dev/null || git checkout feature/[feature-name]
 ```
 
-**b. Verify prior batch is complete (Batch 2+):**
+**b. Verify prior batch is complete (all batches after the first):**
 
 ```bash
 # Check STATUS.md for previous batch completion
@@ -94,8 +105,8 @@ If the prior batch is NOT complete, STOP and report:
     ## Pre-Flight FAILED: Prior Batch Incomplete
 
     Batch [N-1] has not been verified as complete.
-    Run `/verify-batch-completion [N-1] [feature-name]` first,
-    or run `/run-batch [N-1] [feature-name]` to complete it.
+    Run `/verify-batch-completion [prior-batch-id] [feature-name]` first,
+    or run `/run-batch [prior-batch-id] [feature-name]` to complete it.
 
 **c. Verify PLAN phase was fully completed (all 7 required files):**
 
@@ -152,7 +163,7 @@ If ANY of the four proof files are missing, STOP and report:
     | Check | Status |
     |-------|--------|
     | Feature branch | ✅ `feature/[name]` |
-    | Prior batch complete | ✅ (or N/A for Batch 1) |
+    | Prior batch complete | ✅ (or N/A for first batch) |
     | BATCH_EXECUTION_PLAN.md exists | ✅ |
     | WORKSTREAM.md exists | ✅ |
     | STATUS.md exists | ✅ |
@@ -171,7 +182,7 @@ If ANY of the four proof files are missing, STOP and report:
 
 Invoke `/create-task-spec` for this batch:
 
-    /create-task-spec [batch-number] [feature-name]
+    /create-task-spec [batch-id] [feature-name]
 
 This creates spec files for all tasks in the batch at:
 
@@ -418,7 +429,7 @@ Proceed to Step 7 (Verify Batch Completion).
 
 After audit is complete and all gaps are fixed:
 
-    /verify-batch-completion [batch-number] [feature-name]
+    /verify-batch-completion [batch-id] [feature-name]
 
 **If this batch triggers a merge point** (check the parsed batch plan):
 
@@ -571,7 +582,7 @@ If some tasks in a wave succeeded and others failed:
 
 ### Resuming After Failure
 
-    /run-batch [batch-number] [feature-name]
+    /run-batch [batch-id] [feature-name]
 
 The command checks STATUS.md for already-completed tasks in this batch and skips them. Only incomplete tasks are executed.
 
@@ -583,9 +594,9 @@ Merge points are defined in `BATCH_EXECUTION_PLAN.md` and `MERGE_POINTS.md`.
 
 | Pattern | Merge Point Batch | Tag |
 |---------|-------------------|-----|
-| `MP1` | After Batch 5 | `mp1-*-complete` |
-| `MP2` | After Batch 7 | `mp2-*-complete` |
-| `MP3` | After Batch 9 | `mp3-*-complete` |
+| `MP1` | After last `P0-B*` batch | `mp1-*-complete` |
+| `MP2` | After last `P1-B*` batch | `mp2-*-complete` |
+| `MP3` | After last `P2-B*` batch | `mp3-*-complete` |
 
 The exact tag names are feature-specific — read them from `BATCH_EXECUTION_PLAN.md`.
 
@@ -601,8 +612,8 @@ The exact tag names are feature-specific — read them from `BATCH_EXECUTION_PLA
 | "I will skip the checkpoint — the user said to keep going" | Checkpoints catch errors early. One bad task can cascade through all downstream batches. |
 | "I will create all tickets at once, then execute all at once" | Tickets for Wave 2 tasks may reference Wave 1 outputs. Create in wave order. |
 | "The batch failed, I will re-run everything" | Check which tasks succeeded. Re-running completed tasks wastes time and may cause conflicts. |
-| "The audit step is redundant — tests already pass" | Tests verify behavior, not spec compliance. Batch 6 found 3 CRITICAL security gaps and 10 MEDIUM gaps despite 414 passing tests. |
-| "I will skip the audit for simple batches" | Every batch in Batch 4-6 had spec-implementation gaps. The audit takes ~2 minutes and catches real issues. Never skip it. |
+| "The audit step is redundant — tests already pass" | Tests verify behavior, not spec compliance. Past batches found 3 CRITICAL security gaps and 10 MEDIUM gaps despite 414 passing tests. |
+| "I will skip the audit for simple batches" | Past batches consistently had spec-implementation gaps. The audit takes ~2 minutes and catches real issues. Never skip it. |
 
 ## Red Flags
 
@@ -670,23 +681,21 @@ echo "=== Done ==="
 
 ---
 
-## Example: Running Batch 1 of frontend-architecture
+## Example: Running Batch P0-B1 of agent-lifecycle
 
 ```
-/run-batch 1 frontend-architecture
+/run-batch P0-B1 agent-lifecycle
 ```
 
 The agent will:
 
-1. **Parse** `BATCH_EXECUTION_PLAN.md` — find Batch 1: 4 tasks (A1, A3, A4, A5), 2 waves
-2. **Pre-flight** — create branch `feature/frontend-architecture`, verify directories
-3. **Specs** — `/create-task-spec 1 frontend-architecture` (creates 4 spec files)
-4. **Tickets** — create tickets for WS-A1, WS-A3, WS-A4, WS-A5
-5. **Wave 1** — execute WS-A1 inline (single task, no parallelization)
-6. **Wave gate** — verify A1 completion report exists
-7. **Wave 2** — execute WS-A3, WS-A4, WS-A5 sequentially (3 tasks = below parallel threshold)
-8. **Audit** — read all 4 specs/tickets, compare against implementations, fix any gaps
-9. **Verify** — `/verify-batch-completion 1 frontend-architecture`
-10. **Checkpoint** — report results, ask user to proceed
+1. **Parse** `BATCH_EXECUTION_PLAN.md` — find Batch P0-B1: 2 tasks (WS-A1, WS-A2), 1 wave
+2. **Pre-flight** — verify branch `feature/agent-lifecycle-backend`, verify PLAN phase files
+3. **Specs** — `/create-task-spec P0-B1 agent-lifecycle` (creates 2 spec files)
+4. **Tickets** — create tickets for WS-A1, WS-A2
+5. **Wave 1** — execute WS-A1, WS-A2 sequentially (2 tasks = below parallel threshold)
+6. **Audit** — read both specs/tickets, compare against implementations, fix any gaps
+7. **Verify** — `/verify-batch-completion P0-B1 agent-lifecycle`
+8. **Checkpoint** — report results, ask user to proceed
 
 Total time: ~1 session instead of manually running 13 commands.

@@ -24,13 +24,13 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     op.create_table(
         "user_sessions",
-        sa.Column("session_id", sa.String(64), primary_key=True, index=True,
+        sa.Column("session_id", sa.String(64), primary_key=True,
                   comment="Unique session identifier (e.g., usess-<uuid>)"),
-        sa.Column("user_id", sa.String(255), nullable=False, index=True,
+        sa.Column("user_id", sa.String(255), nullable=False,
                   comment="User identifier, typically email"),
         sa.Column("idp_issuer", sa.String(512), nullable=False,
                   comment="Identity provider issuer URL"),
-        sa.Column("organization_id", sa.String(64), nullable=True, index=True,
+        sa.Column("organization_id", sa.String(64), nullable=True,
                   comment="Organization identifier for multi-tenant deployments"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("now()"),

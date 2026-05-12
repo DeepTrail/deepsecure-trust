@@ -125,9 +125,10 @@ class TestConnectService:
         # Token reference should point to vault
         assert conn.oauth_token_ref.startswith("vault://")
 
-        # Token should be retrievable from vault
+        # Token should be retrievable from vault (may include extra metadata)
         token = vault.retrieve_token(conn.oauth_token_ref)
-        assert token == sample_oauth_response
+        for key, value in sample_oauth_response.items():
+            assert token[key] == value
 
     def test_connect_service_with_optional_fields(
         self,
@@ -369,7 +370,8 @@ class TestGetTokenForService:
 
         token = service.get_token_for_service(user_id, "notion")
 
-        assert token == sample_oauth_response
+        for key, value in sample_oauth_response.items():
+            assert token[key] == value
 
     def test_get_token_returns_none_for_disconnected(
         self,
@@ -711,9 +713,10 @@ class TestRefreshToken:
 
         assert result is True
 
-        # Verify token was updated in vault
+        # Verify token was updated in vault (may include extra metadata)
         retrieved = vault.retrieve_token(conn.oauth_token_ref)
-        assert retrieved == new_token
+        for key, value in new_token.items():
+            assert retrieved[key] == value
 
     def test_refresh_token_returns_false_when_not_connected(
         self,
@@ -814,7 +817,8 @@ class TestIntegration:
 
         assert service.is_connected(user_id, "notion")
         token1 = service.get_token_for_service(user_id, "notion")
-        assert token1 == sample_oauth_response
+        for key, value in sample_oauth_response.items():
+            assert token1[key] == value
 
         # 2. Disconnect
         service.disconnect_service(user_id, "notion")
@@ -837,4 +841,5 @@ class TestIntegration:
         assert conn2.id == conn1.id
         assert service.is_connected(user_id, "notion")
         token2 = service.get_token_for_service(user_id, "notion")
-        assert token2 == new_response
+        for key, value in new_response.items():
+            assert token2[key] == value

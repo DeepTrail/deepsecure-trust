@@ -7,7 +7,7 @@ This is the PLAN-phase equivalent of `/run-batch`. Just as `/run-batch` automate
 ## Workflow Position
 
 ```
-/spec → /create-design-doc → /run-plan → /run-batch 1 → /run-batch 2 → ...
+/spec → /create-design-doc → /run-plan → /run-batch P0-B1 → /run-batch P0-B2 → ...
                                  ↑
                             (YOU ARE HERE)
 
@@ -97,7 +97,7 @@ If `PIPELINE_STATE.md` already exists:
     previously planned and user-approved.
 
     Options:
-    - **Proceed to execution:** `/run-batch 1 [feature-name]`
+    - **Proceed to execution:** `/run-batch P0-B1 [feature-name]`
     - **Re-run plan (overwrites existing):** Continue with /run-plan (type "yes" to confirm)
     - **Cancel:** Type "cancel"
 
@@ -162,18 +162,52 @@ If either is missing, re-run `/breakdown-design [design-doc-path]` before contin
 
 **Output:** `WORKSTREAM.md`, `STATUS.md`, `MERGE_POINTS.md`, `tasks/`, `reports/`
 
-**After Step 2, verify outputs:**
+**After Step 2, verify outputs — FILE EXISTENCE + CONTENT QUALITY (BLOCKING):**
 
 ```bash
 FEATURE="[feature-name]"
-[ -f "docs/workstreams/${FEATURE}/WORKSTREAM.md" ] && echo "✅ WORKSTREAM.md" || echo "❌ MISSING"
-[ -f "docs/workstreams/${FEATURE}/STATUS.md" ] && echo "✅ STATUS.md" || echo "❌ MISSING"
-[ -f "docs/workstreams/${FEATURE}/MERGE_POINTS.md" ] && echo "✅ MERGE_POINTS.md" || echo "❌ MISSING"
-[ -d "docs/workstreams/${FEATURE}/tasks" ] && echo "✅ tasks/" || echo "❌ MISSING"
-[ -d "docs/workstreams/${FEATURE}/reports" ] && echo "✅ reports/" || echo "❌ MISSING"
+FAIL=0
+
+echo "=== Step 2: File Existence ==="
+[ -f "docs/workstreams/${FEATURE}/WORKSTREAM.md" ] && echo "✅ WORKSTREAM.md" || { echo "❌ MISSING"; FAIL=1; }
+[ -f "docs/workstreams/${FEATURE}/STATUS.md" ] && echo "✅ STATUS.md" || { echo "❌ MISSING"; FAIL=1; }
+[ -f "docs/workstreams/${FEATURE}/MERGE_POINTS.md" ] && echo "✅ MERGE_POINTS.md" || { echo "❌ MISSING"; FAIL=1; }
+[ -d "docs/workstreams/${FEATURE}/tasks" ] && echo "✅ tasks/" || { echo "❌ MISSING"; FAIL=1; }
+[ -d "docs/workstreams/${FEATURE}/reports" ] && echo "✅ reports/" || { echo "❌ MISSING"; FAIL=1; }
+
+echo ""
+echo "=== Step 2: WORKSTREAM.md Content Quality ==="
+FILE="docs/workstreams/${FEATURE}/WORKSTREAM.md"
+grep -q "## Executive Summary" $FILE && echo "✅ Executive Summary" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## Scope" $FILE && echo "✅ Scope" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## Key Decisions" $FILE && echo "✅ Key Decisions" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## Batch Overview" $FILE && echo "✅ Batch Overview" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## Critical Path" $FILE && echo "✅ Critical Path" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## All Tasks" $FILE && echo "✅ All Tasks" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## Validation Criteria" $FILE && echo "✅ Validation Criteria" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## History" $FILE && echo "✅ History" || { echo "❌ MISSING"; FAIL=1; }
+LINES=$(wc -l < "$FILE")
+echo "WORKSTREAM.md: ${LINES} lines"
+[ "$LINES" -gt 100 ] && echo "✅ Above 100-line minimum" || { echo "❌ UNDER 100 LINES — gold standard is 600+"; FAIL=1; }
+
+echo ""
+echo "=== Step 2: MERGE_POINTS.md Content Quality ==="
+MP_FILE="docs/workstreams/${FEATURE}/MERGE_POINTS.md"
+grep -q "### Merge Actions" $MP_FILE && echo "✅ Merge Actions" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "### Container Test Scenarios" $MP_FILE && echo "✅ Container Tests" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## Quick Reference Commands" $MP_FILE && echo "✅ Quick Reference" || { echo "❌ MISSING"; FAIL=1; }
+
+echo ""
+if [ "$FAIL" -eq 0 ]; then
+  echo "✅ Step 2 PASSED — proceeding to Step 3"
+else
+  echo "❌ Step 2 FAILED — fix missing sections before proceeding"
+  echo "STOP: Re-run /create-workstream or manually add missing sections."
+fi
 ```
 
-If any file or directory is missing, re-run `/create-workstream [feature-name]`.
+**If FAIL > 0: STOP. Fix the missing sections before proceeding to Step 3.** Re-run
+`/create-workstream [feature-name]` or manually add missing sections, then re-run the check.
 
 ---
 
@@ -183,14 +217,43 @@ If any file or directory is missing, re-run `/create-workstream [feature-name]`.
 
 **Output:** `BATCH_EXECUTION_PLAN.md`
 
-**After Step 3, verify output:**
+**After Step 3, verify output — FILE EXISTENCE + CONTENT QUALITY (BLOCKING):**
 
 ```bash
 FEATURE="[feature-name]"
-[ -f "docs/workstreams/${FEATURE}/BATCH_EXECUTION_PLAN.md" ] && echo "✅ BATCH_EXECUTION_PLAN.md" || echo "❌ MISSING — re-run /create-batch-execution-plan"
+FILE="docs/workstreams/${FEATURE}/BATCH_EXECUTION_PLAN.md"
+FAIL=0
+
+echo "=== Step 3: File Existence ==="
+[ -f "$FILE" ] && echo "✅ BATCH_EXECUTION_PLAN.md" || { echo "❌ MISSING"; FAIL=1; }
+
+echo ""
+echo "=== Step 3: BATCH_EXECUTION_PLAN.md Content Quality ==="
+grep -q "## Quick Reference" $FILE && echo "✅ Quick Reference" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "### Wave Analysis" $FILE && echo "✅ Wave Analysis" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "### Visual Dependency Graph" $FILE && echo "✅ Visual Graphs" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "### Execution Strategy" $FILE && echo "✅ Execution Strategy" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "### Commands" $FILE && echo "✅ Commands" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "### Validation" $FILE && echo "✅ Validation" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "### Summary" $FILE && echo "✅ Summary tables" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## Overall Execution Summary" $FILE && echo "✅ Overall Summary" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## Optimal Execution Strategy" $FILE && echo "✅ Optimal Strategy" || { echo "❌ MISSING"; FAIL=1; }
+grep -q "## Quick Start Commands" $FILE && echo "✅ Quick Start" || { echo "❌ MISSING"; FAIL=1; }
+LINES=$(wc -l < "$FILE")
+echo "BATCH_EXECUTION_PLAN.md: ${LINES} lines"
+[ "$LINES" -gt 200 ] && echo "✅ Above 200-line minimum" || { echo "❌ UNDER 200 LINES — gold standard is 680-2567"; FAIL=1; }
+
+echo ""
+if [ "$FAIL" -eq 0 ]; then
+  echo "✅ Step 3 PASSED — proceeding to Step 4"
+else
+  echo "❌ Step 3 FAILED — fix missing sections before proceeding"
+  echo "STOP: Re-run /create-batch-execution-plan or manually add missing sections."
+fi
 ```
 
-If missing, re-run `/create-batch-execution-plan [feature-name]`.
+**If FAIL > 0: STOP. Fix the missing sections before proceeding to Step 4.** Re-run
+`/create-batch-execution-plan [feature-name]` or manually add missing sections, then re-run the check.
 
 ---
 
@@ -299,7 +362,7 @@ Present the plan completion report in this **exact format**:
 
 **Wait for user response before continuing:**
 
-- **yes**: proceed to Write PIPELINE_STATE.md, then offer to run `/run-batch 1 [feature-name]`
+- **yes**: proceed to Write PIPELINE_STATE.md, then offer to run `/run-batch P0-B1 [feature-name]`
 - **review**: present the full `BATCH_EXECUTION_PLAN.md` content and wait for approval
 - **cancel**: STOP; do NOT write PIPELINE_STATE.md; workstream artifacts remain on disk for review
 
@@ -327,7 +390,7 @@ Write `docs/workstreams/[feature-name]/PIPELINE_STATE.md`:
 
 ## EXECUTE Phase: ⏳ Not Started
 
-Run `/run-batch 1 [feature-name]` to begin execution.
+Run `/run-batch P0-B1 [feature-name]` to begin execution (use the first batch ID from the Quick Reference table).
 
 ## Plan Approval
 User approved plan checkpoint on [date].
@@ -339,14 +402,14 @@ Worktrees: [N created / single-branch]
 
     PIPELINE_STATE.md written. ✅ PLAN phase is complete.
 
-    To start execution:
+    To start execution (use first batch ID from Quick Reference table):
     ```
-    /run-batch 1 [feature-name]
+    /run-batch P0-B1 [feature-name]
     ```
 
-    Start Batch 1 now? (yes / pause)
+    Start first batch now? (yes / pause)
 
-If user says "yes": automatically run `/run-batch 1 [feature-name]`.
+If user says "yes": automatically run `/run-batch P0-B1 [feature-name]`.
 If user says "pause": stop and report the command to run when ready.
 
 ---
@@ -385,7 +448,7 @@ After `/run-plan` completes (with user approval), `/run-batch` will automaticall
 
 | `/run-batch` Pre-Flight Check | Satisfied by `/run-plan` |
 |-------------------------------|--------------------------|
-| Feature branch exists | Created by `/setup-worktrees` or by `/run-batch` Batch 1 |
+| Feature branch exists | Created by `/setup-worktrees` or by `/run-batch` (first batch) |
 | `BATCH_EXECUTION_PLAN.md` exists | ✅ Created in Step 3 |
 | `WORKSTREAM.md` exists | ✅ Created in Step 2 |
 | `STATUS.md` exists | ✅ Created in Step 2 |
@@ -393,7 +456,7 @@ After `/run-plan` completes (with user approval), `/run-batch` will automaticall
 | `CODEBASE_ANALYSIS.md` exists | ✅ Created in Step 1 |
 | `MERGE_POINTS.md` exists | ✅ Created in Step 2 |
 | `PIPELINE_STATE.md` exists | ✅ Written after checkpoint approval |
-| Prior batch complete (N/A for Batch 1) | ✅ N/A |
+| Prior batch complete (N/A for first batch) | ✅ N/A |
 
 This is the primary value of running `/run-plan` before `/run-batch`: all pre-flight checks pass automatically.
 
@@ -426,7 +489,7 @@ git worktree list
 
 echo ""
 echo "--- Ready for Execution ---"
-echo "Run: /run-batch 1 ${FEATURE}"
+echo "Run: /run-batch P0-B1 ${FEATURE}  (first batch ID from Quick Reference table)"
 echo "=== Done ==="
 ```
 
@@ -439,10 +502,10 @@ echo "=== Done ==="
 ```
 Full automation:     /pipeline docs/design/feature.md
 PLAN only:           /run-plan feature-name docs/design/feature.md
-EXECUTE only:        /run-batch 1 feature-name
+EXECUTE only:        /run-batch P0-B1 feature-name
 PLAN + EXECUTE:      /run-plan feature-name docs/design/feature.md
-                     → (after checkpoint + approval) /run-batch 1 feature-name
-                     → /run-batch 2 feature-name ...
+                     → (after checkpoint + approval) /run-batch P0-B1 feature-name
+                     → /run-batch P0-B2 feature-name ...
 ```
 
 ---
@@ -459,7 +522,7 @@ PLAN + EXECUTE:      /run-plan feature-name docs/design/feature.md
 
 ## Red Flags
 
-- Running `/run-batch 1` before `/run-plan` finishes (`PIPELINE_STATE.md` won't exist — pre-flight will fail)
+- Running `/run-batch` before `/run-plan` finishes (`PIPELINE_STATE.md` won't exist — pre-flight will fail)
 - Skipping the worktree decision for multi-service features (they will have conflicts)
 - Writing `PIPELINE_STATE.md` without the user approving the plan (defeats the checkpoint)
 - Missing `CODEBASE_ANALYSIS.md` after Step 1 completes (exploration was skipped)
@@ -501,6 +564,6 @@ The agent will:
 5. **Step 4** — reads BREAKDOWN.md parallelization section; runs `/setup-worktrees claude-code-integration` if multi-service
 6. **Checkpoint** — presents: 3 workstreams, 12 tasks, 4 batches, 2 merge points, critical path — "Approve plan?"
 7. **State** — after approval: writes `PIPELINE_STATE.md` with PLAN phase ✅
-8. **Handoff** — "Start Batch 1 now? → `/run-batch 1 claude-code-integration`"
+8. **Handoff** — "Start first batch now? → `/run-batch P0-B1 claude-code-integration`"
 
 Total: 1 command instead of running 4 commands manually.

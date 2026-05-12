@@ -27,7 +27,7 @@ const CONFIG: Record<
     label: "Registered",
     icon: UserPlus,
     variant: "secondary",
-    colorClass: "text-muted-foreground",
+    colorClass: "text-slate-500 dark:text-slate-400",
   },
   delegated: {
     label: "Delegated",
@@ -58,7 +58,7 @@ export function LifecycleBadge({ state, className }: LifecycleBadgeProps) {
       variant={cfg.variant}
       className={cn("flex items-center gap-1", className)}
     >
-      <Icon className={cn("h-3 w-3", cfg.colorClass)} />
+      <Icon className={cn("h-3.5 w-3.5", cfg.colorClass)} />
       {cfg.label}
     </Badge>
   );

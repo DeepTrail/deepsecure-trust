@@ -10,6 +10,9 @@ from app import schemas, crud
 from app.api import deps
 from app.models.agent_session import AgentSession
 from app.models.delegation import DelegationToken
+from app.models.credential import Credential
+from app.models.policy import Policy
+from app.models.connected_service import ConnectedService
 from app.services.lifecycle_service import LifecycleService
 from app.services.scope_mapper import ScopeMapper
 
@@ -17,8 +20,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# Permission-to-tool mapping for known backends
+# Permission-to-tool mapping for known backends.
+# Covers all services defined in ScopeMapper.SCOPE_TO_PERMISSIONS.
 PERMISSION_TOOL_MAP = {
+    # Notion
     "notion:pages:search": {"name": "notion.search_pages", "backend": "notion"},
     "notion:pages:read": {"name": "notion.get_page", "backend": "notion"},
     "notion:pages:create": {"name": "notion.create_page", "backend": "notion"},
@@ -27,15 +32,38 @@ PERMISSION_TOOL_MAP = {
     "notion:blocks:read": {"name": "notion.get_block", "backend": "notion"},
     "notion:databases:list": {"name": "notion.list_databases", "backend": "notion"},
     "notion:databases:query": {"name": "notion.query_database", "backend": "notion"},
+    # Slack
     "slack:messages:search": {"name": "slack.search_messages", "backend": "slack"},
     "slack:messages:send": {"name": "slack.send_message", "backend": "slack"},
     "slack:channels:list": {"name": "slack.list_channels", "backend": "slack"},
     "slack:channels:history": {"name": "slack.channel_history", "backend": "slack"},
+    "slack:channels:join": {"name": "slack.join_channel", "backend": "slack"},
     "slack:users:list": {"name": "slack.list_users", "backend": "slack"},
+    "slack:users:search": {"name": "slack.search_users", "backend": "slack"},
+    "slack:reactions:write": {"name": "slack.add_reaction", "backend": "slack"},
+    # HubSpot
     "hubspot:contacts:read": {"name": "hubspot.get_contact", "backend": "hubspot"},
     "hubspot:contacts:list": {"name": "hubspot.list_contacts", "backend": "hubspot"},
     "hubspot:contacts:create": {"name": "hubspot.create_contact", "backend": "hubspot"},
+    "hubspot:contacts:update": {"name": "hubspot.update_contact", "backend": "hubspot"},
     "hubspot:deals:list": {"name": "hubspot.list_deals", "backend": "hubspot"},
+    "hubspot:deals:create": {"name": "hubspot.create_deal", "backend": "hubspot"},
+    "hubspot:deals:update": {"name": "hubspot.update_deal", "backend": "hubspot"},
+    # Google Drive
+    "gdrive:files:search": {"name": "gdrive.search_files", "backend": "gdrive"},
+    "gdrive:files:read": {"name": "gdrive.get_file", "backend": "gdrive"},
+    "gdrive:files:list": {"name": "gdrive.list_files", "backend": "gdrive"},
+    "gdrive:files:metadata": {"name": "gdrive.get_metadata", "backend": "gdrive"},
+    # Google Calendar
+    "gcalendar:calendars:list": {"name": "gcalendar.list_calendars", "backend": "gcalendar"},
+    "gcalendar:events:list": {"name": "gcalendar.list_events", "backend": "gcalendar"},
+    "gcalendar:events:read": {"name": "gcalendar.get_event", "backend": "gcalendar"},
+    "gcalendar:events:search": {"name": "gcalendar.search_events", "backend": "gcalendar"},
+    # Gmail
+    "gmail:messages:list": {"name": "gmail.list_messages", "backend": "gmail"},
+    "gmail:messages:read": {"name": "gmail.get_message", "backend": "gmail"},
+    "gmail:messages:search": {"name": "gmail.search_messages", "backend": "gmail"},
+    "gmail:labels:list": {"name": "gmail.list_labels", "backend": "gmail"},
 }
 
 
@@ -99,7 +127,6 @@ def register_agent(agent_in: schemas.AgentCreate, db: Session = Depends(deps.get
         name=agent.name,
         description=agent.description,
         public_key=response_public_key,
-        status=agent.status,
         created_at=agent.created_at,
         updated_at=agent.updated_at,
     )
@@ -167,20 +194,32 @@ def update_agent(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not update agent.")
     return updated_agent
 
-@router.delete("/{agent_id}", response_model=schemas.Agent)
+@router.delete("/{agent_id}", status_code=status.HTTP_200_OK)
 def delete_agent(agent_id: str, db: Session = Depends(deps.get_db)):
-    """Deactivate an agent by setting its status to 'inactive' (soft delete)."""
-    
-    # The crud.agent.remove() method now performs a deactivation (soft delete)
-    # and returns the updated agent object or None if not found.
-    deactivated_agent = crud.agent.remove(db=db, id=agent_id) 
-    
-    if not deactivated_agent:
-        logger.warning(f"Attempt to delete/deactivate non-existent agent: {agent_id}")
+    """Hard delete an agent and all related records (delegations, sessions, credentials, policies)."""
+    db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
+    if db_agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    
-    logger.info(f"Agent {agent_id} successfully deactivated (soft deleted). Status: {deactivated_agent.status}")
-    return deactivated_agent
+
+    try:
+        del_count = db.query(DelegationToken).filter(DelegationToken.agent_id == agent_id).delete()
+        cred_count = db.query(Credential).filter(Credential.agent_id == agent_id).delete()
+        pol_count = db.query(Policy).filter(Policy.agent_id == agent_id).delete()
+        db.delete(db_agent)
+        db.commit()
+        logger.info(
+            f"Agent {agent_id} hard-deleted. "
+            f"Cleaned up: {del_count} delegations, {cred_count} credentials, {pol_count} policies"
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting agent {agent_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete agent",
+        )
+
+    return {"detail": f"Agent {agent_id} deleted", "agent_id": agent_id}
 
 
 @router.get("/{agent_id}/sessions", response_model=schemas.AgentSessionList)
@@ -220,17 +259,18 @@ def get_agent_tools(
     agent_id: str,
     db: Session = Depends(deps.get_db),
 ):
-    """Get tools available to an agent based on its delegated permissions.
+    """Get tools available to an agent based on delegated permissions and connected services.
 
-    Returns all known tools with availability status based on what
-    permissions have been delegated to this agent.
+    Only shows tools for backends where the delegator has an active service
+    connection. Tools are marked available if the agent has the permission delegated.
     """
     db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
     if db_agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
-    # Collect all delegated permissions across active delegations
+    # Collect all delegated permissions and identify the delegator(s)
     delegated_permissions: set = set()
+    delegators: set = set()
     active_delegations = (
         db.query(DelegationToken)
         .filter(
@@ -243,14 +283,33 @@ def get_agent_tools(
         if delegation.is_valid:
             perms = delegation.delegated_permissions or []
             delegated_permissions.update(perms)
+            if delegation.delegator:
+                delegators.add(delegation.delegator)
 
-    # Build tools list from the permission-to-tool map
+    # Find which backends the delegator(s) have connected
+    connected_backends: set = set()
+    if delegators:
+        connected_services = (
+            db.query(ConnectedService.service_id)
+            .filter(
+                ConnectedService.user_id.in_(delegators),
+                ConnectedService.disconnected_at.is_(None),
+            )
+            .distinct()
+            .all()
+        )
+        connected_backends = {row[0] for row in connected_services}
+
+    # Build tools list filtered to connected backends only
     tools = []
     for permission, tool_info in PERMISSION_TOOL_MAP.items():
+        backend = tool_info["backend"]
+        if not connected_backends or backend not in connected_backends:
+            continue
         available = permission in delegated_permissions
         tool = schemas.AgentToolInfo(
             name=tool_info["name"],
-            backend=tool_info["backend"],
+            backend=backend,
             permission=permission,
             available=available,
             reason=None if available else "Not in delegation",

@@ -738,14 +738,14 @@ def issue_credential(
         logger.warning(f"Agent {credential_in.agent_id} is not active (status: {agent.status}). Cannot issue credentials.")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Agent {credential_in.agent_id} is not active.")
 
-    if not agent.current_public_key or not isinstance(agent.current_public_key, bytes):
-        logger.error(f"Agent {credential_in.agent_id} has no valid current_public_key (must be bytes) in DB.")
+    if not agent.public_key or not isinstance(agent.public_key, bytes):
+        logger.error(f"Agent {credential_in.agent_id} has no valid public_key (must be bytes) in DB.")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Agent public key not available or invalid in database.")
 
     # 2. Ephemeral public key and signature are already bytes from Pydantic model validation
-    ephemeral_public_key_bytes = credential_in.ephemeral_public_key 
-    signature_bytes = credential_in.signature # This is now mandatory bytes
-    agent_public_key_bytes = agent.current_public_key
+    ephemeral_public_key_bytes = credential_in.ephemeral_public_key
+    signature_bytes = credential_in.signature
+    agent_public_key_bytes = agent.public_key
 
     # 3. Verify the signature - Mandatory
     logger.info(f"Attempting signature verification for agent {credential_in.agent_id}")
@@ -882,7 +882,7 @@ def rotate_agent_identity_key(
 
     # Update the agent record using the base update method
     try:
-        update_data = {"current_public_key": new_public_key_bytes}
+        update_data = {"public_key": new_public_key_bytes}
         crud.agent.update(db=db, db_obj=agent, obj_in=update_data)
         logger.info(f"Successfully rotated identity key for agent: {agent_id}")
     except Exception as e:

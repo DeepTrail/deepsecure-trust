@@ -5,6 +5,7 @@ export { AgentAuthenticator } from "./AgentAuthenticator";
 export { LifecycleBadge } from "./LifecycleBadge";
 export type { LifecycleState } from "./LifecycleBadge";
 export { LifecycleProgressBar } from "./LifecycleProgressBar";
+export { LifecycleTimeline } from "./LifecycleTimeline";
 export { DeployConfigSection } from "./DeployConfigSection";
 export { SessionHistoryTable } from "./SessionHistoryTable";
 export type { AgentSession } from "./SessionHistoryTable";

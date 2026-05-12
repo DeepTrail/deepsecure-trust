@@ -215,6 +215,53 @@ class DelegationSummary(BaseModel):
     created_at: Optional[str] = None
 
 
+@router.delete("/delegations/{delegation_id}")
+def revoke_delegation(
+    delegation_id: str,
+    authorization: str = Header(...),
+    db: Session = Depends(deps.get_db),
+):
+    """
+    Revoke a delegation by setting its revoked_at timestamp.
+
+    Only the delegator (the user who created it) can revoke it.
+    """
+    current_user = get_current_user_from_token(authorization)
+
+    delegation = (
+        db.query(DelegationToken)
+        .filter(DelegationToken.id == delegation_id)
+        .first()
+    )
+
+    if not delegation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Delegation not found",
+        )
+
+    if delegation.delegator != current_user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only revoke your own delegations",
+        )
+
+    if delegation.is_revoked:
+        return {"detail": "Delegation already revoked", "delegation_id": delegation_id}
+
+    delegation.revoke()
+    db.commit()
+
+    logger.info(
+        "User %s revoked delegation %s for agent %s",
+        current_user,
+        delegation_id,
+        delegation.agent_id,
+    )
+
+    return {"detail": "Delegation revoked", "delegation_id": delegation_id}
+
+
 @router.get("/delegations", response_model=List[DelegationSummary])
 def list_user_delegations(
     authorization: str = Header(...),
@@ -225,7 +272,10 @@ def list_user_delegations(
 
     rows = (
         db.query(DelegationToken)
-        .filter(DelegationToken.delegator == current_user)
+        .filter(
+            DelegationToken.delegator == current_user,
+            DelegationToken.revoked_at.is_(None),
+        )
         .order_by(DelegationToken.created_at.desc())
         .all()
     )

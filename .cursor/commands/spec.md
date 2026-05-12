@@ -124,6 +124,55 @@ Write a structured specification covering **all 15 sections** below. This templa
 > **Status:** Draft | Review | Approved
 > **Author:** [name]
 > **Created:** [date]
+> **Priority:** [e.g., Priority 1A — Foundation | Priority 2 — Core Experience]
+> **Roadmap Phase:** [e.g., Phase 1: Now — Q2 2026 | Phase 2: Q3 2026]
+> **Priority Master:** [`plans/PRIORITY_MASTER.md`](../../plans/PRIORITY_MASTER.md)
+> **Product Roadmap:** [`plans/PRODUCT_ROADMAP.md`](../../plans/PRODUCT_ROADMAP.md)
+> **Design Doc:** [`docs/design/[feature-name].md`](../design/[feature-name].md) *(populated after `/create-design-doc`)*
+
+---
+
+## Priority & Roadmap Mapping
+
+> **Why this section exists:** `plans/PRIORITY_MASTER.md` and `plans/PRODUCT_ROADMAP.md` define the sequence every workstream must follow. This mapping shows exactly where this spec sits in that sequence, which priorities it covers, and what it unblocks. Fill this in from those two files — do not guess or leave as placeholders.
+
+### Priority Master Mapping ([`plans/PRIORITY_MASTER.md`](../../plans/PRIORITY_MASTER.md))
+
+This spec covers **[Priority Group(s)]** from the Priority Master.
+
+| Priority Group | Coverage | Items in This Spec |
+|---------------|----------|--------------------|
+| **[Priority Name]** *(e.g., Sequential: C1 → C2)* | ✅ Full | [Specific items from PRIORITY_MASTER.md that this spec implements] |
+| **[Priority Name]** *(e.g., Parallel with above)* | ⚠️ Partial | [Items pulled in, reason: "shares files already modified"] |
+| **[Priority Name]** | ❌ Not in scope | [Items deferred — "deferred to next workstream"] |
+
+### Product Roadmap Mapping ([`plans/PRODUCT_ROADMAP.md`](../../plans/PRODUCT_ROADMAP.md))
+
+This spec delivers **[Phase Name(s)]** from the product roadmap.
+
+| Roadmap Phase | Coverage | What This Spec Delivers |
+|--------------|----------|------------------------|
+| **[Phase 1: Now — Q2 2026]** | ✅ Complete | [All items from that phase's feature tables] |
+| **[Phase 2: Q3 2026]** | ⚠️ Partial ([N] of [M] items) | [Items pulled forward with reason] |
+| **[Phase 3: Q4 2026]** | ❌ Not in scope | [e.g., AgentCore, Admin governance] |
+
+### Persona Capability Unlocked by This Spec
+
+Taken from the roadmap's **"Persona Capability Timeline"** — what becomes non-broken for each persona after this spec lands:
+
+| Persona | Capability Unlocked |
+|---------|---------------------|
+| **Employee** | [What works for this persona after this spec lands — copy from roadmap] |
+| **IT Admin** | [What works for this persona] |
+| **Security Team** | [What works for this persona] |
+| **Engineer / Developer** | [What works for this persona] |
+
+### What This Spec Unblocks
+
+| Blocked Item | Needs | Covered By |
+|--------------|-------|-----------|
+| [Next priority / workstream / feature] | [Which tables or tracks in this spec] | [Section reference] |
+| [Another downstream item] | [Dependency] | [Section reference] |
 
 ---
 
@@ -624,11 +673,13 @@ After spec is approved, guide the user to next steps:
 ## Spec Complete ✅
 
 **Saved to:** `docs/spec/[feature-name]-spec.md`
+**Priority:** [Priority Group from PRIORITY_MASTER.md]
+**Roadmap Phase:** [Phase from PRODUCT_ROADMAP.md]
 **Sections completed:** [N] of 15
 **Quality:** [line count] lines
 
 ### Next Steps
-1. `/create-design-doc docs/spec/[feature-name]-spec.md` — Transform spec into full design doc (500–800+ lines) with Mermaid diagrams, dependency graph, and workstream detail
+1. `/create-design-doc docs/spec/[feature-name]-spec.md` — Transform spec into full design doc (500–800+ lines). Once created, update the `> **Design Doc:**` link in the spec header to point to it.
 2. `/breakdown-design docs/design/[feature-name].md` — Create workstreams and tasks (internally runs `/explore-codebase`)
 
 ### Pipeline Position
@@ -703,11 +754,22 @@ Objective → API Contracts (canonical) → Control Plane → Gateway → SDK �
 - No Security Considerations (every feature in this product needs one)
 - No Demo Scenarios (can't validate the design against real usage)
 - Flat file list instead of workstream-grouped file tables
+- **No Priority & Roadmap Mapping section** — every spec must anchor itself to `plans/PRIORITY_MASTER.md` and `plans/PRODUCT_ROADMAP.md` so the delivery sequence is always visible
+- **Metadata header missing `Priority Master` / `Product Roadmap` links** — the header blockquote must include these links so the spec is navigable from the document itself
 
 ## Verification
 
 Before proceeding to `/create-design-doc`:
 
+**Header & Mapping (MANDATORY — check these first):**
+- [ ] Metadata blockquote includes `Priority`, `Roadmap Phase`, `Priority Master` link, `Product Roadmap` link, and `Design Doc` placeholder link
+- [ ] Priority & Roadmap Mapping section is present (immediately after the header, before Table of Contents)
+- [ ] Priority Master table rows filled in from `plans/PRIORITY_MASTER.md` — ✅/⚠️/❌ per group, not placeholders
+- [ ] Product Roadmap table rows filled in from `plans/PRODUCT_ROADMAP.md` — ✅/⚠️/❌ per phase
+- [ ] Persona Capability Unlocked table copied from roadmap's "Persona Capability Timeline"
+- [ ] "What This Spec Unblocks" table lists downstream priorities / workstreams
+
+**Content (existing checks):**
 - [ ] Spec is 200+ lines (if less, depth is likely missing)
 - [ ] All 15 sections present (check Table of Contents)
 - [ ] Objective is specific and testable (not vague)

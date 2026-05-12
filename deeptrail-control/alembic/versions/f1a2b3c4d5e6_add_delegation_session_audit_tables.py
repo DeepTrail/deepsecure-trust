@@ -57,8 +57,20 @@ def upgrade() -> None:
     op.create_index("ix_delegation_org", "delegation_tokens", ["organization_id"])
 
     # --- agent_sessions ---
-    party_type_enum = sa.Enum("first_party", "third_party", "federated", name="partytype")
-    party_type_enum.create(op.get_bind(), checkfirst=True)
+    # Create enum via raw SQL with idempotent guard, then reference it
+    # with create_type=False to prevent SQLAlchemy's DDL events from
+    # trying to auto-create it again during create_table.
+    op.execute(
+        "DO $$ BEGIN "
+        "CREATE TYPE partytype AS ENUM ('first_party', 'third_party', 'federated'); "
+        "EXCEPTION WHEN duplicate_object THEN null; "
+        "END $$;"
+    )
+    party_type_enum = postgresql.ENUM(
+        "first_party", "third_party", "federated",
+        name="partytype",
+        create_type=False,
+    )
 
     op.create_table(
         "agent_sessions",

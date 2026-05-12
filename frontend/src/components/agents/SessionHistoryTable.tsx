@@ -160,8 +160,13 @@ export function SessionHistoryTable({
                       {s.session_id.slice(0, 12)}...
                     </code>
                     {s.is_active && (
-                      <Badge variant="default" className="text-[10px]">
-                        Active
+                      <Badge variant="default" className="text-[10px] bg-green-600">
+                        Valid
+                      </Badge>
+                    )}
+                    {!s.is_active && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        Expired
                       </Badge>
                     )}
                   </div>

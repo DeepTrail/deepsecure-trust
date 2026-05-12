@@ -202,17 +202,16 @@ describe("AgentDetailPage", () => {
     });
   });
 
-  it("renders tools list with tools from API", async () => {
+  it("renders delegated tools card with available tools from API", async () => {
     mockSuccessfulFetch();
     mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
     render(<AgentDetailPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Tools (2)")).toBeInTheDocument();
+      expect(screen.getByText(/Delegated Tools & Permissions/)).toBeInTheDocument();
     });
 
-    expect(screen.getByText("notion.create_page")).toBeInTheDocument();
-    expect(screen.getByText("notion:pages:read")).toBeInTheDocument();
+    expect(screen.getByText("search_pages")).toBeInTheDocument();
   });
 
   it("renders activity feed with events from API", async () => {
@@ -312,7 +311,7 @@ describe("AgentDetailPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Tools (2)")).toBeInTheDocument();
+      expect(screen.getByText(/Delegated Tools & Permissions/)).toBeInTheDocument();
     });
   });
 

@@ -49,13 +49,11 @@ class AgentCreate(AgentBase):
 class AgentUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=255, json_schema_extra={"example": "MyRenamedAgent"})
     description: Optional[str] = Field(None, json_schema_extra={"example": "Updated agent description."})
-    status: Optional[str] = Field(None, max_length=50, json_schema_extra={"example": "inactive"})
 
 # --- Schemas for Database Interaction (usually includes all model fields) --- #
 class AgentInDBBase(AgentBase):
     agent_id: str = Field(json_schema_extra={"example": "agent_f3b4c1a9-0123-4567-89ab-cdef01234567"})
-    public_key: bytes # Field name matches SQLAlchemy model, stores raw bytes from DB
-    status: str = Field(json_schema_extra={"example": "active"})
+    public_key: bytes
     created_at: datetime
     updated_at: datetime
     last_seen_at: Optional[datetime] = None
@@ -138,7 +136,6 @@ class AgentCreateResponse(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     public_key: str = Field(description="Base64-encoded Ed25519 public key")
-    status: str = "active"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     private_key: Optional[str] = Field(None, description="Base64-encoded Ed25519 private key (only present when backend generates keypair)")
