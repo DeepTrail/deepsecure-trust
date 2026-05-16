@@ -16,6 +16,9 @@ NEW_VALUES = [
     "azure_managed_identity",
     "docker_container",
     "gcp_workload_identity",
+    "GCP_WORKLOAD_IDENTITY",
+    "AZURE_MANAGED_IDENTITY",
+    "DOCKER_CONTAINER",
 ]
 
 

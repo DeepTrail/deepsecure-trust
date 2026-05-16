@@ -8,7 +8,9 @@ from typing import List, Any
 
 from app import schemas, crud
 from app.api import deps
+from app.models.attestation_policy import PlatformType
 from app.models.agent_session import AgentSession
+from app.schemas.attestation_policy import AttestationPolicyCreate
 from app.models.delegation import DelegationToken
 from app.models.credential import Credential
 from app.models.policy import Policy
@@ -79,19 +81,29 @@ def _generate_ed25519_keypair() -> tuple:
     return public_key_bytes, private_key_b64, public_key_b64
 
 
+PLATFORM_TYPE_MAP = {
+    "gcp_workload_identity": PlatformType.GCP_WORKLOAD_IDENTITY,
+    "aws_iam": PlatformType.AWS_IAM,
+    "kubernetes": PlatformType.KUBERNETES,
+}
+
+
 @router.post("", response_model=schemas.AgentCreateResponse, status_code=status.HTTP_201_CREATED)
 def register_agent(agent_in: schemas.AgentCreate, db: Session = Depends(deps.get_db)):
     """Register a new agent in the system.
 
-    When public_key is provided, the agent is registered with the given key.
-    When public_key is omitted, the backend generates an Ed25519 keypair and
-    returns the private key in the response (never stored server-side).
+    Supports two registration flows:
+    - **Key-based**: Ed25519 keypair (provided or backend-generated).
+    - **Platform-based**: Platform identity (GCP, AWS, K8s) with auto-created
+      attestation policy. No cryptographic key is involved.
     """
+    is_platform_agent = agent_in.platform is not None
+
     backend_generated_key = False
     private_key_b64 = None
     public_key_b64 = None
 
-    if agent_in.public_key is None:
+    if not is_platform_agent and agent_in.public_key is None:
         public_key_bytes, private_key_b64, public_key_b64 = _generate_ed25519_keypair()
         agent_in.public_key = public_key_bytes
         backend_generated_key = True
@@ -100,6 +112,13 @@ def register_agent(agent_in: schemas.AgentCreate, db: Session = Depends(deps.get
         agent = crud.agent.create(db=db, obj_in=agent_in)
     except IntegrityError as e:
         db.rollback()
+        error_str = str(e).lower()
+        if "selector" in error_str or (is_platform_agent and "unique" in error_str):
+            logger.warning(f"Duplicate selector during platform agent registration: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An agent is already registered with this platform identity.",
+            )
         logger.warning(f"Integrity error during agent registration: {e}")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -120,13 +139,62 @@ def register_agent(agent_in: schemas.AgentCreate, db: Session = Depends(deps.get
             detail="Could not create agent due to an internal error."
         )
 
-    response_public_key = public_key_b64 if backend_generated_key else base64.b64encode(agent.public_key).decode()
+    if is_platform_agent:
+        try:
+            policy_in = AttestationPolicyCreate(
+                agent_name_to_bootstrap=agent.agent_id,
+                platform=PLATFORM_TYPE_MAP[agent_in.platform],
+                selector=agent_in.selector,
+            )
+            crud.attestation_policy.create(db=db, obj_in=policy_in)
+        except IntegrityError:
+            db.rollback()
+            logger.warning(
+                f"Duplicate attestation policy selector '{agent_in.selector}' "
+                f"for agent {agent.agent_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An agent is already registered with this platform identity.",
+            )
+        except Exception as e:
+            db.rollback()
+            logger.error(
+                f"Failed to create attestation policy for agent {agent.agent_id}: {e}",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Agent created but attestation policy creation failed.",
+            )
+
+    if is_platform_agent:
+        return schemas.AgentCreateResponse(
+            agent_id=agent.agent_id,
+            name=agent.name,
+            description=agent.description,
+            public_key=None,
+            private_key=None,
+            private_key_warning=None,
+            platform=agent.platform,
+            selector=agent.selector,
+            created_at=agent.created_at,
+            updated_at=agent.updated_at,
+        )
+
+    response_public_key = (
+        public_key_b64
+        if backend_generated_key
+        else base64.b64encode(agent.public_key).decode()
+    )
 
     response = schemas.AgentCreateResponse(
         agent_id=agent.agent_id,
         name=agent.name,
         description=agent.description,
         public_key=response_public_key,
+        platform=None,
+        selector=None,
         created_at=agent.created_at,
         updated_at=agent.updated_at,
     )

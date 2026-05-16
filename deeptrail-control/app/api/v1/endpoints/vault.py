@@ -733,10 +733,6 @@ def issue_credential(
     if not agent:
         logger.warning(f"Agent not found during credential issuance: {credential_in.agent_id}. This agent MUST be registered first.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Agent with ID '{credential_in.agent_id}' not found.")
-    
-    if agent.status != "active":
-        logger.warning(f"Agent {credential_in.agent_id} is not active (status: {agent.status}). Cannot issue credentials.")
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Agent {credential_in.agent_id} is not active.")
 
     if not agent.public_key or not isinstance(agent.public_key, bytes):
         logger.error(f"Agent {credential_in.agent_id} has no valid public_key (must be bytes) in DB.")

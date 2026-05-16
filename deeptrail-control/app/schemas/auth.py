@@ -41,4 +41,17 @@ class BootstrapResponse(BaseModel):
     """Schema for bootstrap response returning agent identity and keys."""
     agent_id: str = Field(..., description="The unique agent identifier.")
     private_key_b64: str = Field(..., description="Base64 encoded private key (returned only once).")
-    public_key_b64: str = Field(..., description="Base64 encoded public key.") 
+    public_key_b64: str = Field(..., description="Base64 encoded public key.")
+
+
+class GCPBootstrapRequest(BaseModel):
+    """Schema for GCP Workload Identity bootstrap request."""
+    identity_token: str = Field(..., description="GCP OIDC identity token from metadata server")
+
+
+class GCPBootstrapResponse(BaseModel):
+    """Schema for GCP bootstrap response — returns Agent JWT, not key material."""
+    access_token: str = Field(..., description="Agent JWT for API authentication")
+    token_type: str = Field(default="bearer", description="Token type")
+    expires_in: int = Field(default=3600, description="Token lifetime in seconds")
+    agent_id: str = Field(..., description="The resolved agent ID")
