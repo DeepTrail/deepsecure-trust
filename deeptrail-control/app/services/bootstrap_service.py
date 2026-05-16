@@ -97,11 +97,73 @@ class DockerClaims:
         return f"image_name={self.image_name},image_digest={self.image_digest}"
 
 
+class GCPClaims:
+    """Structured representation of validated GCP identity token claims."""
+    def __init__(self, project_id: str, service_account_email: str, instance_id: Optional[str] = None):
+        self.project_id = project_id
+        self.service_account_email = service_account_email
+        self.instance_id = instance_id
+
+    def to_selector(self) -> str:
+        return self.service_account_email
+
+
 class BootstrapService:
     """Service for handling agent identity bootstrapping."""
     
     def __init__(self):
         self.security_validator = security_validator
+
+    def validate_gcp_identity_token(
+        self, token: str, expected_audience: str = "https://app.deepsecure.one"
+    ) -> GCPClaims:
+        """Verify a GCP OIDC identity token via Google's JWKS endpoint.
+
+        Uses google-auth library for signature verification and JWKS caching.
+        The library handles key rotation and cache invalidation internally.
+
+        Args:
+            token: GCP OIDC identity token (JWT from metadata server)
+            expected_audience: Expected audience claim. Overridden by
+                GCP_BOOTSTRAP_AUDIENCE env var if set.
+
+        Returns:
+            GCPClaims with project_id, service_account_email, and optional instance_id
+
+        Raises:
+            TokenValidationError: If token is invalid, expired, or audience mismatch
+        """
+        import os
+        try:
+            from google.oauth2 import id_token as google_id_token
+            from google.auth.transport import requests as google_requests
+        except ImportError:
+            raise ConfigurationError("google-auth library is required for GCP bootstrap")
+
+        audience = os.environ.get("GCP_BOOTSTRAP_AUDIENCE", expected_audience)
+
+        try:
+            id_info = google_id_token.verify_oauth2_token(
+                token, google_requests.Request(), audience=audience
+            )
+        except Exception as e:
+            logger.warning(f"GCP OIDC token verification failed: {e}")
+            raise TokenValidationError(f"Invalid GCP identity token: {e}", platform="gcp")
+
+        issuer = id_info.get("iss", "")
+        if issuer not in ("https://accounts.google.com", "accounts.google.com"):
+            raise TokenValidationError(f"Invalid issuer: {issuer}", platform="gcp")
+
+        email = id_info.get("email")
+        email_verified = id_info.get("email_verified", False)
+        if not email or not email_verified:
+            raise TokenValidationError("Token missing verified email claim", platform="gcp")
+
+        return GCPClaims(
+            project_id=id_info.get("azp", id_info.get("aud", "")),
+            service_account_email=email,
+            instance_id=id_info.get("sub"),
+        )
 
     @kubernetes_circuit_breaker
     @timeout_handler(ExternalServiceConfig.KUBERNETES_TIMEOUT)
@@ -963,9 +1025,9 @@ class BootstrapService:
                     platform="kubernetes",
                     policy_id=str(policy.id),
                     selector=selector,
-                    agent_name=policy.agent_name
+                    agent_name=policy.agent_name_to_bootstrap
                 )
-                
+
             except Exception as e:
                 bootstrap_auditor.log_bootstrap_failure(
                     correlation_id=correlation_id,
@@ -985,7 +1047,7 @@ class BootstrapService:
                 agent = self.create_agent(
                     db=db,
                     agent_id=agent_id,
-                    agent_name=policy.agent_name,
+                    agent_name=policy.agent_name_to_bootstrap,
                     public_key_bytes=base64.b64decode(public_key_b64),
                     description=f"Kubernetes agent for {claims.namespace}/{claims.service_account}"
                 )
@@ -1029,7 +1091,7 @@ class BootstrapService:
                     "client_ip": client_ip
                 },
                 additional_data={
-                    "agent_name": policy.agent_name,
+                    "agent_name": policy.agent_name_to_bootstrap,
                     "selector": selector
                 }
             )
@@ -1150,6 +1212,107 @@ class BootstrapService:
             public_key_b64=public_key_b64
         )
     
+    def bootstrap_gcp_agent(
+        self,
+        db: Session,
+        identity_token: str,
+        client_ip: str = None,
+    ) -> dict:
+        """Bootstrap a GCP agent using 1:1 selector lookup.
+
+        Unlike K8s/AWS/Azure/Docker bootstrap methods, this does NOT create a
+        new agent.  The agent must already exist in the database, registered
+        via the Register Agent API with ``platform='gcp_workload_identity'``
+        and ``selector=<service_account_email>``.
+
+        Flow:
+            1. Validate GCP OIDC identity token → GCPClaims
+            2. Look up agent by (platform, selector)
+            3. Verify an attestation policy exists
+            4. Issue an Agent JWT
+
+        Returns:
+            dict with ``access_token``, ``token_type``, ``expires_in``,
+            ``agent_id``.
+
+        Raises:
+            TokenValidationError: invalid / expired GCP token
+            BootstrapError: no matching agent or missing policy
+        """
+        from datetime import timedelta
+        from app.core.security import create_access_token
+        from app.models.agent import Agent
+
+        logger.info(
+            "GCP bootstrap attempt from %s",
+            client_ip or "unknown",
+        )
+
+        # 1. Validate GCP OIDC token
+        claims = self.validate_gcp_identity_token(identity_token)
+        selector = claims.service_account_email
+
+        logger.info(
+            "GCP token validated — project=%s, selector=%s",
+            claims.project_id,
+            selector,
+        )
+
+        # 2. Look up existing agent by platform + selector
+        agent = (
+            db.query(Agent)
+            .filter(
+                Agent.platform == "gcp_workload_identity",
+                Agent.selector == selector,
+            )
+            .first()
+        )
+
+        if not agent:
+            logger.warning(
+                "GCP bootstrap failed — no agent with selector %s", selector,
+            )
+            raise BootstrapError(
+                message=f"No agent registered for GCP service account: {selector}",
+                error_code="AGENT_NOT_FOUND",
+                details={"selector": selector, "platform": "gcp_workload_identity"},
+                platform="gcp",
+            )
+
+        # 3. Verify attestation policy exists for this agent
+        try:
+            self.find_matching_policy(db, "gcp_workload_identity", selector)
+        except PolicyNotFoundError:
+            logger.warning(
+                "GCP bootstrap denied — no attestation policy for selector %s",
+                selector,
+            )
+            raise BootstrapError(
+                message=f"No attestation policy for GCP agent: {selector}",
+                error_code="POLICY_NOT_FOUND",
+                details={"agent_id": agent.agent_id, "selector": selector},
+                platform="gcp",
+            )
+
+        # 4. Issue Agent JWT
+        access_token = create_access_token(
+            subject=agent.agent_id,
+            expires_delta=timedelta(hours=1),
+        )
+
+        logger.info(
+            "GCP bootstrap succeeded — agent_id=%s, selector=%s",
+            agent.agent_id,
+            selector,
+        )
+
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "expires_in": 3600,
+            "agent_id": agent.agent_id,
+        }
+
     def bootstrap_docker_agent(
         self, 
         db: Session, 

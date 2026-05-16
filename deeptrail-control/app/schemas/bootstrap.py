@@ -13,4 +13,5 @@ class BootstrapResponse(BaseModel):
     Response model for a successful bootstrap/attest call.
     """
     agent_id: str
-    private_key: str # This is returned only once, on creation. 
+    private_key_b64: str
+    public_key_b64: str

@@ -1,12 +1,14 @@
 export { AgentTypeSelector } from "./AgentTypeSelector";
 export type { AgentType } from "./AgentTypeSelector";
+export { IdentityMethodSelector } from "./IdentityMethodSelector";
+export type { IdentityMethod } from "./IdentityMethodSelector";
 export { PrivateKeyModal } from "./PrivateKeyModal";
 export { AgentAuthenticator } from "./AgentAuthenticator";
 export { LifecycleBadge } from "./LifecycleBadge";
 export type { LifecycleState } from "./LifecycleBadge";
 export { LifecycleProgressBar } from "./LifecycleProgressBar";
 export { LifecycleTimeline } from "./LifecycleTimeline";
-export { AgentIntegrationSection } from "./AgentIntegrationSection";
 export { AttestationPolicyCard } from "./AttestationPolicyCard";
 export { SessionHistoryTable } from "./SessionHistoryTable";
 export type { AgentSession } from "./SessionHistoryTable";
+export { AgentIdentityCard } from "./AgentIdentityCard";

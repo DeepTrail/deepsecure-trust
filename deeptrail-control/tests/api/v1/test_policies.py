@@ -2,7 +2,7 @@ import uuid
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app import crud
+from app import crud, schemas
 from app.core.config import settings
 from app.schemas.agent import AgentCreate
 from tests.utils.utils import random_lower_string
@@ -16,7 +16,7 @@ def test_create_policy(client: TestClient, db: Session) -> None:
     data = {
         "name": policy_name,
         "description": "A test policy",
-        "agent_id": str(agent.id),
+        "agent_id": str(agent.agent_id),
         "effect": "allow",
         "actions": ["proxy:request"],
         "resources": ["ds:secret:test-secret"]
@@ -28,7 +28,7 @@ def test_create_policy(client: TestClient, db: Session) -> None:
     assert response.status_code == 200
     content = response.json()
     assert content["name"] == policy_name
-    assert content["agent_id"] == str(agent.id)
+    assert content["agent_id"] == str(agent.agent_id)
     assert "id" in content
 
 def test_read_policy(client: TestClient, db: Session) -> None:
@@ -38,7 +38,7 @@ def test_read_policy(client: TestClient, db: Session) -> None:
     policy_name = random_lower_string()
     policy_in = schemas.PolicyCreate(
         name=policy_name,
-        agent_id=agent.id,
+        agent_id=agent.agent_id,
         actions=["proxy:request"],
         resources=["ds:secret:another-secret"]
     )
@@ -63,7 +63,7 @@ def test_update_policy(client: TestClient, db: Session) -> None:
     
     policy_in = schemas.PolicyCreate(
         name=random_lower_string(),
-        agent_id=agent.id,
+        agent_id=agent.agent_id,
         actions=["proxy:request"],
         resources=["ds:secret:updatable-secret"]
     )
@@ -86,7 +86,7 @@ def test_delete_policy(client: TestClient, db: Session) -> None:
     
     policy_in = schemas.PolicyCreate(
         name=random_lower_string(),
-        agent_id=agent.id,
+        agent_id=agent.agent_id,
         actions=["proxy:request"],
         resources=["ds:secret:deletable-secret"]
     )

@@ -69,6 +69,7 @@ class IdentityManager:
         from .identity_provider import (
             KubernetesIdentityProvider,
             AwsIdentityProvider, 
+            GcpIdentityProvider,
             AzureIdentityProvider,
             DockerIdentityProvider,
             KeyringIdentityProvider
@@ -89,6 +90,7 @@ class IdentityManager:
         all_providers = {
             "kubernetes": KubernetesIdentityProvider(client=self.api_client, silent_mode=self.silent_mode),
             "aws": AwsIdentityProvider(client=self.api_client, silent_mode=self.silent_mode),
+            "gcp": GcpIdentityProvider(client=self.api_client, silent_mode=self.silent_mode),
             "azure": AzureIdentityProvider(client=self.api_client, silent_mode=self.silent_mode),
             "docker": DockerIdentityProvider(client=self.api_client, silent_mode=self.silent_mode)
         }
@@ -99,7 +101,7 @@ class IdentityManager:
             del all_providers[recommended_method]  # Remove to avoid duplicates
         
         # Add remaining providers in order of general likelihood
-        provider_order = ["kubernetes", "aws", "azure", "docker"]
+        provider_order = ["kubernetes", "aws", "gcp", "azure", "docker"]
         for provider_name in provider_order:
             if provider_name in all_providers:
                 providers.append(all_providers[provider_name])

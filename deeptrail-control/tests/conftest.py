@@ -1,7 +1,8 @@
 import pytest
 from typing import Generator, Any
 import os
-import sys # Import sys
+import sys
+from datetime import timedelta
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -24,6 +25,10 @@ from app.api.deps import get_db # Import the original dependency
 # Explicitly import models to ensure they are registered with Base metadata
 from app.models import agent, credential
 from app.models import agent_session, delegation  # noqa: F401 - ensure tables are created
+from app.models import attestation_policy, policy, nonce  # noqa: F401
+from app.models import audit_event, user, user_session  # noqa: F401
+from app.models import connected_service, pending_oauth_state, vault_token  # noqa: F401
+from app.models import task_token, idp_session  # noqa: F401
 
 # Create a new engine and session for testing
 # Add connect_args for SQLite
@@ -68,4 +73,15 @@ def client(db: Session) -> Generator[TestClient, None, None]:
         yield c
 
     # Clean up the override after the test
-    del app.dependency_overrides[get_db] 
+    del app.dependency_overrides[get_db]
+
+
+@pytest.fixture(scope="function")
+def superuser_token_headers() -> dict:
+    """Fixture providing auth headers with a superuser-like token for API tests."""
+    from app.core.security import create_access_token
+    token = create_access_token(
+        subject="test-superuser",
+        expires_delta=timedelta(minutes=30),
+    )
+    return {"Authorization": f"Bearer {token}"} 

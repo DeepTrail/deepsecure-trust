@@ -1,12 +1,14 @@
 """Tests for GET /api/v1/agents/{id}/tools endpoint."""
 
 import base64
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.models.connected_service import ConnectedService
 from app.models.delegation import DelegationToken
 
 VALID_PUB_KEY_B64 = "CgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo="
@@ -33,6 +35,22 @@ def _create_delegation(db: Session, agent_id: str, delegator: str, permissions: 
     return delegation
 
 
+def _create_connected_service(db: Session, user_id: str, service_id: str):
+    """Helper to create a connected service record for a delegator."""
+    svc = ConnectedService(
+        id=f"conn-{uuid.uuid4().hex[:12]}",
+        user_id=user_id,
+        service_id=service_id,
+        service_name=service_id.capitalize(),
+        scopes_granted=[],
+        oauth_token_ref=f"vault://{user_id}-{service_id}-token",
+        connected_at=datetime.now(timezone.utc),
+    )
+    db.add(svc)
+    db.commit()
+    return svc
+
+
 def test_get_agent_tools_not_found(client: TestClient, db: Session):
     """Test tools endpoint with non-existent agent returns 404."""
     response = client.get(f"{settings.API_V1_STR}/agents/nonexistent-agent/tools")
@@ -41,7 +59,7 @@ def test_get_agent_tools_not_found(client: TestClient, db: Session):
 
 
 def test_get_agent_tools_no_delegation(client: TestClient, db: Session):
-    """Test tools endpoint for agent with no delegation returns all tools as unavailable."""
+    """Test tools endpoint for agent with no delegation returns empty tools list."""
     agent_id = "tools-test-no-del"
     pub_key = "CwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws="
     _create_agent(client, agent_id, pub_key)
@@ -50,11 +68,7 @@ def test_get_agent_tools_no_delegation(client: TestClient, db: Session):
     assert response.status_code == 200
     data = response.json()
     assert data["agent_id"] == agent_id
-    assert len(data["tools"]) > 0
-    # All tools should be unavailable
-    for tool in data["tools"]:
-        assert tool["available"] is False
-        assert tool["reason"] == "Not in delegation"
+    assert len(data["tools"]) == 0
 
 
 def test_get_agent_tools_with_delegation(client: TestClient, db: Session):
@@ -63,11 +77,15 @@ def test_get_agent_tools_with_delegation(client: TestClient, db: Session):
     pub_key = "DAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw="
     _create_agent(client, agent_id, pub_key)
 
-    # Create a delegation with some permissions
+    delegator = "sarah@acme.com"
+
+    _create_connected_service(db, delegator, "notion")
+    _create_connected_service(db, delegator, "slack")
+
     _create_delegation(
         db,
         agent_id=agent_id,
-        delegator="sarah@acme.com",
+        delegator=delegator,
         permissions=["notion:pages:search", "notion:pages:read", "slack:messages:send"],
     )
 
@@ -76,16 +94,13 @@ def test_get_agent_tools_with_delegation(client: TestClient, db: Session):
     data = response.json()
     assert data["agent_id"] == agent_id
 
-    # Check specific tools
     tools_by_name = {t["name"]: t for t in data["tools"]}
 
-    # These should be available
     assert tools_by_name["notion.search_pages"]["available"] is True
     assert tools_by_name["notion.search_pages"]["reason"] is None
     assert tools_by_name["notion.get_page"]["available"] is True
     assert tools_by_name["slack.send_message"]["available"] is True
 
-    # These should not be available
     assert tools_by_name["notion.create_page"]["available"] is False
     assert tools_by_name["notion.create_page"]["reason"] == "Not in delegation"
 

@@ -328,6 +328,34 @@ class BaseClient:
             logger.error(f"Network error during Azure bootstrap: {e}")
             raise DeepSecureError(f"Network error during Azure bootstrap: {e}") from e
 
+    def bootstrap_gcp(self, identity_token: str, agent_id: Optional[str] = None) -> httpx.Response:
+        """
+        Calls the backend to bootstrap an agent's identity using a GCP OIDC identity token.
+        GCP bootstrap returns a JWT (access_token) instead of key material.
+        """
+        import uuid
+        
+        correlation_id = str(uuid.uuid4())
+        
+        payload = {"identity_token": identity_token}
+        
+        headers = {
+            "X-Correlation-ID": correlation_id,
+            "User-Agent": f"DeepSecureCLI/{__version__}"
+        }
+        
+        try:
+            url = f"{self._api_url}/api/v1/auth/bootstrap/gcp"
+            response = self.client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            return response
+            
+        except httpx.HTTPStatusError as e:
+            self._handle_bootstrap_error(e, "gcp", correlation_id)
+        except httpx.RequestError as e:
+            logger.error(f"Network error during GCP bootstrap: {e}")
+            raise DeepSecureError(f"Network error during GCP bootstrap: {e}") from e
+
     def bootstrap_docker(self, runtime_token: str, agent_id: Optional[str] = None) -> httpx.Response:
         """
         Calls the backend to bootstrap an agent's identity using a Docker runtime token.

@@ -489,6 +489,55 @@ class AgentClient(BaseClient):
             logger.error(f"Failed to bootstrap Azure identity: {e}")
             raise DeepSecureClientError(f"Azure bootstrap failed: {e}") from e
 
+    def bootstrap_gcp(self, identity_token: str, agent_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Bootstrap an agent's identity using a GCP OIDC identity token.
+        Unlike other platforms, GCP returns a JWT (access_token) instead of key material.
+        The JWT is stored in keyring and used directly for API authentication.
+        """
+        try:
+            response = super().bootstrap_gcp(identity_token, agent_id)
+            
+            identity_data = response.json()
+            
+            access_token = identity_data.get("access_token")
+            new_agent_id = identity_data.get("agent_id")
+            
+            if not access_token:
+                raise DeepSecureClientError(
+                    "Incomplete GCP bootstrap response from server. Missing field: access_token"
+                )
+            if not new_agent_id:
+                raise DeepSecureClientError(
+                    "Incomplete GCP bootstrap response from server. Missing field: agent_id"
+                )
+            
+            # GCP returns JWT, not key material — store the JWT in keyring
+            # so subsequent calls can reuse it without re-bootstrapping.
+            if new_agent_id and access_token:
+                from .identity_manager import IdentityManager
+                identity_manager = IdentityManager(api_client=self, silent_mode=self._silent_mode)
+                try:
+                    identity_manager.store_private_key_directly(new_agent_id, access_token)
+                except Exception:
+                    pass  # Keyring storage is best-effort for GCP (JWT can be re-fetched)
+                
+                if not self._silent_mode:
+                    logger.info(f"Successfully bootstrapped GCP agent {new_agent_id} and stored JWT in keyring")
+            
+            return {
+                "agent_id": new_agent_id,
+                "access_token": access_token,
+                "token_type": identity_data.get("token_type", "bearer"),
+                "expires_in": identity_data.get("expires_in"),
+                "bootstrap_platform": "gcp",
+                "success": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to bootstrap GCP identity: {e}")
+            raise DeepSecureClientError(f"GCP bootstrap failed: {e}") from e
+
     def bootstrap_docker(self, runtime_token: str, agent_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Bootstrap an agent's identity using a Docker container runtime token.

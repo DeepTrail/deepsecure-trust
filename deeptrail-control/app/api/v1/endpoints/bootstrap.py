@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+import warnings
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -12,14 +14,26 @@ def attest_and_create_agent(
     *,
     db: Session = Depends(deps.get_db),
     request: BootstrapRequest,
+    response: Response,
 ):
     """
     Attest a platform identity token and create a new agent.
+
+    .. deprecated::
+        Use ``POST /auth/bootstrap/gcp`` instead. This endpoint will be
+        removed after 2026-09-01.
     """
+    warnings.warn(
+        "POST /bootstrap/attest is deprecated. "
+        "Use POST /auth/bootstrap/gcp instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "2026-09-01"
+
     if request.platform == "gcp":
         try:
-            # This will be implemented in the next step.
-            # It will perform token validation, policy checks, and agent creation.
             agent_id, private_key = attestation_service.attest_gcp_and_create_agent(
                 db=db, token=request.token
             )

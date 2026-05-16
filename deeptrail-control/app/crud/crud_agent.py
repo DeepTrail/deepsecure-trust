@@ -45,24 +45,24 @@ class CRUDAgent(CRUDBase[AgentModel, AgentCreate, AgentUpdate]): # Use AgentUpda
         - name and description are taken from obj_in.
         - status defaults to 'active' from the model.
         """
-        # The obj_in.public_key should already be bytes due to Pydantic validation
-        if not isinstance(obj_in.public_key, bytes) or len(obj_in.public_key) != 32:
-            error_message = (
-                f"CRUDAgent.create received invalid public key (not 32 bytes) from input schema. "
-                f"Type: {type(obj_in.public_key)}, Length: {len(obj_in.public_key) if isinstance(obj_in.public_key, bytes) else 'N/A'}."
-            )
-            logger.error(error_message)
-            # This should ideally be caught by Pydantic, but good to double check.
-            raise ValueError("Public key for agent creation must be 32 bytes after base64 decoding.")
+        # For key-based agents, validate the public key
+        if obj_in.public_key is not None:
+            if not isinstance(obj_in.public_key, bytes) or len(obj_in.public_key) != 32:
+                error_message = (
+                    f"CRUDAgent.create received invalid public key (not 32 bytes) from input schema. "
+                    f"Type: {type(obj_in.public_key)}, Length: {len(obj_in.public_key) if isinstance(obj_in.public_key, bytes) else 'N/A'}."
+                )
+                logger.error(error_message)
+                raise ValueError("Public key for agent creation must be 32 bytes after base64 decoding.")
 
-        # Check if public key already exists to prevent IntegrityError for unique constraint
-        existing_agent_by_key = self.get_by_public_key(db, public_key_bytes=obj_in.public_key)
-        if existing_agent_by_key:
-            logger.warning(f"Attempt to create agent with already existing public key. Agent ID: {existing_agent_by_key.agent_id}")
-            raise IntegrityError(
-                "Agent with this public key already exists.", 
-                params=None, orig=None # Simulating IntegrityError structure
-            )
+            # Check if public key already exists to prevent IntegrityError for unique constraint
+            existing_agent_by_key = self.get_by_public_key(db, public_key_bytes=obj_in.public_key)
+            if existing_agent_by_key:
+                logger.warning(f"Attempt to create agent with already existing public key. Agent ID: {existing_agent_by_key.agent_id}")
+                raise IntegrityError(
+                    "Agent with this public key already exists.", 
+                    params=None, orig=None
+                )
 
         # Use provided agent_id or generate one
         agent_id = obj_in.agent_id or f"agent-{uuid.uuid4()}"
@@ -74,6 +74,9 @@ class CRUDAgent(CRUDBase[AgentModel, AgentCreate, AgentUpdate]): # Use AgentUpda
             "description": obj_in.description,
             "public_key": obj_in.public_key,
         }
+        if hasattr(obj_in, 'platform') and obj_in.platform is not None:
+            db_obj_data["platform"] = obj_in.platform
+            db_obj_data["selector"] = obj_in.selector
         # db_obj = self.model(**jsonable_encoder(obj_in)) # Old way
         db_obj = self.model(**db_obj_data)
 
