@@ -11,7 +11,7 @@ import { AgentAuthenticator } from "@/components/agents/AgentAuthenticator";
 import {
   LifecycleBadge,
   LifecycleProgressBar,
-  AgentIntegrationSection,
+  AgentIdentityCard,
   SessionHistoryTable,
   type LifecycleState,
 } from "@/components/agents";
@@ -56,6 +56,8 @@ interface AgentInfo {
   created_at?: string;
   public_key?: string;
   description?: string;
+  platform?: string | null;
+  selector?: string | null;
 }
 
 interface DelegationSummary {
@@ -325,8 +327,12 @@ export default function AgentDetailPage() {
       {/* 6. Session History */}
       <SessionHistoryTable agentId={agentId} />
 
-      {/* 7. Agent Integration */}
-      <AgentIntegrationSection agentId={agentId} />
+      {/* 7. Agent Identity */}
+      <AgentIdentityCard
+        agentId={agentId}
+        platform={agent?.platform}
+        selector={agent?.selector}
+      />
 
       {/* 8. Activity Feed (full width) */}
       <ActivityFeed events={allEvents} />

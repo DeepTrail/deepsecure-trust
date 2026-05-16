@@ -1,7 +1,7 @@
 """Pydantic schemas for Agent related API operations."""
 
 import logging
-from pydantic import BaseModel, Field, field_validator, model_validator, ValidationInfo
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Any, List
 from datetime import datetime
 import base64
@@ -27,9 +27,13 @@ class AgentBase(BaseModel):
     name: Optional[str] = Field(None, max_length=255, json_schema_extra={"example": "MyAwesomeAgent"})
     description: Optional[str] = Field(None, json_schema_extra={"example": "Agent for processing order data."})
 
+ALLOWED_PLATFORMS = {"gcp_workload_identity", "aws_iam", "kubernetes"}
+
 class AgentCreate(AgentBase):
     agent_id: Optional[str] = Field(None, description="Optional agent ID. If not provided, one will be generated.")
     public_key: Optional[bytes] = Field(None, description="Base64-encoded Ed25519 public key. If omitted, backend generates a keypair.")
+    platform: Optional[str] = Field(None, description="Identity platform: gcp_workload_identity, aws_iam, or kubernetes")
+    selector: Optional[str] = Field(None, description="Platform-specific identity selector (e.g., service account email)")
     
     @field_validator('public_key', mode='before')
     @classmethod
@@ -46,6 +50,16 @@ class AgentCreate(AgentBase):
         except (binascii.Error, ValueError) as e:
             raise ValueError(f"Invalid base64 encoded public key: {e}")
 
+    @model_validator(mode='after')
+    def validate_platform_selector_pair(self) -> 'AgentCreate':
+        if (self.platform is None) != (self.selector is None):
+            raise ValueError("platform and selector must both be set or both be None")
+        if self.platform and self.platform not in ALLOWED_PLATFORMS:
+            raise ValueError(f"platform must be one of: {', '.join(sorted(ALLOWED_PLATFORMS))}")
+        if self.platform and self.public_key:
+            raise ValueError("platform agents cannot have a public_key — identity is platform-based")
+        return self
+
 class AgentUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=255, json_schema_extra={"example": "MyRenamedAgent"})
     description: Optional[str] = Field(None, json_schema_extra={"example": "Updated agent description."})
@@ -53,17 +67,18 @@ class AgentUpdate(BaseModel):
 # --- Schemas for Database Interaction (usually includes all model fields) --- #
 class AgentInDBBase(AgentBase):
     agent_id: str = Field(json_schema_extra={"example": "agent_f3b4c1a9-0123-4567-89ab-cdef01234567"})
-    public_key: bytes
+    public_key: Optional[bytes] = None
+    platform: Optional[str] = None
+    selector: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     last_seen_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
 
 # --- Schemas for API Responses --- #
-class Agent(AgentInDBBase): # Inherits fields from AgentInDBBase, including public_key: bytes
+class Agent(AgentInDBBase):
     
-    # Override the public_key field to return a base64 string instead of bytes
-    public_key: str = Field(serialization_alias="publicKey")
+    public_key: Optional[str] = Field(None, serialization_alias="publicKey")
 
     # Lifecycle fields (populated by LifecycleService, not stored in DB)
     lifecycle_state: Optional[str] = Field(None, description="Computed lifecycle state: registered, delegated, authenticated, active")
@@ -74,15 +89,17 @@ class Agent(AgentInDBBase): # Inherits fields from AgentInDBBase, including publ
 
     @field_validator('public_key', mode='before')
     @classmethod
-    def encode_public_key_bytes(cls, v: Any) -> str:
+    def encode_public_key_bytes(cls, v: Any) -> Optional[str]:
         """Convert public key bytes from database to base64 string for JSON response."""
+        if v is None:
+            return None
         if isinstance(v, bytes):
             return base64.b64encode(v).decode('utf-8')
         elif isinstance(v, str):
-            return v  # Already encoded
+            return v
         else:
             logger.error(f"[AGENT_SCHEMA] Unexpected public key type: {type(v)}, value: {v}")
-            return ""  # Return empty string instead of None to avoid null issues
+            return None
 
     model_config = {
         "from_attributes": True,
@@ -135,7 +152,9 @@ class AgentCreateResponse(BaseModel):
     agent_id: str
     name: Optional[str] = None
     description: Optional[str] = None
-    public_key: str = Field(description="Base64-encoded Ed25519 public key")
+    public_key: Optional[str] = Field(None, description="Base64-encoded Ed25519 public key (absent for platform agents)")
+    platform: Optional[str] = Field(None, description="Identity platform if platform-based registration")
+    selector: Optional[str] = Field(None, description="Platform selector if platform-based registration")
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     private_key: Optional[str] = Field(None, description="Base64-encoded Ed25519 private key (only present when backend generates keypair)")

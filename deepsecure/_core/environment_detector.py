@@ -15,6 +15,7 @@ class EnvironmentType(Enum):
     """Types of detected environments."""
     KUBERNETES = "kubernetes"
     AWS = "aws"
+    GCP = "gcp"
     AZURE = "azure"
     DOCKER = "docker"
     LOCAL = "local"
@@ -42,6 +43,7 @@ class EnvironmentDetector:
             self._detect_kubernetes,
             self._detect_aws,
             self._detect_azure,
+            self._detect_gcp,
             self._detect_docker,
             self._detect_local
         ]
@@ -260,6 +262,66 @@ class EnvironmentDetector:
         
         return None
     
+    def _detect_gcp(self) -> Optional[EnvironmentInfo]:
+        """Detect GCP environment (Cloud Run, Cloud Functions, Compute Engine, GKE)."""
+        detection_details = []
+        metadata = {}
+        confidence = 0.0
+
+        k_service = os.environ.get("K_SERVICE")
+        if k_service:
+            confidence += 0.7
+            detection_details.append("Cloud Run K_SERVICE variable found")
+            metadata["service"] = "cloud_run"
+            metadata["k_service"] = k_service
+
+        function_target = os.environ.get("FUNCTION_TARGET")
+        if function_target:
+            confidence += 0.7
+            detection_details.append("Cloud Functions FUNCTION_TARGET variable found")
+            metadata["service"] = "cloud_functions"
+
+        gcp_project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        if gcp_project:
+            confidence += 0.4
+            detection_details.append("GOOGLE_CLOUD_PROJECT variable found")
+            metadata["project_id"] = gcp_project
+
+        if os.environ.get("GCE_METADATA_HOST"):
+            confidence += 0.3
+            detection_details.append("GCE_METADATA_HOST variable found")
+            metadata.setdefault("service", "compute_engine")
+
+        if confidence > 0.2:
+            return EnvironmentInfo(
+                environment_type=EnvironmentType.GCP,
+                confidence=min(confidence, 1.0),
+                metadata=metadata,
+                bootstrap_capable=confidence > 0.4,
+                detection_details=detection_details
+            )
+
+        # Slow path: probe GCE metadata server
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                "http://metadata.google.internal/computeMetadata/v1/project/project-id",
+                headers={"Metadata-Flavor": "Google"}
+            )
+            with urllib.request.urlopen(req, timeout=1) as response:
+                project_id = response.read().decode().strip()
+                return EnvironmentInfo(
+                    environment_type=EnvironmentType.GCP,
+                    confidence=0.8,
+                    metadata={"project_id": project_id, "service": "compute_engine"},
+                    bootstrap_capable=True,
+                    detection_details=["GCE metadata server responded with project ID"]
+                )
+        except Exception:
+            pass
+
+        return None
+
     def _detect_docker(self) -> Optional[EnvironmentInfo]:
         """Detect Docker container environment."""
         detection_details = []
@@ -385,7 +447,10 @@ class EnvironmentDetector:
         # Lower confidence if we detect cloud/container indicators
         cloud_indicators = [
             "AWS_REGION",
-            "AZURE_TENANT_ID", 
+            "AZURE_TENANT_ID",
+            "GOOGLE_CLOUD_PROJECT",
+            "K_SERVICE",
+            "FUNCTION_TARGET",
             "KUBERNETES_SERVICE_HOST",
             "/.dockerenv"
         ]
@@ -418,7 +483,8 @@ class EnvironmentDetector:
         
         method_mapping = {
             EnvironmentType.KUBERNETES: "kubernetes",
-            EnvironmentType.AWS: "aws", 
+            EnvironmentType.AWS: "aws",
+            EnvironmentType.GCP: "gcp",
             EnvironmentType.AZURE: "azure",
             EnvironmentType.DOCKER: "docker"
         }

@@ -358,6 +358,109 @@ class AzureIdentityProvider(IdentityProvider):
             return None
 
 
+class GcpIdentityProvider(IdentityProvider):
+    """
+    Identity provider for GCP workloads (Cloud Run, GKE, Compute Engine).
+    Bootstraps by fetching a GCP OIDC identity token from the metadata server
+    and exchanging it for a DeepSecure Agent JWT.
+
+    Unlike key-based providers, GCP returns a JWT (not key material).
+    The JWT is stored and used directly for API authentication.
+    """
+    GCP_METADATA_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity"
+    DEFAULT_AUDIENCE = "deepsecure"
+
+    def __init__(self, client: Any, silent_mode: bool = False):
+        self.client = client
+        self.silent_mode = silent_mode
+
+    @property
+    def name(self) -> str:
+        return "gcp"
+
+    def _is_on_gcp(self) -> bool:
+        """Quick check for GCP environment signals."""
+        return bool(
+            os.environ.get("K_SERVICE")
+            or os.environ.get("GOOGLE_CLOUD_PROJECT")
+            or os.environ.get("GCE_METADATA_HOST")
+        )
+
+    def _fetch_identity_token(self, audience: str = None) -> Optional[str]:
+        """Fetch OIDC identity token from GCP metadata server."""
+        import urllib.request
+
+        aud = audience or os.environ.get("GCP_BOOTSTRAP_AUDIENCE", self.DEFAULT_AUDIENCE)
+        url = f"{self.GCP_METADATA_URL}?audience={aud}&format=full"
+        req = urllib.request.Request(url, headers={"Metadata-Flavor": "Google"})
+        try:
+            with urllib.request.urlopen(req, timeout=3) as response:
+                return response.read().decode().strip()
+        except Exception:
+            return None
+
+    def get_identity(self, agent_id: str) -> Optional[AgentIdentity]:
+        if not self._is_on_gcp():
+            if not self.silent_mode:
+                utils.console.print(f"[{self.name}] Not running on GCP. Skipping.", style="dim")
+            return None
+
+        if not self.silent_mode:
+            utils.console.print(
+                f"[{self.name}] GCP environment detected. Attempting identity bootstrap for agent [cyan]{agent_id}[/cyan]...",
+                style="dim",
+            )
+
+        token = self._fetch_identity_token()
+        if not token:
+            if not self.silent_mode:
+                utils.console.print(
+                    f"[{self.name}] Could not fetch GCP identity token from metadata server.",
+                    style="yellow",
+                )
+            return None
+
+        try:
+            result = self.client.bootstrap_gcp(token)
+
+            access_token = result.get("access_token")
+            resolved_agent_id = result.get("agent_id", agent_id)
+
+            if not access_token:
+                raise ValueError("Bootstrap response missing access_token")
+
+            # GCP returns a JWT, not key material.  Store in keyring so subsequent
+            # calls can reuse the token without re-bootstrapping.
+            keyring_service = _get_keyring_service_name_for_agent(resolved_agent_id)
+            try:
+                keyring.set_password(keyring_service, resolved_agent_id, access_token)
+            except Exception:
+                pass  # Keyring is optional for GCP — the JWT can be re-fetched
+
+            if not self.silent_mode:
+                utils.console.print(
+                    f"[{self.name}] Successfully bootstrapped identity for agent [cyan]{resolved_agent_id}[/cyan].",
+                    style="green",
+                )
+
+            # Store the JWT as private_key_b64 — the SDK HTTP client uses this
+            # field for the Bearer token.  public_key_b64 is not applicable for
+            # GCP platform agents.
+            return AgentIdentity(
+                agent_id=resolved_agent_id,
+                private_key_b64=access_token,
+                public_key_b64="",
+                provider_name=self.name,
+            )
+        except Exception as e:
+            if not self.silent_mode:
+                utils.console.print(
+                    f"[{self.name}] ERROR: Failed to bootstrap GCP identity for agent {agent_id}: {e}",
+                    style="bold red",
+                )
+            return None
+
+
 class DockerIdentityProvider(IdentityProvider):
     """
     An identity provider that bootstraps an agent's identity using

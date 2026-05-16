@@ -8,7 +8,11 @@ from app import schemas, crud
 from app.api import deps
 from app.core import security
 import base64
-from app.schemas.auth import KubernetesBootstrapRequest, AWSBootstrapRequest, AzureBootstrapRequest, DockerBootstrapRequest, BootstrapResponse
+from app.schemas.auth import (
+    KubernetesBootstrapRequest, AWSBootstrapRequest, AzureBootstrapRequest,
+    DockerBootstrapRequest, BootstrapResponse,
+    GCPBootstrapRequest, GCPBootstrapResponse,
+)
 from app.core.config import settings
 from app.services.bootstrap_service import bootstrap_service
 import httpx
@@ -211,7 +215,7 @@ def bootstrap_kubernetes(
         # Use the bootstrap service to handle the complete flow
         response = bootstrap_service.bootstrap_kubernetes_agent(
             db=db,
-            token=bootstrap_request.token
+            token=bootstrap_request.sat
         )
         
         logger.info(f"[{correlation_id}] Kubernetes bootstrap completed successfully")
@@ -388,6 +392,102 @@ def bootstrap_docker(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Bootstrap failed: {str(e)}"
+        )
+
+
+@router.post("/bootstrap/gcp", response_model=GCPBootstrapResponse)
+def bootstrap_gcp(
+    *,
+    db: deps.DbDep,
+    bootstrap_request: GCPBootstrapRequest,
+):
+    """Bootstrap a GCP agent using Workload Identity OIDC token.
+
+    Unlike other bootstrap endpoints, this does not create a new agent.
+    The agent must be pre-registered with platform=gcp_workload_identity.
+    The agent is resolved from the JWT's email claim via 1:1 selector lookup.
+    """
+    correlation_id = str(uuid.uuid4())
+    logger.info(f"[{correlation_id}] Starting GCP bootstrap request")
+
+    try:
+        result = bootstrap_service.bootstrap_gcp_agent(
+            db=db,
+            identity_token=bootstrap_request.identity_token,
+        )
+
+        logger.info(f"[{correlation_id}] GCP bootstrap completed successfully")
+        return GCPBootstrapResponse(**result)
+
+    except TokenValidationError as e:
+        logger.warning(f"[{correlation_id}] GCP token validation failed: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "token_validation_failed",
+                "message": e.message,
+                "error_code": e.error_code,
+                "platform": e.platform,
+                "correlation_id": correlation_id,
+            }
+        )
+    except PolicyNotFoundError as e:
+        logger.warning(f"[{correlation_id}] GCP policy not found: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "policy_not_found",
+                "message": e.message,
+                "error_code": e.error_code,
+                "platform": e.platform,
+                "correlation_id": correlation_id,
+            }
+        )
+    except BootstrapError as e:
+        logger.warning(f"[{correlation_id}] GCP bootstrap error: {e.message}")
+        error_code = getattr(e, "error_code", "")
+        if error_code == "AGENT_NOT_FOUND" or "not found" in e.message.lower():
+            http_status = status.HTTP_404_NOT_FOUND
+        elif error_code == "POLICY_NOT_FOUND" or "policy" in e.message.lower():
+            http_status = status.HTTP_403_FORBIDDEN
+        else:
+            http_status = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(
+            status_code=http_status,
+            detail={
+                "error": "bootstrap_error",
+                "message": e.message,
+                "error_code": e.error_code,
+                "platform": e.platform,
+                "correlation_id": correlation_id,
+            }
+        )
+    except ConfigurationError as e:
+        logger.error(f"[{correlation_id}] Configuration error: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "configuration_error",
+                "message": "Service configuration error",
+                "error_code": e.error_code,
+                "correlation_id": correlation_id,
+            }
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(f"[{correlation_id}] Unexpected error during GCP bootstrap: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "internal_server_error",
+                "message": "An unexpected error occurred",
+                "error_code": "INTERNAL_ERROR",
+                "correlation_id": correlation_id,
+            }
         )
 
 

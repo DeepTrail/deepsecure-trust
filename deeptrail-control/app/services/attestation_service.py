@@ -1,3 +1,5 @@
+import warnings
+
 from sqlalchemy.orm import Session
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -8,10 +10,26 @@ from app import crud, schemas
 from app.core.config import settings
 
 class AttestationService:
+    """
+    .. deprecated::
+        Use :class:`app.services.bootstrap_service.BootstrapService` instead.
+        This class will be removed after 2026-09-01.
+    """
+
     def attest_gcp_and_create_agent(self, db: Session, *, token: str) -> tuple[str, str]:
         """
         Verifies a GCP identity token, checks it against policy, and creates a new agent.
+
+        .. deprecated::
+            Use ``BootstrapService.bootstrap_gcp_agent()`` via
+            ``POST /auth/bootstrap/gcp`` instead.
         """
+        warnings.warn(
+            "AttestationService.attest_gcp_and_create_agent() is deprecated. "
+            "Use BootstrapService.bootstrap_gcp_agent() via POST /auth/bootstrap/gcp instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # 1. Verify the GCP identity token
         try:
             # The audience must be the URL of our control plane

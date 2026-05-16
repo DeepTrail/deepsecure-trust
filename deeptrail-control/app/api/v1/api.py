@@ -28,12 +28,12 @@ api_router.include_router(
 api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(vault.router, prefix="/vault", tags=["vault"])
-api_router.include_router(policies.router, prefix="/policies", tags=["policies"])
 api_router.include_router(
     attestation_policies.router,
     prefix="/policies/attestation",
     tags=["policies"],
 )
+api_router.include_router(policies.router, prefix="/policies", tags=["policies"])
 api_router.include_router(internal.router, prefix="/internal", tags=["internal"], include_in_schema=False)
 api_router.include_router(bootstrap.router, prefix="/bootstrap", tags=["bootstrap"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
