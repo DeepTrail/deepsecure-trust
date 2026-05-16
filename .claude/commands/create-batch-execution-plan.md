@@ -173,6 +173,23 @@ Read the BREAKDOWN.md's "Parallelization Decision" section to determine the exec
 
 ### 6. Generate the Execution Plan
 
+**⚠️ Deploy Batch Prerequisite:** If the workstream includes a deploy/release batch,
+you MUST check `infra/` for existing scripts before writing inline docker/gcloud commands:
+
+```bash
+ls infra/*.sh
+# Existing scripts:
+#   infra/build-and-push.sh  — builds + pushes Docker images to Artifact Registry
+#   infra/deploy.sh          — deploys images to Cloud Run services
+#   infra/migrate.sh         — runs Alembic migrations via Cloud Run Job or cloud-sql-proxy
+```
+
+**Rules for deploy batches:**
+- Use `infra/build-and-push.sh [service1] [service2]` instead of inline `docker build` + `docker push`
+- Use `infra/deploy.sh [service1] [service2]` instead of inline `gcloud run services update`
+- Use `infra/migrate.sh` instead of inline `gcloud run jobs` commands
+- If a new infra script is needed, create it in `infra/` — don't inline multi-line commands
+
 Create `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md` with ALL required sections below.
 
 ---
@@ -684,6 +701,17 @@ grep -q "## Quick Start Commands" $FILE && echo "✅ Quick Start" || { echo "❌
 grep -q "## Worktree Cleanup\|## Branch Cleanup" $FILE && echo "✅ Cleanup" || { echo "❌ MISSING: Cleanup section"; FAIL=1; }
 grep -q "### Troubleshooting" $FILE && echo "✅ Troubleshooting" || { echo "❌ MISSING: Troubleshooting"; FAIL=1; }
 grep -q "### Critical Path" $FILE && echo "✅ Critical Path" || { echo "❌ MISSING: Critical Path"; FAIL=1; }
+
+# Deploy batch checks: must use infra/ scripts, not inline docker/gcloud
+if grep -q "docker build\|docker push" $FILE; then
+  grep -q "build-and-push.sh" $FILE && echo "✅ Uses infra/build-and-push.sh" || { echo "❌ INLINE DOCKER COMMANDS — use infra/build-and-push.sh instead"; FAIL=1; }
+fi
+if grep -q "gcloud run services update" $FILE; then
+  grep -q "deploy.sh" $FILE && echo "✅ Uses infra/deploy.sh" || { echo "❌ INLINE DEPLOY COMMANDS — use infra/deploy.sh instead"; FAIL=1; }
+fi
+if grep -q "migrate\|migration\|alembic" $FILE; then
+  grep -q "migrate.sh" $FILE && echo "✅ Uses infra/migrate.sh" || echo "⚠️  Check if infra/migrate.sh should be referenced for DB migrations"
+fi
 
 echo ""
 echo "=== Line Count Check ==="

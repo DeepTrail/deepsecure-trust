@@ -1003,6 +1003,8 @@ async def client():
 | May 2026 | Workstream created manually without full pipeline — `/run-batch` accepted it because it only checked 3 files | Added 3 new pre-flight checks to `/run-batch` (BREAKDOWN.md, CODEBASE_ANALYSIS.md, MERGE_POINTS.md); added "Workstream Prerequisites (MANDATORY)" section | Workstream Prerequisites |
 | May 2026 | MERGE_POINTS.md verification only checked section headers, not content — p3-gcp merge actions had no git commit/push/tag commands | Added content-level grep for `git commit\|git push\|git tag` in `/create-workstream` verification | MERGE_POINTS.md Required Sections |
 | May 2026 | MERGE_POINTS.md verification checked only 6 of 18 required sections — p3-gcp file passed with 10 sections missing entirely | Expanded `/create-workstream` verification from 6 to 18+2 section checks; added N/A-block pattern for inapplicable sections | MERGE_POINTS.md Required Sections |
+| May 2026 | Deploy batch in BATCH_EXECUTION_PLAN.md used inline `docker build`/`docker push` instead of existing `infra/build-and-push.sh`; `migrate.sh` used wrong gcloud flag (`--add-cloudsql-instances` vs `--set-cloudsql-instances`) hidden by `2>/dev/null` | Added deploy-script prerequisite check to `/create-batch-execution-plan`; fixed `migrate.sh` flag and error handling; added verification check for inline docker commands | Deploy Commands |
+| May 2026 | Workstream fully deployed and verified on live site but all status files still showed "in progress" — closure was manual and forgotten | Added auto-closure to `/verify-batch-completion`: detects final batch, auto-updates STATUS.md, BATCH_EXECUTION_PLAN.md, MERGE_POINTS.md, and workstreams/README.md | Verify Batch Completion |
 
 ### How to Add New Lessons
 

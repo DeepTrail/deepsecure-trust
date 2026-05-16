@@ -182,6 +182,7 @@ Create a structured report showing:
 **Feature:** [feature-name]
 **Verified:** [timestamp]
 **Overall Result:** ✅ PASS / ❌ FAIL
+**Final Batch:** YES / NO
 
 ### Completion Reports (Source of Truth)
 
@@ -339,6 +340,100 @@ Re-run verification:
 
 ---
 
+## Auto-Closure: Final Batch Detection (Step 8)
+
+**After verification PASSES, check if this was the LAST batch in the workstream.**
+
+### 8a. Detect Final Batch
+
+Read `BATCH_EXECUTION_PLAN.md` and determine:
+
+```
+ALL_BATCHES = [list every batch ID from the Quick Reference table]
+CURRENT_BATCH = [batch-id being verified]
+
+IS_FINAL_BATCH = (CURRENT_BATCH == last item in ALL_BATCHES)
+```
+
+Also verify ALL prior batches are complete:
+
+```bash
+# Every batch in the Quick Reference table should show "✅ Complete"
+grep -E "^\| (P[0-9]-)?B[0-9]" docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md | \
+  grep -v "✅ Complete" | wc -l
+# Result must be 0
+```
+
+**If this is NOT the final batch:** Stop here. Report PASS and show next batch.
+
+**If this IS the final batch:** Continue to Step 8b — Auto-Close Workstream.
+
+### 8b. Auto-Close Workstream
+
+When the final batch passes verification, automatically perform ALL of the following:
+
+#### 1. Update STATUS.md
+
+Set the workstream to complete:
+
+- Change `**Phase:**` line to `✅ COMPLETE`
+- Update `Tasks Complete` to `[N] / [N]` (all tasks)
+- Update `Batches Complete` to `[N] / [N]` (all batches)
+- Mark the final batch as `✅ Complete` in the Batch Status table
+- Mark remaining tasks as `✅ Complete` in the Task Status table
+- Add a History entry: `| [today's date] | Workstream COMPLETE — all batches verified |`
+
+#### 2. Update BATCH_EXECUTION_PLAN.md
+
+- Mark the final batch as `✅ Complete` in the Status table
+- Ensure all batches show `✅ Complete`
+
+#### 3. Update MERGE_POINTS.md
+
+- Set the progress bar to 100%: `MP[N]: ██████████ 100% ([N]/[N] tasks)`
+- Update Merge Point Status table to `✅ Complete`
+- Add a History entry: `| [today's date] | All merge points complete — workstream closed |`
+
+#### 4. Update docs/workstreams/README.md
+
+- In the **Active Workstreams** table, change the feature's status to `complete` and progress to `100%`
+- In the **Completed Workstreams** table, add a row:
+  `| [Feature Name] | [today's date] | [total tasks] | [WORKSTREAM.md link] |`
+
+#### 5. Report Closure
+
+Output the closure summary:
+
+```markdown
+## 🏁 Workstream [feature-name] is COMPLETE
+
+**Final batch [batch-id] verified.** All status files have been auto-closed.
+
+| File | Action |
+|------|--------|
+| STATUS.md | ✅ Updated — Phase: COMPLETE, [N]/[N] tasks |
+| BATCH_EXECUTION_PLAN.md | ✅ Updated — all batches complete |
+| MERGE_POINTS.md | ✅ Updated — 100% progress |
+| workstreams/README.md | ✅ Updated — moved to Completed |
+
+**No further action needed for this workstream.**
+```
+
+### 8c. Why Auto-Closure Matters
+
+| Without Auto-Closure | With Auto-Closure |
+|----------------------|-------------------|
+| User must remember to ask for closure | Closure happens automatically on final batch |
+| 5 files need manual updates | All 5 files updated in one step |
+| Easy to forget, leaving stale "in progress" status | Workstream is always in a clean state |
+| Status drift between files | All files updated atomically |
+
+> **Lesson (May 2026):** The p3-gcp-ux-alignment workstream was fully deployed and verified
+> on the live site, but all status files still showed "in progress" because closure was manual.
+> Auto-closure eliminates this gap.
+
+---
+
 ## Integration with Other Commands
 
 ### When to Run This Command
@@ -407,6 +502,8 @@ When running this command, ensure you:
 - [ ] Clearly stated PASS or FAIL
 - [ ] If FAIL, listed exact files and changes needed
 - [ ] If FAIL, did NOT suggest proceeding to next batch
+- [ ] Checked if this is the FINAL batch in the workstream
+- [ ] If final batch PASSES, ran auto-closure (Step 8b) on all status files
 
 ---
 

@@ -149,6 +149,7 @@ docs/workstreams/
 | MVP Production Readiness | `complete` | 100% | [WORKSTREAM.md](./mvp-production-readiness/WORKSTREAM.md) |
 | IdP Selector for Demo | `complete` | 100% | [WORKSTREAM.md](./idp-selector/WORKSTREAM.md) |
 | Interactive Demo | `planning` | 0% (0/9 tasks) | [WORKSTREAM.md](./interactive-demo/WORKSTREAM.md) |
+| P3 GCP UX Alignment | `complete` | 100% (10/10 tasks) | [WORKSTREAM.md](./p3-gcp-ux-alignment/WORKSTREAM.md) |
 
 ## Completed Workstreams
 
@@ -156,4 +157,4 @@ docs/workstreams/
 
 | Feature | Completed | Tasks | Link |
 |---------|-----------|-------|------|
-| _None yet_ | - | - | - |
+| P3 GCP UX Alignment | May 16, 2026 | 10 | [WORKSTREAM.md](./p3-gcp-ux-alignment/WORKSTREAM.md) |

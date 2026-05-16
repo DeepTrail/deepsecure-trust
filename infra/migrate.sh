@@ -13,23 +13,29 @@ case "$MODE" in
   job)
     echo "=== Running migrations via Cloud Run Job ==="
 
-    # Get the database password from Secret Manager
     DB_PASSWORD=$(gcloud secrets versions access latest --secret="db-password" --project="${PROJECT_ID}")
     DATABASE_URL="postgresql://deepsecure_user:${DB_PASSWORD}@/deeptrail_controldb?host=/cloudsql/${CONNECTION_NAME}"
 
-    # Create and execute the migration job
-    gcloud run jobs create alembic-migrate \
-      --image="${REGISTRY}/deeptrail-control:latest" \
-      --region="${REGION}" \
-      --project="${PROJECT_ID}" \
-      --add-cloudsql-instances="${CONNECTION_NAME}" \
-      --service-account="deepsecure-runner@${PROJECT_ID}.iam.gserviceaccount.com" \
-      --set-env-vars="DATABASE_URL=${DATABASE_URL},CLOUD_RUN=true" \
-      --command="alembic" \
-      --args="upgrade,head" \
-      --max-retries=0 \
-      --task-timeout=300s \
-      2>/dev/null || true  # Ignore "already exists" error
+    JOB_ARGS=(
+      --image="${REGISTRY}/deeptrail-control:latest"
+      --region="${REGION}"
+      --project="${PROJECT_ID}"
+      --set-cloudsql-instances="${CONNECTION_NAME}"
+      --service-account="deepsecure-runner@${PROJECT_ID}.iam.gserviceaccount.com"
+      --set-env-vars="DATABASE_URL=${DATABASE_URL},CLOUD_RUN=true"
+      --command="alembic"
+      --args="upgrade,head"
+      --max-retries=0
+      --task-timeout=300s
+    )
+
+    if gcloud run jobs describe alembic-migrate --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
+      echo "Updating existing migration job with latest image..."
+      gcloud run jobs update alembic-migrate "${JOB_ARGS[@]}"
+    else
+      echo "Creating migration job..."
+      gcloud run jobs create alembic-migrate "${JOB_ARGS[@]}"
+    fi
 
     echo "Executing migration job..."
     gcloud run jobs execute alembic-migrate \
