@@ -1,7 +1,7 @@
 """Add platform and selector to agents, make public_key nullable.
 
 Revision ID: p4a1b2c3d4e5
-Revises: 
+Revises: e5f6a7b8c9d0
 Create Date: 2026-05-16
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers
 revision = 'p4a1b2c3d4e5'
-down_revision = None
+down_revision = 'e5f6a7b8c9d0'
 branch_labels = None
 depends_on = None
 
