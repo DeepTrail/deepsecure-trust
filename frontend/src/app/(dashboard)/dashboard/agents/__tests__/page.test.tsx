@@ -119,9 +119,10 @@ describe("AgentsPage", () => {
       expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Active")).toBeInTheDocument();
+    const activeBadges = screen.getAllByText("Active");
+    expect(activeBadges.length).toBeGreaterThan(0);
     expect(screen.getByText("Delegated")).toBeInTheDocument();
-    expect(screen.getByText("Registered")).toBeInTheDocument();
+    expect(screen.getAllByText("Registered").length).toBeGreaterThan(0);
   });
 
   it("shows EmptyState when there are no agents", async () => {
@@ -266,7 +267,8 @@ describe("AgentsPage", () => {
       render(<AgentsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText("Active")).toBeInTheDocument();
+        const activeBadges = screen.getAllByText("Active");
+        expect(activeBadges.length).toBeGreaterThan(0);
       });
     });
 
@@ -293,7 +295,7 @@ describe("AgentsPage", () => {
     });
   });
 
-  it("displays truncated public key when present", async () => {
+  it("displays LifecycleTimeline for each agent", async () => {
     mockApiClient.mockResolvedValueOnce([AGENTS[0]]);
     render(<AgentsPage />);
 
@@ -301,13 +303,10 @@ describe("AgentsPage", () => {
       expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
     });
 
-    const keyText = screen.getByText(/^Key:/);
-    expect(keyText.textContent).toContain(
-      AGENTS[0].public_key!.slice(0, 16) + "..."
-    );
+    expect(screen.getByText("Agent is fully operational")).toBeInTheDocument();
   });
 
-  it("does not display public key section when absent", async () => {
+  it("does not show key section (removed in favor of timeline)", async () => {
     mockApiClient.mockResolvedValueOnce([AGENTS[1]]);
     render(<AgentsPage />);
 

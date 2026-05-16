@@ -9,8 +9,8 @@ All plan files MUST live in the repository's `plans/` directory, never in `~/.cu
 
 ## Rule
 
-- Plans MUST be at: `<workspace_root>/plans/<plan_name>.plan.md`
-- NEVER leave plans at: `~/.cursor/plans/`
+- Plans MUST be copied to: `<workspace_root>/plans/<plan_name>.plan.md`
+- Keep the original at `~/.cursor/plans/` (Cursor's plan UI needs it)
 
 ## Why
 
@@ -23,7 +23,8 @@ All plan files MUST live in the repository's `plans/` directory, never in `~/.cu
 The `CreatePlan` tool writes to `~/.cursor/plans/` by default and does not support custom paths. Therefore, IMMEDIATELY after every `CreatePlan` call:
 
 1. Read the created file from `~/.cursor/plans/<filename>.plan.md`
-2. Write its contents to `<workspace_root>/plans/<filename>.plan.md`
-3. Delete the file from `~/.cursor/plans/<filename>.plan.md`
+2. Copy its contents to `<workspace_root>/plans/<filename>.plan.md`
 
-This is NOT optional. Every plan must be moved in the same turn it is created. Do not wait for the user to ask.
+Do NOT delete the file from `~/.cursor/plans/`. Keep both copies -- Cursor needs the original at `~/.cursor/plans/` for its plan UI, and the workspace copy ensures version control.
+
+This is NOT optional. Every plan must be copied in the same turn it is created. Do not wait for the user to ask.

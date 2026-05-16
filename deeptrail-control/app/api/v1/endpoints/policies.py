@@ -9,7 +9,7 @@ from app.api import deps
 
 router = APIRouter()
 
-@router.get("/", response_model=List[schemas.Policy])
+@router.get("", response_model=List[schemas.Policy])
 def read_policies(
     db: Session = Depends(deps.get_db),
     skip: int = 0,
@@ -21,7 +21,7 @@ def read_policies(
     policies = crud.policy.get_multi(db, skip=skip, limit=limit)
     return policies
 
-@router.post("/", response_model=schemas.Policy)
+@router.post("", response_model=schemas.Policy)
 def create_policy(
     *,
     db: Session = Depends(deps.get_db),

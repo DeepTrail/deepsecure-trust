@@ -48,13 +48,13 @@ describe("WelcomeWizard", () => {
   it("navigates forward on Next click", () => {
     render(<WelcomeWizard />);
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
-    expect(screen.getByText(/Connect an external service/)).toBeInTheDocument();
+    expect(screen.getByText(/DeepSecure supports the following services/)).toBeInTheDocument();
   });
 
   it("navigates backward on Back click", () => {
     render(<WelcomeWizard />);
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
-    expect(screen.getByText(/Connect an external service/)).toBeInTheDocument();
+    expect(screen.getByText(/DeepSecure supports the following services/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /back/i }));
     expect(screen.getByText(/Welcome to DeepSecure/)).toBeInTheDocument();
@@ -70,7 +70,7 @@ describe("WelcomeWizard", () => {
     render(<WelcomeWizard />);
 
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
-    expect(screen.getByText(/Connect an external service/)).toBeInTheDocument();
+    expect(screen.getByText(/DeepSecure supports the following services/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
     expect(screen.getByText(/Register an AI agent/)).toBeInTheDocument();

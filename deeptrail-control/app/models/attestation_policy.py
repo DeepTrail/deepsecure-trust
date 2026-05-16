@@ -12,6 +12,7 @@ class PlatformType(str, enum.Enum):
     AWS_IAM = "aws_iam"
     AZURE_MANAGED_IDENTITY = "azure_managed_identity"
     DOCKER_CONTAINER = "docker_container"
+    GCP_WORKLOAD_IDENTITY = "gcp_workload_identity"
 
 
 class AttestationPolicy(Base):

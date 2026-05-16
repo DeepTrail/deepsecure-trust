@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
   cookieStore.delete("__session");
   cookieStore.delete("__csrf");
 
-  return NextResponse.redirect(new URL("/login", process.env.NEXTAUTH_URL || "http://localhost:3000"));
+  const origin = process.env.FRONTEND_ORIGIN || request.nextUrl.origin;
+  return NextResponse.redirect(new URL("/login", origin));
 }

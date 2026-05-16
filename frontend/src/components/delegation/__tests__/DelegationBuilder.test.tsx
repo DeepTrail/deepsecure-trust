@@ -128,7 +128,7 @@ describe("DelegationBuilder", () => {
         body: JSON.stringify({
           agent_id: "agent-1",
           permissions: ["notion:pages:read", "github:repos:read"],
-          ttl: 86400,
+          constraints: { expires_in_hours: 24 },
         }),
       });
     });

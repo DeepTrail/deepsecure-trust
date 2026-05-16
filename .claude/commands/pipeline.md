@@ -17,8 +17,8 @@ DEFINE ──────── PLAN ──────────────�
 /spec           /run-plan                 /run-batch          /review       /ship
 /create-         (orchestrates:           (orchestrates:      /security-
  design-doc       /breakdown-design         /create-task-spec   audit
-                    └─ /explore-codebase    /create-task-ticket /commit-
-                    └─ /create-workstream   /execute-task        push-pr
+ (reads spec      └─ /explore-codebase    /create-task-ticket /commit-
+  or plan)        └─ /create-workstream   /execute-task        push-pr
                     └─ /create-batch-plan   /verify-batch-
                   /setup-worktrees           completion)
                   + verification)
@@ -79,6 +79,7 @@ The pipeline maintains state in `docs/workstreams/[feature]/PIPELINE_STATE.md`:
 
 **Mode 1: Full Pipeline** (start to finish with checkpoints)
 ```
+/pipeline @spec-file.md
 /pipeline @design-doc.md
 /pipeline @plan-file.plan.md
 /pipeline "feature description in plain text"
@@ -118,8 +119,9 @@ The pipeline maintains state in `docs/workstreams/[feature]/PIPELINE_STATE.md`:
 | Input | Action |
 |-------|--------|
 | Plain text idea | Run `/spec` to create structured requirements |
+| Spec file (`docs/spec/*.md`) | Run `/create-design-doc` to transform into design doc |
 | Plan file (`.plan.md`) | Run `/create-design-doc` to formalize |
-| Design doc (already exists) | Skip to PLAN phase |
+| Design doc (already exists in `docs/design/`) | Skip to PLAN phase |
 | No input | Ask user what they want to build |
 
 ### Step 1.2: Create Spec (if starting from idea)
@@ -128,16 +130,19 @@ Invoke `/spec` workflow:
 1. CLARIFY — Ask user the 5 essential questions
 2. SPECIFY — Generate structured spec with goals, non-goals, constraints
 3. VALIDATE — Cross-check for completeness
-4. OUTPUT — Write spec to `docs/specs/[feature-name].md`
+4. OUTPUT — Write spec to `docs/spec/[feature-name]-spec.md`
 
-### Step 1.3: Create Design Doc (mandatory after spec)
+### Step 1.3: Create Design Doc (after spec, or from plan)
 
 Invoke `/create-design-doc` workflow:
-1. Read spec (or plan file)
-2. Generate 15-section design document (500–800+ lines)
-3. Apply DeepSecure conventions
-4. Flag sections needing human input
-5. Write to `docs/design/[feature-name].md`
+1. Read spec from `docs/spec/` (primary) or plan file (alternative entry)
+2. For thorough specs (500+ lines): focus on 4 delta items (per-feature subsections, WS-ID task tables, dependency graph, model column completion)
+3. For plan files or skeletal specs: generate full 15-section design document (500–800+ lines)
+4. Apply DeepSecure conventions
+5. Flag sections needing human input
+6. Write to `docs/design/[feature-name].md`
+
+**Note:** For thorough specs that already have design-doc-level depth, `/create-design-doc` can be skipped — proceed directly to `/breakdown-design` with the spec file as input. The decision depends on whether the spec needs the 4 delta items (task tables, dependency graph) or whether `/breakdown-design` can generate those itself.
 
 ### Step 1.4: Extract Feature Name
 ```
@@ -594,7 +599,7 @@ This command orchestrates all other pipeline commands:
 
 | Phase | Commands Invoked |
 |-------|-----------------|
-| DEFINE | `/spec`, `/create-design-doc` |
+| DEFINE | `/spec` → `docs/spec/`, then `/create-design-doc` (reads spec or plan) → `docs/design/`. For thorough specs, `/create-design-doc` can be skipped. |
 | PLAN | `/run-plan` (orchestrates: `/breakdown-design` → `/explore-codebase` → `/create-workstream` → `/create-batch-execution-plan` → `/setup-worktrees` if needed) |
 | EXECUTE | `/run-batch` (orchestrates: `/create-task-spec`, `/create-task-ticket`, `/execute-task`, `/verify-batch-completion`), `/sync-worktree-status` |
 | REVIEW | `/review`, `/security-audit`, `/commit-push-pr` |

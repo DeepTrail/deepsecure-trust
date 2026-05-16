@@ -1,5 +1,6 @@
 """Main FastAPI application entrypoint."""
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -72,10 +73,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware
+_cors_env = os.getenv("CORS_ALLOWED_ORIGINS", "*")
+_allowed_origins = [o.strip() for o in _cors_env.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update with appropriate origins in production
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

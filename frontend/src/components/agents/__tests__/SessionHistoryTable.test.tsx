@@ -82,12 +82,12 @@ describe("SessionHistoryTable", () => {
     });
   });
 
-  it("shows 'Active' badge on active sessions", async () => {
+  it("shows 'Valid' badge on active sessions", async () => {
     mockApiClient.mockResolvedValueOnce({ sessions: SESSIONS, total: 2 });
     render(<SessionHistoryTable agentId="agent-1" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Active")).toBeInTheDocument();
+      expect(screen.getByText("Valid")).toBeInTheDocument();
     });
   });
 

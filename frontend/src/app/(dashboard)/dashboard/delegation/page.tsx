@@ -122,7 +122,7 @@ export default function DelegationPage() {
       <div className="grid gap-4">
         {delegations.map((d) => {
           const permsByService: Record<string, string[]> = {};
-          for (const p of d.permissions) {
+          for (const p of d.permissions ?? []) {
             const parts = p.split(":");
             const svc = parts[0] || "unknown";
             if (!permsByService[svc]) permsByService[svc] = [];
@@ -162,7 +162,7 @@ export default function DelegationPage() {
                     </Badge>
                   )}
                   <Badge variant="default">
-                    {d.permissions.length} permission{d.permissions.length !== 1 ? "s" : ""}
+                    {(d.permissions ?? []).length} permission{(d.permissions ?? []).length !== 1 ? "s" : ""}
                   </Badge>
                   <Button
                     variant="ghost"

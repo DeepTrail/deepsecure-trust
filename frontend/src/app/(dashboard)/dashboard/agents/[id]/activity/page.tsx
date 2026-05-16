@@ -11,7 +11,7 @@ import { AgentAuthenticator } from "@/components/agents/AgentAuthenticator";
 import {
   LifecycleBadge,
   LifecycleProgressBar,
-  DeployConfigSection,
+  AgentIntegrationSection,
   SessionHistoryTable,
   type LifecycleState,
 } from "@/components/agents";
@@ -325,8 +325,8 @@ export default function AgentDetailPage() {
       {/* 6. Session History */}
       <SessionHistoryTable agentId={agentId} />
 
-      {/* 7. Deploy Configuration */}
-      <DeployConfigSection agentId={agentId} />
+      {/* 7. Agent Integration */}
+      <AgentIntegrationSection agentId={agentId} />
 
       {/* 8. Activity Feed (full width) */}
       <ActivityFeed events={allEvents} />

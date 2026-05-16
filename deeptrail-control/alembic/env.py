@@ -40,13 +40,11 @@ target_metadata = Base.metadata # Restore original line
 # ... etc.
 
 def get_url():
-    # Always get URL from environment, ensure .env is loaded first
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
-        # Fallback or raise error if not found
-        # For autogenerate, it might be okay to use a dummy default if needed,
-        # but preferable to require .env to be set up.
         raise ValueError("DATABASE_URL environment variable not set. Please configure .env file.")
+    # Alembic uses synchronous create_engine(); swap async driver for sync
+    db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
     return db_url
 
 def run_migrations_offline() -> None:

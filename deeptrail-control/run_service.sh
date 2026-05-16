@@ -2,10 +2,15 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# Add a fixed delay to allow Docker networking to stabilize.
-# This is a workaround for persistent networking issues in some Docker environments.
-echo "INFO: Adding a 15-second delay for network stabilization..."
-sleep 15
+if [ "${CLOUD_RUN:-false}" != "true" ]; then
+  echo "INFO: Adding a 15-second delay for network stabilization..."
+  sleep 15
+fi
+
+# Inject DB_PASSWORD into DATABASE_URL if both are set and URL has empty password
+if [ -n "$DB_PASSWORD" ] && echo "$DATABASE_URL" | grep -q '://..*:@'; then
+  export DATABASE_URL=$(echo "$DATABASE_URL" | sed "s|://\(.*\):@|://\1:${DB_PASSWORD}@|")
+fi
 
 # Apply database migrations before starting the server.
 echo "INFO: Applying database migrations..."

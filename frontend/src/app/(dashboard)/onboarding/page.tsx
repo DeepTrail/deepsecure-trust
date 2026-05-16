@@ -65,7 +65,7 @@ export default function OnboardingPage() {
       <div className="mb-8 text-center">
         <h1 className="text-3xl font-bold">Get Started with DeepSecure</h1>
         <p className="mt-2 text-muted-foreground">
-          Follow these steps to set up identity-based security for your AI agents.
+          Follow these steps to set up a trust layer for your AI agents.
         </p>
       </div>
       <WelcomeWizard onComplete={handleComplete} />

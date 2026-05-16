@@ -818,6 +818,16 @@ This table shows exactly how `/create-design-doc` transforms each spec section:
 
 **Key insight:** The more complete the spec, the less `/create-design-doc` has to generate. Sections marked "Direct transfer" pass through unchanged. Sections marked "Expand" require the design doc command to generate depth — if the spec is skeletal here, the design doc will also be skeletal.
 
+**Spec depth determines `/create-design-doc` effort:**
+
+| Spec Quality | `/create-design-doc` Effort | What It Does |
+|---|---|---|
+| **Thorough** (500+ lines, code snippets, Mermaid diagrams, file tables) | Low — focus on 4 delta items only | Restructures Technical Design into per-feature subsections; converts file tables into WS-ID task tables with dependencies; adds Mermaid dependency graph; verifies/completes data model column tables |
+| **Moderate** (200-500 lines, some code, some gaps) | Medium — fill gaps + 4 delta items | Generates missing diagrams, code interfaces, error responses, then applies the 4 delta items |
+| **Skeletal** (under 200 lines, placeholders) | High — full generation | Treats like a plan file — generates depth for all 15 sections |
+
+For a thorough spec, consider whether `/create-design-doc` adds enough value to justify running it, or whether you should skip directly to `/breakdown-design` (which generates task tables and dependency analysis as part of its own workflow).
+
 ---
 
 ## Reference

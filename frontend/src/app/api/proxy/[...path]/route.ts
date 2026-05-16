@@ -11,12 +11,14 @@ function getUpstreamUrl(pathSegments: string[]): string {
   const gatewayUrl =
     process.env.DEEPTRAIL_GATEWAY_INTERNAL_URL || "http://localhost:8002";
 
-  if (pathSegments[0] === "gateway") {
-    const cleanPath = pathSegments.slice(1).join("/");
+  const filtered = pathSegments.filter(Boolean);
+
+  if (filtered[0] === "gateway") {
+    const cleanPath = filtered.slice(1).join("/");
     return `${gatewayUrl}/api/v1/${cleanPath}`;
   }
 
-  const joined = pathSegments.join("/");
+  const joined = filtered.join("/");
   return `${controlUrl}/api/v1/${joined}`;
 }
 

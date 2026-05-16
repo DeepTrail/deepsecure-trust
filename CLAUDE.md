@@ -1001,6 +1001,8 @@ async def client():
 | Feb 2026 | Task tickets must have mandatory sections | Standardized across workstreams | Task Ticket Structure Requirements |
 | Feb 2026 | MCP Gateway requires `initialize` before `tools/call` | Fixed "Session not found" errors in validation | MCP Gateway Protocol Flow |
 | May 2026 | Workstream created manually without full pipeline — `/run-batch` accepted it because it only checked 3 files | Added 3 new pre-flight checks to `/run-batch` (BREAKDOWN.md, CODEBASE_ANALYSIS.md, MERGE_POINTS.md); added "Workstream Prerequisites (MANDATORY)" section | Workstream Prerequisites |
+| May 2026 | MERGE_POINTS.md verification only checked section headers, not content — p3-gcp merge actions had no git commit/push/tag commands | Added content-level grep for `git commit\|git push\|git tag` in `/create-workstream` verification | MERGE_POINTS.md Required Sections |
+| May 2026 | MERGE_POINTS.md verification checked only 6 of 18 required sections — p3-gcp file passed with 10 sections missing entirely | Expanded `/create-workstream` verification from 6 to 18+2 section checks; added N/A-block pattern for inapplicable sections | MERGE_POINTS.md Required Sections |
 
 ### How to Add New Lessons
 

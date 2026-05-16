@@ -333,17 +333,41 @@ Downstream consumers of WORKSTREAM.md:
    ```bash
    FEATURE="[feature-name]"
    FILE="docs/workstreams/${FEATURE}/MERGE_POINTS.md"
+   FAIL=0
    
-   echo "=== MERGE_POINTS.md Verification ==="
-   grep -q "## Code Dependencies vs Runtime Dependencies" $FILE && echo "✅ Dependencies" || echo "❌ MISSING"
-   grep -q "### Merge Actions" $FILE && echo "✅ Merge Actions" || echo "❌ MISSING"
-   grep -q "### Container Test Scenarios" $FILE && echo "✅ Container Tests" || echo "❌ MISSING"
-   grep -q "### Post-Merge Status Update" $FILE && echo "✅ Status Update" || echo "❌ MISSING"
-   grep -q "## Quick Reference Commands" $FILE && echo "✅ Quick Reference" || echo "❌ MISSING"
-   grep -q "## Merge Point Status" $FILE && echo "✅ Status Table" || echo "❌ MISSING"
-   # Naming check: MP{N} only, no MP-{letter}
-   grep -qP "MP-[A-Z]" $FILE && echo "❌ FAIL: Found MP-{letter} naming — must use MP1, MP2, MP3" || echo "✅ Merge point naming (MP{N})"
-   echo "=== Complete ==="
+   echo "=== MERGE_POINTS.md Verification (18 required sections) ==="
+   
+   # --- Global sections (must exist once) ---
+   grep -q "## Code Dependencies vs Runtime Dependencies" $FILE && echo "✅ 1/18 Code Dependencies vs Runtime Dependencies" || { echo "❌ MISSING: Code Dependencies vs Runtime Dependencies"; FAIL=1; }
+   grep -q "## Task Lifecycle with Dependencies" $FILE && echo "✅ 2/18 Task Lifecycle with Dependencies" || { echo "❌ MISSING: Task Lifecycle with Dependencies"; FAIL=1; }
+   grep -q "## When Each Dependency Type Matters" $FILE && echo "✅ 3/18 When Each Dependency Type Matters" || { echo "❌ MISSING: When Each Dependency Type Matters"; FAIL=1; }
+   grep -q "## Development Mode vs Integration Mode" $FILE && echo "✅ 4/18 Development Mode vs Integration Mode" || { echo "❌ MISSING: Development Mode vs Integration Mode (use N/A block if not applicable)"; FAIL=1; }
+   grep -q "## Runtime Dependencies by Merge Point" $FILE && echo "✅ 5/18 Runtime Dependencies by Merge Point" || { echo "❌ MISSING: Runtime Dependencies by Merge Point"; FAIL=1; }
+   grep -q "## Runtime Dependencies by Task" $FILE && echo "✅ 6/18 Runtime Dependencies by Task" || { echo "❌ MISSING: Runtime Dependencies by Task"; FAIL=1; }
+   grep -q "## Merge Point Summary\|## Merge Point [0-9]" $FILE && echo "✅ 7/18 Merge Point Summary / Definition" || { echo "❌ MISSING: Merge Point Summary or Merge Point definition"; FAIL=1; }
+   
+   # --- Per-MP sections (must exist at least once) ---
+   grep -q "### Why It's a Merge Point" $FILE && echo "✅ 8/18 Per-MP: Why It's a Merge Point" || { echo "❌ MISSING: Per-MP 'Why It's a Merge Point' justification"; FAIL=1; }
+   grep -q "### .*Merge Actions" $FILE && echo "✅ 9/18 Per-MP: Merge Actions header" || { echo "❌ MISSING: Per-MP Merge Actions section"; FAIL=1; }
+   grep -q "git commit\|git push\|git tag\|git merge" $FILE && echo "✅ 10/18 Merge Actions contain git workflow" || { echo "❌ MISSING: Merge Actions has no git commit/push/tag commands — add git workflow"; FAIL=1; }
+   grep -q "### .*Container Deployment\|### Container Deployment" $FILE && echo "✅ 11/18 Per-MP: Container Deployment (or N/A)" || { echo "❌ MISSING: Per-MP Container Deployment section (use N/A block if not applicable)"; FAIL=1; }
+   grep -q "### .*Container Test Scenarios\|### Container Test Scenarios" $FILE && echo "✅ 12/18 Per-MP: Container Test Scenarios (or N/A)" || { echo "❌ MISSING: Per-MP Container Test Scenarios (use N/A block if not applicable)"; FAIL=1; }
+   grep -q "### .*Cleanup\|### Cleanup" $FILE && echo "✅ 13/18 Per-MP: Cleanup (or N/A)" || { echo "❌ MISSING: Per-MP Cleanup section (use N/A block if not applicable)"; FAIL=1; }
+   grep -q "### .*Success Criteria" $FILE && echo "✅ 14/18 Per-MP: Success Criteria" || { echo "❌ MISSING: Per-MP Success Criteria checklist"; FAIL=1; }
+   grep -q "### .*Post-Merge Status Update" $FILE && echo "✅ 15/18 Per-MP: Post-Merge Status Update" || { echo "❌ MISSING: Per-MP Post-Merge Status Update"; FAIL=1; }
+   
+   # --- Trailing global sections ---
+   grep -q "## Testing Strategy by Phase\|## Testing Strategy" $FILE && echo "✅ 16/18 Testing Strategy by Phase" || { echo "❌ MISSING: Testing Strategy by Phase"; FAIL=1; }
+   grep -q "## Troubleshooting" $FILE && echo "✅ 17/18 Troubleshooting" || { echo "❌ MISSING: Troubleshooting table"; FAIL=1; }
+   grep -q "## Quick Reference Commands" $FILE && echo "✅ 18/18 Quick Reference Commands" || { echo "❌ MISSING: Quick Reference Commands"; FAIL=1; }
+   
+   # --- Additional checks ---
+   grep -q "## Merge Point Status" $FILE && echo "✅ Bonus: Merge Point Status table" || { echo "❌ MISSING: Merge Point Status table"; FAIL=1; }
+   grep -q "## History" $FILE && echo "✅ Bonus: History log" || { echo "❌ MISSING: History log"; FAIL=1; }
+   grep -q "MP-[A-Z]" $FILE && { echo "❌ FAIL: Found MP-{letter} naming — must use MP1, MP2, MP3"; FAIL=1; } || echo "✅ Merge point naming (MP{N})"
+   
+   echo ""
+   [ $FAIL -eq 0 ] && echo "=== ALL CHECKS PASSED ===" || echo "=== FAILED — fix missing sections before proceeding ==="
    ```
 
 5. **Update the workstreams README:**

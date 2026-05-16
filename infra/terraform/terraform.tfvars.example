@@ -1,0 +1,27 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# NEVER commit terraform.tfvars to version control.
+
+project_id = "deepsecure-saas"
+region     = "us-central1"
+domain     = "app.deepsecure.io"
+db_tier    = "db-f1-micro"
+
+# --- Secrets (required) ---
+db_password = "CHANGE_ME_strong_password_here"
+
+# Google Workspace SSO (direct OIDC -- Control Plane talks to Google, not via Keycloak)
+google_sso_client_id     = "CHANGE_ME.apps.googleusercontent.com"
+google_sso_client_secret = "CHANGE_ME"
+google_hd                = "deeptrail.com"
+
+# Notion OAuth integration
+notion_client_id     = "CHANGE_ME"
+notion_client_secret = "CHANGE_ME"
+
+# Slack OAuth app
+slack_client_id     = "CHANGE_ME"
+slack_client_secret = "CHANGE_ME"
+
+# Google OAuth (service connections)
+google_oauth_client_id     = "CHANGE_ME.apps.googleusercontent.com"
+google_oauth_client_secret = "CHANGE_ME"

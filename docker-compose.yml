@@ -116,8 +116,6 @@ services:
       - SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET:-test-slack-client-secret}
       # Google OAuth credentials loaded from .env.google (via env_file above).
       # GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_HD are set there.
-      - HUBSPOT_CLIENT_ID=test-hubspot-client-id
-      - HUBSPOT_CLIENT_SECRET=test-hubspot-client-secret
       
     volumes:
       # Mount the policies file into the container to make it accessible to the service.

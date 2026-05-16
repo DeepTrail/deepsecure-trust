@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import DelegationPage from "../page";
 import { apiClient, ApiError } from "@/lib/api/client";
 
@@ -18,6 +18,16 @@ vi.mock("@/lib/api/client", () => ({
       this.body = body;
     }
   },
+}));
+
+vi.mock("next/link", () => ({
+  default: ({
+    children,
+    href,
+  }: {
+    children: React.ReactNode;
+    href: string;
+  }) => <a href={href}>{children}</a>,
 }));
 
 vi.mock("@/components/feedback/page-skeleton", () => ({
@@ -49,25 +59,11 @@ vi.mock("@/components/feedback/empty-state", () => ({
   }: {
     title: string;
     description?: string;
+    icon?: React.ReactNode;
   }) => (
     <div data-testid="empty-state">
       <span>{title}</span>
       {description && <span>{description}</span>}
-    </div>
-  ),
-}));
-
-vi.mock("@/components/delegation/DelegationBuilder", () => ({
-  DelegationBuilder: ({
-    agents,
-    permissions,
-  }: {
-    agents: unknown[];
-    permissions: unknown[];
-  }) => (
-    <div data-testid="delegation-builder">
-      <span>agents: {agents.length}</span>
-      <span>permissions: {permissions.length}</span>
     </div>
   ),
 }));
@@ -79,12 +75,22 @@ const AGENTS = [
   { agent_id: "agent-2", name: "Beta Agent" },
 ];
 
-const PERMISSIONS = {
-  permissions: [
-    { id: "p1", service: "notion", scope: "pages", action: "read", locked: false },
-    { id: "p2", service: "github", scope: "repos", action: "read", locked: false },
-  ],
-};
+const DELEGATIONS = [
+  {
+    delegation_id: "del-001",
+    agent_id: "agent-1",
+    permissions: ["notion:pages:read", "slack:messages:write"],
+    expires_in: 3600,
+    created_at: "2026-05-06T10:00:00Z",
+  },
+  {
+    delegation_id: "del-002",
+    agent_id: "agent-2",
+    permissions: ["github:repos:read"],
+    expires_in: 86400,
+    created_at: null,
+  },
+];
 
 describe("DelegationPage", () => {
   beforeEach(() => {
@@ -97,52 +103,49 @@ describe("DelegationPage", () => {
     expect(screen.getByTestId("page-skeleton")).toBeInTheDocument();
   });
 
-  it("renders DelegationBuilder when data loads successfully", async () => {
+  it("renders delegation cards when data loads", async () => {
     mockApiClient
-      .mockResolvedValueOnce(AGENTS)
-      .mockResolvedValueOnce(PERMISSIONS);
+      .mockResolvedValueOnce(DELEGATIONS)
+      .mockResolvedValueOnce(AGENTS);
 
     render(<DelegationPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("delegation-builder")).toBeInTheDocument();
+      expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
     });
-    expect(screen.getByText("agents: 2")).toBeInTheDocument();
-    expect(screen.getByText("permissions: 2")).toBeInTheDocument();
+
+    expect(screen.getByText("del-001")).toBeInTheDocument();
+    expect(screen.getByText("del-002")).toBeInTheDocument();
   });
 
-  it("shows page title and description when loaded", async () => {
+  it("shows page title when loaded", async () => {
     mockApiClient
-      .mockResolvedValueOnce(AGENTS)
-      .mockResolvedValueOnce(PERMISSIONS);
+      .mockResolvedValueOnce(DELEGATIONS)
+      .mockResolvedValueOnce(AGENTS);
 
     render(<DelegationPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Delegation")).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/grant granular permissions/i),
-    ).toBeInTheDocument();
   });
 
-  it("shows empty state when no agents are registered", async () => {
+  it("shows empty state when no delegations exist", async () => {
     mockApiClient
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(PERMISSIONS);
+      .mockResolvedValueOnce(AGENTS);
 
     render(<DelegationPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("empty-state")).toBeInTheDocument();
+      expect(screen.getByText("No delegations yet")).toBeInTheDocument();
     });
-    expect(screen.getByText("No agents available")).toBeInTheDocument();
   });
 
   it("shows ErrorCard on API failure", async () => {
-    mockApiClient.mockRejectedValueOnce(
-      new ApiError(500, "Server Error"),
-    );
+    mockApiClient.mockImplementation(() => {
+      throw new ApiError(500, "Server Error");
+    });
 
     render(<DelegationPage />);
 
@@ -150,12 +153,16 @@ describe("DelegationPage", () => {
       expect(screen.getByTestId("error-card")).toBeInTheDocument();
     });
     expect(
-      screen.getByText("Failed to load delegation data (500)"),
+      screen.getByText("Failed to load delegations (500)"),
     ).toBeInTheDocument();
+
+    mockApiClient.mockReset();
   });
 
   it("shows generic error for non-ApiError failures", async () => {
-    mockApiClient.mockRejectedValueOnce(new Error("Network failure"));
+    mockApiClient.mockImplementation(() => {
+      throw new Error("Network failure");
+    });
 
     render(<DelegationPage />);
 
@@ -163,25 +170,41 @@ describe("DelegationPage", () => {
       expect(screen.getByTestId("error-card")).toBeInTheDocument();
     });
     expect(
-      screen.getByText("Failed to load delegation data"),
+      screen.getByText("Failed to load delegations"),
     ).toBeInTheDocument();
+
+    mockApiClient.mockReset();
   });
 
   it("handles agents in object format with .agents property", async () => {
     mockApiClient
-      .mockResolvedValueOnce({ agents: AGENTS })
-      .mockResolvedValueOnce(PERMISSIONS);
+      .mockResolvedValueOnce(DELEGATIONS)
+      .mockResolvedValueOnce({ agents: AGENTS });
 
     render(<DelegationPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("delegation-builder")).toBeInTheDocument();
+      expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
     });
-    expect(screen.getByText("agents: 2")).toBeInTheDocument();
+  });
+
+  it("renders permission counts per delegation", async () => {
+    mockApiClient
+      .mockResolvedValueOnce(DELEGATIONS)
+      .mockResolvedValueOnce(AGENTS);
+
+    render(<DelegationPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("2 permissions")).toBeInTheDocument();
+    });
+    expect(screen.getByText("1 permission")).toBeInTheDocument();
   });
 
   it("retries data fetch when retry button is clicked", async () => {
-    mockApiClient.mockRejectedValueOnce(new ApiError(500, "Server Error"));
+    mockApiClient.mockImplementation(() => {
+      throw new ApiError(500, "Server Error");
+    });
 
     render(<DelegationPage />);
 
@@ -189,15 +212,50 @@ describe("DelegationPage", () => {
       expect(screen.getByTestId("error-card")).toBeInTheDocument();
     });
 
+    mockApiClient.mockReset();
     mockApiClient
-      .mockResolvedValueOnce(AGENTS)
-      .mockResolvedValueOnce(PERMISSIONS);
+      .mockResolvedValueOnce(DELEGATIONS)
+      .mockResolvedValueOnce(AGENTS);
 
     const retryBtn = screen.getByRole("button", { name: /retry/i });
     retryBtn.click();
 
     await waitFor(() => {
-      expect(screen.getByTestId("delegation-builder")).toBeInTheDocument();
+      expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
+    });
+  });
+
+  it("renders Create Delegation link", async () => {
+    mockApiClient
+      .mockResolvedValueOnce(DELEGATIONS)
+      .mockResolvedValueOnce(AGENTS);
+
+    render(<DelegationPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
+    });
+
+    const link = screen.getByRole("link", { name: /create delegation/i });
+    expect(link).toHaveAttribute("href", "/dashboard/delegation/create");
+  });
+
+  it("handles delegations with missing permissions gracefully", async () => {
+    mockApiClient
+      .mockResolvedValueOnce([
+        {
+          delegation_id: "del-no-perms",
+          agent_id: "agent-1",
+          expires_in: 3600,
+          created_at: null,
+        },
+      ])
+      .mockResolvedValueOnce(AGENTS);
+
+    render(<DelegationPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("del-no-perms")).toBeInTheDocument();
     });
   });
 });

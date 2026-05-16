@@ -1,30 +1,31 @@
-# Create Design Doc: Convert Plan to Formal Design Document
+# Create Design Doc: Transform Spec or Plan into Formal Design Document
 
-Convert a Cursor plan file (`.cursor/plans/*.plan.md` or `plans/*.plan.md`) into a formal design document in `docs/design/`.
+Transform a spec file (`docs/spec/*.md`) or plan file (`plans/*.plan.md`) into a formal design document in `docs/design/`.
 
 ## Workflow Position
 
 ```
-/spec → /create-design-doc → /breakdown-design → ...
-              ↑
-         (YOU ARE HERE)
+Primary path (from /spec):
+/spec (produces docs/spec/*.md) → /create-design-doc → /breakdown-design → ...
+                                        ↑
+                                   (YOU ARE HERE)
 
 Alternative entry (from Plan Mode):
-Plan Mode (informal) → /create-design-doc → /breakdown-design → ...
+Plan Mode (produces .plan.md) → /create-design-doc → /breakdown-design → ...
 ```
 
 **Note:** `/explore-codebase` is NOT a separate step — it is embedded inside `/breakdown-design` as a mandatory pre-breakdown phase.
 
 ## When to Use
 
-- You have a `.cursor/plans/*.plan.md` or `plans/*.plan.md` file from a Plan Mode conversation
-- You want to formalize an informal plan into a structured design doc
-- You need to convert between formats (plan → design doc → breakdown)
-- The plan has been approved and needs to become the canonical design doc
+- **Primary:** You have a spec from `/spec` at `docs/spec/[feature]-spec.md` that needs to become a formal design doc
+- **Alternative:** You have a `.cursor/plans/*.plan.md` or `plans/*.plan.md` file from Plan Mode
+- You need to convert between formats (spec → design doc or plan → design doc)
+- The spec/plan has been approved and needs to become the canonical design doc
 
 **When NOT to use:**
-- Starting from scratch with no existing plan — use `/spec` instead
-- Plan is still in exploratory phase — stay in Plan Mode
+- Starting from scratch with no existing spec or plan — use `/spec` first
+- Spec/plan is still in exploratory phase — stay in Plan Mode or finish `/spec` first
 - Design doc already exists in `docs/design/` — edit it directly
 
 ## Quality Bar
@@ -39,14 +40,32 @@ The output of this command must match the depth and structure of proven design d
 
 ## Instructions
 
-### Step 1: Read the Plan File
+### Step 1: Read the Source Document
 
 ```
-Read the plan file at the path provided by the user.
-Common locations:
-  - plans/[feature]_[hash].plan.md
-  - .cursor/plans/[feature]_[hash].plan.md
+Read the source document at the path provided by the user.
+
+Input priority (check in this order):
+  1. docs/spec/[feature]-spec.md       (primary — from /spec command)
+  2. plans/[feature]_[hash].plan.md    (alternative — workspace plans)
+  3. .cursor/plans/[feature]_[hash].plan.md  (alternative — Cursor plans)
 ```
+
+**If input is a spec file (`docs/spec/*.md`):**
+
+The spec already contains structured requirements across 15 sections. Determine the spec's depth:
+
+- **Thorough spec (500+ lines, code snippets, Mermaid diagrams, file tables):** Most sections are "direct transfer." Focus generation effort on the **4 delta items** only:
+  1. **Restructure Technical Design** into per-feature subsections (Problem / Architecture diagram / Design Details with code / Provider Parity) — the spec may have a flat component list
+  2. **Convert Project Structure into Implementation Workstreams** with formal WS-ID task tables (Task ID, Description, Dependencies, Complexity, Acceptance Criteria) + file tables per workstream
+  3. **Add Dependency Graph** — Mermaid `flowchart TD` showing inter-task and inter-workstream dependencies
+  4. **Verify/complete Data Models** — ensure full column tables for all models the feature reads from or writes to (not just the models being modified)
+
+- **Skeletal spec (under 300 lines, missing sections):** Treat as a plan file — run full generation for all 15 sections.
+
+See the [Section Mapping table in `/spec`](.cursor/commands/spec.md) (lines 797-819) for the exact transformation rules per section.
+
+**If input is a plan file (`.plan.md`):**
 
 Extract from the plan:
 - **Title/Name** — from the plan's `name:` frontmatter or first heading
@@ -56,9 +75,12 @@ Extract from the plan:
 - **Implementation details** — directory structure, patterns, conventions
 - **Current state** — what exists today (critical for `/breakdown-design`'s embedded codebase exploration)
 
+Run full generation for all 15 sections — plan files are lightweight and require significant depth generation.
+
 ### Step 2: Determine Feature Name
 
 Derive a kebab-case feature name for the output file:
+- From spec title: "Spec: P3 — GCP Post-P2 UX Alignment" → `p3-gcp-ux-alignment`
 - From plan title: "IdP Enhanced SSO Features Plan" → `idp-enhanced-sso-features`
 - From plan overview: "Extend the Google and Keycloak IdP integrations..." → `idp-enhanced-sso-features`
 - Or ask the user: "What should I name this design doc?"
@@ -67,16 +89,17 @@ Derive a kebab-case feature name for the output file:
 
 **Output path:** `docs/design/[feature-name].md`
 
-Transform the plan content into the formal design doc structure below. **This is a 15-section template** — all sections are required unless explicitly marked optional. If the plan doesn't provide enough detail for a section, **generate the content** from context (create diagrams, infer data models, write code interfaces) rather than leaving `[placeholder]` text.
+Transform the plan content into the formal design doc structure below. **This is a 15-section template** — all sections are required unless explicitly marked optional. If the source document (spec or plan) doesn't provide enough detail for a section, **generate the content** from context (create diagrams, infer data models, write code interfaces) rather than leaving `[placeholder]` text.
 
 ```markdown
 # [Feature Name] Design Document
 
 > **Status**: Draft
-> **Author**: [from plan context or ask]
+> **Author**: [from source context or ask]
 > **Created**: [today's date]
 > **Last Updated**: [today's date]
-> **Plan**: [plans/[original-plan-file].plan.md](../../plans/[original-plan-file].plan.md)
+> **Spec**: [docs/spec/[spec-file].md](../../docs/spec/[spec-file].md) *(if created from spec)*
+> **Plan**: [plans/[original-plan-file].plan.md](../../plans/[original-plan-file].plan.md) *(if created from plan)*
 
 ---
 
@@ -517,7 +540,16 @@ All [N] workstreams are **[fully independent / partially dependent]** and can ex
 - [External reference](https://...) — [What it documents]
 ```
 
-### Step 4: Handle Plan Frontmatter
+### Step 4: Handle Source Document Format
+
+**If input is a spec file (`docs/spec/*.md`):**
+
+Spec files use markdown with 15 numbered sections. Use the [Section Mapping table](.cursor/commands/spec.md) to map each spec section to its design doc counterpart. For a thorough spec:
+- Sections marked "Direct transfer" → copy with minimal reformatting
+- Sections marked "Expand" → add the delta (per-feature subsections, task tables, dependency graph, fuller code interfaces)
+- Section 8 (Project Structure) → becomes Section 9 (Implementation Workstreams) — this is the biggest transformation: add WS-IDs, dependencies, complexity, per-task acceptance criteria
+
+**If input is a plan file (`.plan.md`):**
 
 Cursor plan files have YAML frontmatter with structured todos. Convert them:
 
@@ -545,7 +577,9 @@ todos:
 
 ### Step 5: Generate Missing Depth
 
-**Critical rule:** If the plan lacks detail for a section, **create the content** — do not leave placeholders.
+**Critical rule:** If the source document lacks detail for a section, **create the content** — do not leave placeholders.
+
+**For plan files** — most sections need generation:
 
 | Missing from Plan | What to Generate |
 |-------------------|------------------|
@@ -558,6 +592,16 @@ todos:
 | No file tables | Map described changes to actual project file paths |
 | No error responses | Infer error cases (401, 403, 404, 502) from auth/validation requirements |
 | No user journeys | Create persona-based walkthroughs from the feature's goals and API contracts |
+
+**For thorough spec files (500+ lines)** — focus on the 4 delta items:
+
+| What the Spec Has | What to Add in Design Doc |
+|--------------------|---------------------------|
+| Flat "Key Components" list under Technical Design | Per-feature subsections: Problem / Architecture (Mermaid) / Design Details (code) / Provider Parity |
+| Project Structure file tables (file, action, purpose) | Implementation Workstream task tables with WS-IDs, dependencies, complexity, per-task acceptance criteria |
+| No dependency graph | Mermaid `flowchart TD` showing task-level and workstream-level dependencies |
+| Enum/model modification tables | Full column tables for ALL models the feature reads from (not just models being modified) |
+| API contracts summary | Verify error response table is present (401, 403, 404 conditions) |
 
 ### Step 6: Enrich with DeepSecure Conventions
 
@@ -630,8 +674,7 @@ Save the design doc:
 docs/design/[feature-name].md
 ```
 
-**If a plan was in `~/.cursor/plans/` or `.cursor/plans/`:**
-The original plan file remains untouched — the design doc is a new artifact.
+The original source file (spec or plan) remains untouched — the design doc is a new artifact.
 
 ---
 
@@ -640,7 +683,7 @@ The original plan file remains untouched — the design doc is a new artifact.
 ```markdown
 ## Design Doc Created ✅
 
-**Source:** `plans/[original-plan].plan.md`
+**Source:** `docs/spec/[feature]-spec.md` (or `plans/[original-plan].plan.md`)
 **Output:** `docs/design/[feature-name].md`
 
 ### Conversion Summary
@@ -746,10 +789,15 @@ Before declaring the design doc complete:
 ## Reference
 
 This command integrates with:
-- `/spec` — **Prior step (mandatory).** Creates the spec that this command transforms
-- Plan Mode — Alternative entry: creates `.plan.md` files this can also read
+- `/spec` — **Prior step (primary).** Creates the spec at `docs/spec/[feature]-spec.md` that this command transforms
+- Plan Mode — **Alternative entry.** Creates `.plan.md` files this command can also read
 - `/breakdown-design` — **Next step.** Reads workstream file tables and dependency graph to create tasks (internally runs `/explore-codebase`)
 - `.cursorrules` → Plan file location rules (must be in `plans/` directory)
+
+**Input sources (in priority order):**
+1. `docs/spec/[feature]-spec.md` — Primary input from `/spec`
+2. `plans/[feature]_[hash].plan.md` — From Plan Mode or `CreatePlan` tool
+3. `.cursor/plans/[feature]_[hash].plan.md` — From `CreatePlan` tool (should be moved to `plans/` per workspace rules)
 
 See also:
 - `docs/design/idp-enhanced-sso-features.md` — Gold-standard design doc (14 sections, 797 lines)

@@ -10,7 +10,7 @@ from app.api import deps
 router = APIRouter()
 
 
-@router.get("/", response_model=List[schemas.AttestationPolicy])
+@router.get("", response_model=List[schemas.AttestationPolicy])
 def read_attestation_policies(
     db: Session = Depends(deps.get_db),
     skip: int = 0,
@@ -23,7 +23,7 @@ def read_attestation_policies(
     return policies
 
 
-@router.post("/", response_model=schemas.AttestationPolicy)
+@router.post("", response_model=schemas.AttestationPolicy)
 def create_attestation_policy(
     *,
     db: Session = Depends(deps.get_db),

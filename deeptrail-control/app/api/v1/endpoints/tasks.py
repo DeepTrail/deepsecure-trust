@@ -91,7 +91,7 @@ def _get_service(db: Session = Depends(deps.get_db)) -> TaskService:
 # ============================================================================
 
 
-@router.post("/", response_model=TaskResponse, status_code=201)
+@router.post("", response_model=TaskResponse, status_code=201)
 def create_task(
     task_data: TaskCreate,
     identity: dict = Depends(_get_caller_identity),
@@ -136,7 +136,7 @@ def get_task(
         )
 
 
-@router.get("/", response_model=TaskListResponse)
+@router.get("", response_model=TaskListResponse)
 def list_tasks(
     status_filter: Optional[str] = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=100),

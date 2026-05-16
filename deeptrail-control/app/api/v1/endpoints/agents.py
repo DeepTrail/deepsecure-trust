@@ -79,7 +79,7 @@ def _generate_ed25519_keypair() -> tuple:
     return public_key_bytes, private_key_b64, public_key_b64
 
 
-@router.post("/", response_model=schemas.AgentCreateResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=schemas.AgentCreateResponse, status_code=status.HTTP_201_CREATED)
 def register_agent(agent_in: schemas.AgentCreate, db: Session = Depends(deps.get_db)):
     """Register a new agent in the system.
 
@@ -153,7 +153,7 @@ def read_agent(agent_id: str, db: Session = Depends(deps.get_db)):
     agent_data.delegation_count = lifecycle.get_delegation_count(agent_id)
     return agent_data
 
-@router.get("/", response_model=schemas.AgentList)
+@router.get("", response_model=schemas.AgentList)
 def list_agents(
     db: Session = Depends(deps.get_db),
     skip: int = Query(0, ge=0, description="Number of records to skip for pagination"),

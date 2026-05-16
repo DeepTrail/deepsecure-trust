@@ -6,6 +6,7 @@ export { LifecycleBadge } from "./LifecycleBadge";
 export type { LifecycleState } from "./LifecycleBadge";
 export { LifecycleProgressBar } from "./LifecycleProgressBar";
 export { LifecycleTimeline } from "./LifecycleTimeline";
-export { DeployConfigSection } from "./DeployConfigSection";
+export { AgentIntegrationSection } from "./AgentIntegrationSection";
+export { AttestationPolicyCard } from "./AttestationPolicyCard";
 export { SessionHistoryTable } from "./SessionHistoryTable";
 export type { AgentSession } from "./SessionHistoryTable";

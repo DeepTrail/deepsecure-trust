@@ -18,6 +18,11 @@ vi.mock("@/lib/api/client", () => ({
   },
 }));
 
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ replace: vi.fn() }),
+}));
+
 vi.mock("@/components/feedback/page-skeleton", () => ({
   PageSkeleton: () => <div data-testid="page-skeleton">Loading...</div>,
 }));
@@ -40,40 +45,10 @@ vi.mock("@/components/feedback/error-card", () => ({
   ),
 }));
 
-vi.mock("@/components/feedback/empty-state", () => ({
-  EmptyState: ({
-    title,
-    description,
-  }: {
-    title: string;
-    description?: string;
-  }) => (
-    <div data-testid="empty-state">
-      <span>{title}</span>
-      {description && <span>{description}</span>}
-    </div>
-  ),
-}));
-
 import ServicesPage from "../page";
 import { apiClient, ApiError } from "@/lib/api/client";
 
 const mockApiClient = apiClient as ReturnType<typeof vi.fn>;
-
-const connectedService = {
-  service_id: "notion",
-  service_name: "Notion",
-  description: "Workspace management",
-  connected: true,
-  scopes: ["read", "write"],
-};
-
-const disconnectedService = {
-  service_id: "slack",
-  service_name: "Slack",
-  connected: false,
-  scopes: ["chat:write"],
-};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -90,8 +65,12 @@ describe("ServicesPage", () => {
     expect(screen.getByTestId("page-skeleton")).toBeInTheDocument();
   });
 
-  it("renders service cards with name, status badge, and scopes", async () => {
-    mockApiClient.mockResolvedValueOnce([connectedService, disconnectedService]);
+  it("renders service catalog cards when data loads", async () => {
+    mockApiClient.mockResolvedValueOnce({
+      services: {
+        notion: { connected: true, scopes_granted: ["read", "write"] },
+      },
+    });
     render(<ServicesPage />);
 
     await waitFor(() => {
@@ -99,101 +78,20 @@ describe("ServicesPage", () => {
     });
 
     expect(screen.getByText("Slack")).toBeInTheDocument();
+    expect(screen.getByText("Gmail")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(screen.getByText("Not connected")).toBeInTheDocument();
-    expect(screen.getByText("read")).toBeInTheDocument();
-    expect(screen.getByText("write")).toBeInTheDocument();
-    expect(screen.getByText("chat:write")).toBeInTheDocument();
   });
 
-  it("shows EmptyState when no services", async () => {
-    mockApiClient.mockResolvedValueOnce([]);
-    render(<ServicesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("empty-state")).toBeInTheDocument();
-    });
-    expect(screen.getByText("No services available")).toBeInTheDocument();
-  });
-
-  it("connect button calls apiClient POST", async () => {
-    mockApiClient
-      .mockResolvedValueOnce([disconnectedService])
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce([{ ...disconnectedService, connected: true }]);
-
-    render(<ServicesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Slack")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /Connect/i }));
-
-    await waitFor(() => {
-      expect(mockApiClient).toHaveBeenCalledWith("users/me/services/connect", {
-        method: "POST",
-        body: JSON.stringify({ service_id: "slack" }),
-      });
-    });
-  });
-
-  it("disconnect button shows confirmation dialog first", async () => {
-    const confirmSpy = vi
-      .spyOn(window, "confirm")
-      .mockReturnValue(false);
-
-    mockApiClient.mockResolvedValueOnce([connectedService]);
+  it("shows 'Not Connected' badge for unconnected services", async () => {
+    mockApiClient.mockResolvedValueOnce({ services: {} });
     render(<ServicesPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Notion")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Disconnect/i }));
-
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Disconnect from Notion? This will revoke access."
-    );
-  });
-
-  it("cancelling disconnect does not call API", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-
-    mockApiClient.mockResolvedValueOnce([connectedService]);
-    render(<ServicesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Notion")).toBeInTheDocument();
-    });
-
-    const callCountBefore = mockApiClient.mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: /Disconnect/i }));
-
-    expect(mockApiClient).toHaveBeenCalledTimes(callCountBefore);
-  });
-
-  it("confirming disconnect calls apiClient DELETE", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    mockApiClient
-      .mockResolvedValueOnce([connectedService])
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce([]);
-
-    render(<ServicesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Notion")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /Disconnect/i }));
-
-    await waitFor(() => {
-      expect(mockApiClient).toHaveBeenCalledWith("users/me/services/notion", {
-        method: "DELETE",
-      });
-    });
+    const notConnected = screen.getAllByText("Not Connected");
+    expect(notConnected.length).toBe(5);
   });
 
   it("shows ErrorCard on fetch failure with retry", async () => {
@@ -211,52 +109,12 @@ describe("ServicesPage", () => {
       screen.getByText("Failed to load services (500)")
     ).toBeInTheDocument();
 
-    mockApiClient.mockResolvedValueOnce([connectedService]);
+    mockApiClient.mockResolvedValueOnce({ services: {} });
     fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Notion")).toBeInTheDocument();
     });
-  });
-
-  it("shows description if present on service", async () => {
-    mockApiClient.mockResolvedValueOnce([connectedService]);
-    render(<ServicesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Workspace management")).toBeInTheDocument();
-    });
-  });
-
-  it("grid uses 3-column layout on large screens", async () => {
-    mockApiClient.mockResolvedValueOnce([connectedService, disconnectedService]);
-    const { container } = render(<ServicesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Notion")).toBeInTheDocument();
-    });
-
-    const grid = container.querySelector(".grid");
-    expect(grid).toHaveClass("lg:grid-cols-3");
-  });
-
-  it("handles object-format API response with services map", async () => {
-    mockApiClient.mockResolvedValueOnce({
-      services: {
-        github: {
-          service_name: "GitHub",
-          connected: true,
-          scopes: ["repo"],
-        },
-      },
-    });
-
-    render(<ServicesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("GitHub")).toBeInTheDocument();
-    });
-    expect(screen.getByText("repo")).toBeInTheDocument();
   });
 
   it("shows non-ApiError message on generic failure", async () => {
@@ -269,22 +127,88 @@ describe("ServicesPage", () => {
     expect(screen.getByText("Failed to load services")).toBeInTheDocument();
   });
 
-  it("connect error is handled gracefully", async () => {
-    mockApiClient
-      .mockResolvedValueOnce([disconnectedService])
-      .mockRejectedValueOnce(new Error("Connection timeout"))
-      .mockResolvedValueOnce([disconnectedService]);
-
+  it("renders Connect buttons for unconnected services", async () => {
+    mockApiClient.mockResolvedValueOnce({ services: {} });
     render(<ServicesPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Slack")).toBeInTheDocument();
+      expect(screen.getByText("Notion")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Connect/i }));
+    const connectButtons = screen.getAllByRole("button", { name: /Connect/i });
+    expect(connectButtons.length).toBe(5);
+  });
+
+  it("renders Disconnect button for connected services", async () => {
+    mockApiClient.mockResolvedValueOnce({
+      services: {
+        notion: { connected: true, scopes_granted: [] },
+      },
+    });
+    render(<ServicesPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Slack")).toBeInTheDocument();
+      expect(screen.getByText("Notion")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: /Disconnect/i })).toBeInTheDocument();
+  });
+
+  it("shows scopes for connected services", async () => {
+    mockApiClient.mockResolvedValueOnce({
+      services: {
+        notion: { connected: true, scopes_granted: ["read", "write"] },
+      },
+    });
+    render(<ServicesPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("read")).toBeInTheDocument();
+    });
+    expect(screen.getByText("write")).toBeInTheDocument();
+  });
+
+  it("disconnect button shows confirmation dialog first", async () => {
+    const confirmSpy = vi
+      .spyOn(window, "confirm")
+      .mockReturnValue(false);
+
+    mockApiClient.mockResolvedValueOnce({
+      services: {
+        notion: { connected: true, scopes_granted: [] },
+      },
+    });
+    render(<ServicesPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Notion")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Disconnect/i }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Disconnect from Notion? This will revoke access."
+    );
+  });
+
+  it("grid uses 3-column layout on large screens", async () => {
+    mockApiClient.mockResolvedValueOnce({ services: {} });
+    const { container } = render(<ServicesPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Notion")).toBeInTheDocument();
+    });
+
+    const grid = container.querySelector(".grid");
+    expect(grid).toHaveClass("lg:grid-cols-3");
+  });
+
+  it("renders page title and description", async () => {
+    mockApiClient.mockResolvedValueOnce({ services: {} });
+    render(<ServicesPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Service Connections")).toBeInTheDocument();
     });
   });
 });

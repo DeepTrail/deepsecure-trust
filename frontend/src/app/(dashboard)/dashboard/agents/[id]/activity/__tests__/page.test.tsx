@@ -127,12 +127,15 @@ function mockSuccessfulFetch() {
     .mockResolvedValueOnce(AGENT_INFO)
     .mockResolvedValueOnce(DELEGATIONS)
     .mockResolvedValueOnce(TOOLS_RESPONSE)
-    .mockResolvedValueOnce(EVENTS_RESPONSE);
+    .mockResolvedValueOnce(EVENTS_RESPONSE)
+    .mockResolvedValueOnce({ sessions: [], total: 0 })
+    .mockResolvedValueOnce({ sessions: [], total: 0 });
 }
 
 describe("AgentDetailPage", () => {
   beforeEach(() => {
     mockApiClient.mockReset();
+    mockApiClient.mockImplementation(() => Promise.resolve({ sessions: [], total: 0 }));
   });
 
   afterEach(() => {
@@ -157,7 +160,6 @@ describe("AgentDetailPage", () => {
 
   it("renders LifecycleBadge with correct state", async () => {
     mockSuccessfulFetch();
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
     render(<AgentDetailPage />);
 
     await waitFor(() => {
@@ -168,7 +170,6 @@ describe("AgentDetailPage", () => {
 
   it("renders LifecycleProgressBar step labels", async () => {
     mockSuccessfulFetch();
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
     render(<AgentDetailPage />);
 
     await waitFor(() => {
@@ -179,12 +180,12 @@ describe("AgentDetailPage", () => {
     expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
   });
 
-  it("renders Deploy Configuration section", async () => {
+  it("renders Agent Integration section", async () => {
     mockSuccessfulFetch();
     render(<AgentDetailPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Deploy Configuration")).toBeInTheDocument();
+      expect(screen.getByText("Agent Integration")).toBeInTheDocument();
     });
     expect(
       screen.getByText(/DEEPSECURE_AGENT_ID="sdr-assistant-001"/)
@@ -193,8 +194,6 @@ describe("AgentDetailPage", () => {
 
   it("renders Session History section", async () => {
     mockSuccessfulFetch();
-    // SessionHistoryTable also calls apiClient for sessions
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
     render(<AgentDetailPage />);
 
     await waitFor(() => {
@@ -204,7 +203,6 @@ describe("AgentDetailPage", () => {
 
   it("renders delegated tools card with available tools from API", async () => {
     mockSuccessfulFetch();
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
     render(<AgentDetailPage />);
 
     await waitFor(() => {
@@ -216,7 +214,6 @@ describe("AgentDetailPage", () => {
 
   it("renders activity feed with events from API", async () => {
     mockSuccessfulFetch();
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
     render(<AgentDetailPage />);
 
     await waitFor(() => {
@@ -228,7 +225,6 @@ describe("AgentDetailPage", () => {
 
   it("calls 4 API endpoints on mount", async () => {
     mockSuccessfulFetch();
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
     render(<AgentDetailPage />);
 
     await waitFor(() => {
@@ -247,7 +243,6 @@ describe("AgentDetailPage", () => {
 
   it("renders delegations section with permissions", async () => {
     mockSuccessfulFetch();
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
     render(<AgentDetailPage />);
 
     await waitFor(() => {
@@ -263,8 +258,9 @@ describe("AgentDetailPage", () => {
       .mockResolvedValueOnce(AGENT_INFO)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(TOOLS_RESPONSE)
-      .mockResolvedValueOnce(EVENTS_RESPONSE);
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+      .mockResolvedValueOnce(EVENTS_RESPONSE)
+      .mockResolvedValueOnce({ sessions: [], total: 0 })
+      .mockResolvedValueOnce({ sessions: [], total: 0 });
 
     render(<AgentDetailPage />);
 
@@ -306,7 +302,6 @@ describe("AgentDetailPage", () => {
 
     mockApiClient.mockReset();
     mockSuccessfulFetch();
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
 
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
 
@@ -317,7 +312,6 @@ describe("AgentDetailPage", () => {
 
   it("renders back link pointing to agents list", async () => {
     mockSuccessfulFetch();
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
     render(<AgentDetailPage />);
 
     await waitFor(() => {
@@ -333,14 +327,15 @@ describe("AgentDetailPage", () => {
       .mockResolvedValueOnce(AGENT_INFO)
       .mockResolvedValueOnce(DELEGATIONS)
       .mockResolvedValueOnce({ agent_id: "sdr-assistant-001", tools: [] })
-      .mockResolvedValueOnce([]);
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ sessions: [], total: 0 })
+      .mockResolvedValueOnce({ sessions: [], total: 0 });
 
     render(<AgentDetailPage />);
 
     await waitFor(() => {
       expect(
-        screen.getByText("No tools configured for this agent.")
+        screen.getByText("No tools delegated yet")
       ).toBeInTheDocument();
     });
 
@@ -354,8 +349,9 @@ describe("AgentDetailPage", () => {
       .mockResolvedValueOnce(AGENT_INFO)
       .mockResolvedValueOnce(DELEGATIONS)
       .mockResolvedValueOnce(TOOLS_RESPONSE)
-      .mockResolvedValueOnce({ events: EVENTS_RESPONSE });
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+      .mockResolvedValueOnce({ events: EVENTS_RESPONSE })
+      .mockResolvedValueOnce({ sessions: [], total: 0 })
+      .mockResolvedValueOnce({ sessions: [], total: 0 });
 
     render(<AgentDetailPage />);
 
@@ -369,8 +365,9 @@ describe("AgentDetailPage", () => {
       .mockResolvedValueOnce({ agent_id: "sdr-assistant-001", name: "Agent" })
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce({ agent_id: "sdr-assistant-001", tools: [] })
-      .mockResolvedValueOnce([]);
-    mockApiClient.mockResolvedValueOnce({ sessions: [], total: 0 });
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ sessions: [], total: 0 })
+      .mockResolvedValueOnce({ sessions: [], total: 0 });
 
     render(<AgentDetailPage />);
 
