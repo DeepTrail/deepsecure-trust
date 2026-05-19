@@ -1,6 +1,7 @@
 import base64
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import logging
@@ -8,6 +9,7 @@ from typing import List, Any
 
 from app import schemas, crud
 from app.api import deps
+from app.api.v1.endpoints.internal import verify_internal_api_key
 from app.models.attestation_policy import PlatformType
 from app.models.agent_session import AgentSession
 from app.schemas.attestation_policy import AttestationPolicyCreate
@@ -385,3 +387,35 @@ def get_agent_tools(
         tools.append(tool)
 
     return schemas.AgentToolsResponse(agent_id=agent_id, tools=tools)
+
+
+@router.post(
+    "/internal/sessions/{agent_id}/heartbeat",
+    status_code=204,
+    include_in_schema=False,
+    dependencies=[Depends(verify_internal_api_key)],
+)
+async def session_heartbeat(
+    agent_id: str,
+    db: Session = Depends(deps.get_db),
+):
+    """Update last_activity_at for the agent's most recent active session.
+
+    Called by the gateway after each successful tools/call.
+    Best-effort: returns 204 even if no session found (avoids gateway retries).
+    """
+    session = (
+        db.query(AgentSession)
+        .filter(
+            AgentSession.agent_id == agent_id,
+            AgentSession.is_active.is_(True),
+        )
+        .order_by(AgentSession.created_at.desc())
+        .first()
+    )
+    if session:
+        session.touch()
+        db.commit()
+    else:
+        logger.info("Heartbeat: no active session for agent %s", agent_id)
+    return Response(status_code=204)
