@@ -122,7 +122,11 @@ for ((i=1; i<=MAX_ITERATIONS; i++)); do
   echo "[$(date -Iseconds)] Running prompt ${PROMPT_INDEX}: ${PROMPT:0:80}..."
 
   # Execute Gemini CLI with the prompt
-  gemini -y --sandbox=false --allowed-mcp-server-names deepsecure -p "${PROMPT}" 2>&1 || {
+  MODEL_FLAG=""
+  if [ -n "${GEMINI_MODEL:-}" ]; then
+    MODEL_FLAG="--model ${GEMINI_MODEL}"
+  fi
+  gemini -y --sandbox=false ${MODEL_FLAG} --allowed-mcp-server-names deepsecure -p "${PROMPT}" 2>&1 || {
     echo "[$(date -Iseconds)] WARNING: gemini CLI returned non-zero (may be tool error, continuing)"
   }
 
