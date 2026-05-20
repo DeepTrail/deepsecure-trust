@@ -266,6 +266,10 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
         if request.url.path in self.bypass_paths:
             return await call_next(request)
 
+        # MCP spec: DELETE /mcp (session termination) is a no-op for stateless gateway
+        if request.url.path == "/mcp" and request.method == "DELETE":
+            return await call_next(request)
+
         # Check if path requires JWT validation
         requires_auth = any(
             request.url.path.startswith(prefix)
