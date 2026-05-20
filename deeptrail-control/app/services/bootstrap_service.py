@@ -1239,7 +1239,7 @@ class BootstrapService:
             TokenValidationError: invalid / expired GCP token
             BootstrapError: no matching agent or missing policy
         """
-        from datetime import timedelta
+        from datetime import datetime as dt_cls, timedelta, timezone
         from app.core.security import create_access_token
         from app.models.agent import Agent
 
@@ -1294,11 +1294,59 @@ class BootstrapService:
                 platform="gcp",
             )
 
-        # 4. Issue Agent JWT
+        # 4. Find an active delegation for this agent (needed for session)
+        from app.models.delegation import DelegationToken
+        delegation = (
+            db.query(DelegationToken)
+            .filter(
+                DelegationToken.agent_id == agent.agent_id,
+                DelegationToken.revoked_at.is_(None),
+                DelegationToken.expires_at > dt_cls.now(timezone.utc),
+            )
+            .first()
+        )
+
+        # 5. Issue Agent JWT (include delegation permissions for gateway)
+        token_kwargs = {}
+        if delegation:
+            token_kwargs["extra_claims"] = {
+                "sub": agent.agent_id,
+                "owner": delegation.delegator or "",
+                "delegation_id": str(delegation.id),
+                "delegated_permissions": delegation.delegated_permissions or [],
+            }
+
         access_token = create_access_token(
             subject=agent.agent_id,
             expires_delta=timedelta(hours=1),
+            **token_kwargs,
         )
+
+        # 6. Create AgentSession so lifecycle advances to "authenticated"
+        if delegation:
+            from app.models.agent_session import AgentSession
+            session = AgentSession.from_delegation(
+                delegation=delegation,
+                agent_id=agent.agent_id,
+            )
+            db.add(session)
+            db.commit()
+            logger.info(
+                "GCP bootstrap: created session %s for agent %s",
+                session.id, agent.agent_id,
+            )
+            # Re-issue JWT with session_id now that we have it
+            token_kwargs["extra_claims"]["session_id"] = str(session.id)
+            access_token = create_access_token(
+                subject=agent.agent_id,
+                expires_delta=timedelta(hours=1),
+                **token_kwargs,
+            )
+        else:
+            logger.warning(
+                "GCP bootstrap: no active delegation for agent %s — session not created",
+                agent.agent_id,
+            )
 
         logger.info(
             "GCP bootstrap succeeded — agent_id=%s, selector=%s",

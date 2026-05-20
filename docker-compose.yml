@@ -86,6 +86,7 @@ services:
 
       # Other app settings
       - ALGORITHM=HS256
+      - VAULT_ENCRYPTION_KEY=6aXYH6SUDBHEeLRLpJUUe14B2JVnWQItH4NyJxXxFgA=
       - POSTGRES_DRIVER=psycopg2
       # Pass the current DeepSecure version to the container
       - DEEPSECURE_VERSION=0.1.12

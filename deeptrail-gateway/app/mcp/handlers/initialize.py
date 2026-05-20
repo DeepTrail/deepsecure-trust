@@ -48,7 +48,7 @@ def get_session_manager() -> MCPSessionManager | None:
 
 # Supported MCP protocol versions
 # https://spec.modelcontextprotocol.io/specification/basic/lifecycle/#version-negotiation
-SUPPORTED_PROTOCOL_VERSIONS = ["2024-11-05", "2024-10-07"]
+SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2024-11-05", "2024-10-07"]
 
 # Server metadata returned in initialize response
 SERVER_INFO = {
@@ -190,15 +190,14 @@ async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
         )
     
     # Validate protocol version is supported
+    # Per MCP spec: server SHOULD negotiate down to its latest supported version
+    # rather than rejecting the request outright
+    negotiated_version = init_params.protocolVersion
     if init_params.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
+        negotiated_version = SUPPORTED_PROTOCOL_VERSIONS[0]  # latest supported
         logger.info(
-            f"Unsupported protocol version requested: {init_params.protocolVersion}. "
-            f"Supported: {SUPPORTED_PROTOCOL_VERSIONS}"
-        )
-        raise MCPError(
-            JsonRpcErrorCode.INVALID_PARAMS,
-            f"Unsupported protocol version: {init_params.protocolVersion}. "
-            f"Supported versions: {', '.join(SUPPORTED_PROTOCOL_VERSIONS)}"
+            f"Protocol version negotiation: client requested {init_params.protocolVersion}, "
+            f"server responding with {negotiated_version}"
         )
     
     # Log the connection
@@ -362,7 +361,7 @@ async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
     
     # Build response
     result = InitializeResult(
-        protocolVersion=init_params.protocolVersion,
+        protocolVersion=negotiated_version,
         capabilities=SERVER_CAPABILITIES,
         serverInfo=SERVER_INFO,
     )

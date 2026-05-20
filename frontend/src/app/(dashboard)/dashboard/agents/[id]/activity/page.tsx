@@ -317,22 +317,26 @@ export default function AgentDetailPage() {
       {/* 4. Delegated Tools */}
       <DelegatedToolsCard tools={tools} />
 
-      {/* 5. Agent Authentication */}
-      <AgentAuthenticator
-        agentId={agentId}
-        delegationId={latestDelegation?.delegation_id}
-        lifecycleState={agent?.lifecycle_state}
-      />
+      {/* 5. Agent Authentication — only for key-based agents */}
+      {!agent?.platform && (
+        <AgentAuthenticator
+          agentId={agentId}
+          delegationId={latestDelegation?.delegation_id}
+          lifecycleState={agent?.lifecycle_state}
+        />
+      )}
 
       {/* 6. Session History */}
       <SessionHistoryTable agentId={agentId} />
 
-      {/* 7. Agent Identity */}
-      <AgentIdentityCard
-        agentId={agentId}
-        platform={agent?.platform}
-        selector={agent?.selector}
-      />
+      {/* 7. Agent Identity — only for platform agents */}
+      {agent?.platform && (
+        <AgentIdentityCard
+          agentId={agentId}
+          platform={agent.platform}
+          selector={agent.selector}
+        />
+      )}
 
       {/* 8. Activity Feed (full width) */}
       <ActivityFeed events={allEvents} />
