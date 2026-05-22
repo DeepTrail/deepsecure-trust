@@ -64,13 +64,27 @@ def _parse_user_token(authorization: str) -> Dict[str, Any]:
         if token.startswith("mock_user_token_"):
             return {"sub": token.replace("mock_user_token_", "")}
 
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-            payload.setdefault("sub", "sarah@acme.com")
-            return payload
-        except jwt.exceptions.PyJWTError:
-            return {"sub": "sarah@acme.com"}
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        if "sub" not in payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token missing 'sub' claim",
+            )
+        return payload
 
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired. Please log in again.",
+        )
+    except jwt.exceptions.PyJWTError as e:
+        logger.warning(f"JWT decode failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"Failed to extract user from token: {e}")
         raise HTTPException(
