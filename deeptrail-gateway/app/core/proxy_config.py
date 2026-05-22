@@ -383,7 +383,7 @@ class ProxyConfig(BaseModel):
     
     # Core PEP: Internal API token for control plane <-> gateway communication
     internal_api_token: str = Field(
-        default=os.getenv("GATEWAY_INTERNAL_API_TOKEN", "insecure_default_gateway_token_for_dev"),
+        default=os.getenv("GATEWAY_INTERNAL_API_TOKEN", os.getenv("GATEWAY_INTERNAL_TOKEN", "insecure_default_gateway_token_for_dev")),
         description="Internal API token for secure inter-service communication"
     )
     
