@@ -304,6 +304,26 @@ Downstream consumers of WORKSTREAM.md:
    | "After MP1" | "After MP-Backend" |
    | `### Success Criteria — MP1` | `### Success Criteria — MP-A` |
    
+   **Merge Point Tag Naming (MANDATORY):**
+   Tags MUST include the feature branch name as a suffix for uniqueness across workstreams.
+   Format: `{base-tag}-{feature-branch}` where `{feature-branch}` is derived from `git branch --show-current`.
+   
+   In MERGE_POINTS.md, write Merge Actions with the dynamic tag construction:
+   ```bash
+   BASE_TAG="mp[N]-[description]-complete"
+   FULL_TAG="${BASE_TAG}-$(git branch --show-current)"
+   git tag "$FULL_TAG"
+   git push origin "$FULL_TAG"
+   ```
+   
+   In Success Criteria, reference the convention:
+   `- [ ] Git tag \`{base-tag}-{feature-branch}\` created (e.g., \`mp1-foundation-complete-feature/my-workstream\`)`
+   
+   | Example Base Tag | Feature Branch | Full Tag |
+   |------------------|---------------|----------|
+   | `mp1-foundation-complete` | `feature/ui-improvements-audit-activity` | `mp1-foundation-complete-feature/ui-improvements-audit-activity` |
+   | `mp1-dashboard-complete` | `feature/agent-lifecycle` | `mp1-dashboard-complete-feature/agent-lifecycle` |
+   
    **Required sections** (see MERGE_POINT_GUIDE.md for full details):
    
    | Section | Purpose |
