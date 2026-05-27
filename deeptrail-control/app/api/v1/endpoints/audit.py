@@ -11,7 +11,6 @@ These endpoints support:
 """
 
 import asyncio
-import json as json_module
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
@@ -22,6 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api import deps
+from app.db.session import SessionLocal
 from app.models.audit_event import AuditEvent
 from app.services.audit_logger_service import AuditLoggerService
 
@@ -87,6 +87,8 @@ class AuditEventResponse(BaseModel):
     arguments: Optional[dict[str, Any]]
     result_summary: Optional[str]
     reason: Optional[str]
+    attempted_tool: Optional[str] = None
+    required_permission: Optional[str] = None
     session_id: Optional[str]
     agent_session_id: Optional[str]
     mcp_session_id: Optional[str]
@@ -283,6 +285,8 @@ def query_events(
             arguments=e.arguments,
             result_summary=e.result_summary,
             reason=e.reason,
+            attempted_tool=e.attempted_tool,
+            required_permission=e.required_permission,
             session_id=e.session_id,
             agent_session_id=e.agent_session_id,
             mcp_session_id=e.mcp_session_id,
@@ -308,28 +312,55 @@ async def stream_audit_events(
     agent_id: Optional[str] = Query(None),
     on_behalf_of: Optional[str] = Query(None),
 ) -> StreamingResponse:
-    """Stream audit events in real-time via Server-Sent Events."""
+    """Stream audit events in real-time via Server-Sent Events.
+
+    Polls the database every 2 seconds for new events, tracking the last
+    seen event ID as a cursor.
+    """
 
     async def event_generator():
-        last_seen = len(_mvp_audit_events)
+        last_id: Optional[str] = None
         while True:
-            current_len = len(_mvp_audit_events)
-            if current_len > last_seen:
-                new_events = _mvp_audit_events[last_seen:current_len]
+            db = SessionLocal()
+            try:
+                query = db.query(AuditEvent).order_by(AuditEvent.timestamp.asc())
+                if last_id is not None:
+                    last_event = db.query(AuditEvent).filter(AuditEvent.id == last_id).first()
+                    if last_event:
+                        query = query.filter(AuditEvent.timestamp > last_event.timestamp)
+                if agent_id:
+                    query = query.filter(AuditEvent.agent_id == agent_id)
+                if on_behalf_of:
+                    query = query.filter(AuditEvent.on_behalf_of == on_behalf_of)
+
+                new_events = query.limit(50).all()
                 for event in new_events:
-                    if agent_id and event.get("agent_id") != agent_id:
-                        continue
-                    if on_behalf_of and event.get("on_behalf_of") != on_behalf_of:
-                        continue
-                    data = {
-                        "id": event.get("id"),
-                        "event_type": event.get("event_type"),
-                        "agent_id": event.get("agent_id"),
-                        "tool": event.get("tool"),
-                        "timestamp": event.get("timestamp"),
-                    }
-                    yield f"data: {json_module.dumps(data)}\n\n"
-                last_seen = current_len
+                    duration_ms = (event.extra_data or {}).get("duration_ms") if event.extra_data else None
+                    resp = AuditEventResponse(
+                        id=event.id,
+                        timestamp=event.timestamp,
+                        event_type=event.event_type,
+                        agent_id=event.agent_id,
+                        on_behalf_of=event.on_behalf_of,
+                        organization_id=event.organization_id,
+                        tool=event.tool,
+                        success=event.success,
+                        arguments=event.arguments,
+                        result_summary=event.result_summary,
+                        reason=event.reason,
+                        attempted_tool=event.attempted_tool,
+                        required_permission=event.required_permission,
+                        session_id=event.session_id,
+                        agent_session_id=event.agent_session_id,
+                        mcp_session_id=event.mcp_session_id,
+                        delegation_id=event.delegation_id,
+                        extra_data=event.extra_data,
+                        duration_ms=duration_ms,
+                    )
+                    yield f"data: {resp.model_dump_json()}\n\n"
+                    last_id = event.id
+            finally:
+                db.close()
             await asyncio.sleep(2)
 
     return StreamingResponse(
