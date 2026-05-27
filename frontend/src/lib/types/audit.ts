@@ -48,3 +48,18 @@ export type AuditEventType =
   | "delegation_created"
   | "service_connected"
   | "sso_login";
+
+export interface ServicePermissions {
+  connected: boolean;
+  service_name: string;
+  scopes_granted: string[];
+  available_permissions: string[];
+  connected_at: string | null;
+}
+
+export interface AvailablePermissionsResponse {
+  services: Record<string, ServicePermissions>;
+  all_permissions: string[];
+  total_services: number;
+  total_permissions: number;
+}

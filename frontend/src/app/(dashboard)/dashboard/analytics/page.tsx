@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { apiClient, ApiError } from "@/lib/api/client";
 import type {
   AuditEvent,
   AuditEventsResponse,
   AuditSummary,
+  AvailablePermissionsResponse,
 } from "@/lib/types/audit";
+import dynamic from "next/dynamic";
+
+const DelegationChainFlow = dynamic(
+  () => import("@/components/charts/DelegationChainFlow"),
+  { ssr: false }
+);
 import { useAgentNames } from "@/hooks/useAgentNames";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,10 +26,14 @@ import {
   ShieldAlert,
   Link2,
   TrendingUp,
+  ChevronDown,
+  ChevronRight,
+  CheckCircle2,
+  MinusCircle,
 } from "lucide-react";
 
 interface Delegation {
-  id: string;
+  delegation_id: string;
   agent_id: string;
   permissions: string[];
 }
@@ -35,6 +46,8 @@ type PageState =
       summary: AuditSummary;
       denials: AuditEvent[];
       delegations: Delegation[];
+      connectedServices: AvailablePermissionsResponse;
+      userEmail: string;
     };
 
 export default function AnalyticsPage() {
@@ -44,19 +57,37 @@ export default function AnalyticsPage() {
   const fetchData = useCallback(async () => {
     setState({ kind: "loading" });
     try {
-      const [summaryData, denialsData, delegationsData] = await Promise.all([
-        apiClient<AuditSummary>("audit/summary"),
-        apiClient<AuditEventsResponse>(
-          "audit/events?event_type=permission_denied&limit=500"
-        ),
-        apiClient<Delegation[]>("auth/delegations").catch(() => []),
-      ]);
+      const [summaryData, denialsData, delegationsData, servicesData, profileData] =
+        await Promise.all([
+          apiClient<AuditSummary>("audit/summary"),
+          apiClient<AuditEventsResponse>(
+            "audit/events?event_type=permission_denied&limit=500"
+          ),
+          apiClient<Delegation[]>("auth/delegations").catch(() => []),
+          apiClient<AvailablePermissionsResponse>(
+            "users/me/available-permissions"
+          ).catch(
+            () =>
+              ({
+                services: {},
+                all_permissions: [],
+                total_services: 0,
+                total_permissions: 0,
+              }) as AvailablePermissionsResponse
+          ),
+          apiClient<{ email?: string; user_id?: string }>("users/me").catch(
+            () => ({ email: undefined, user_id: undefined })
+          ),
+        ]);
 
       setState({
         kind: "data",
         summary: summaryData,
         denials: denialsData.events ?? [],
         delegations: Array.isArray(delegationsData) ? delegationsData : [],
+        connectedServices: servicesData,
+        userEmail:
+          profileData.email ?? profileData.user_id ?? "Unknown User",
       });
     } catch (err) {
       const message =
@@ -81,7 +112,7 @@ export default function AnalyticsPage() {
       />
     );
 
-  const { summary, denials, delegations } = state;
+  const { summary, denials, delegations, connectedServices, userEmail } = state;
 
   return (
     <div className="space-y-6">
@@ -99,8 +130,17 @@ export default function AnalyticsPage() {
       {/* Section 4: Denial Analysis */}
       <DenialAnalysis denials={denials} summary={summary} resolve={resolve} />
 
-      {/* Section 5: Delegation Chain Visualization */}
+      {/* Section 5: Agent Permission Utilization */}
       <DelegationChainViz
+        delegations={delegations}
+        summary={summary}
+        resolve={resolve}
+      />
+
+      {/* Section 6: Delegation Chain Visualization */}
+      <DelegationChainFlow
+        userEmail={userEmail}
+        connectedServices={connectedServices}
         delegations={delegations}
         summary={summary}
         resolve={resolve}
@@ -383,6 +423,8 @@ function DelegationChainViz({
   summary: AuditSummary;
   resolve: (id: string) => string;
 }) {
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+
   const chains = useMemo(() => {
     return delegations.map((d) => {
       const permissions = d.permissions.map((perm) => {
@@ -407,10 +449,12 @@ function DelegationChainViz({
           : 0;
 
       return {
-        delegationId: d.id,
+        delegationId: d.delegation_id,
         agentId: d.agent_id,
         agentName: resolve(d.agent_id),
         permissions,
+        usedCount,
+        totalCount: permissions.length,
         utilizationPercent,
       };
     });
@@ -421,7 +465,7 @@ function DelegationChainViz({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Link2 className="h-4 w-4" />
-          Delegation Chain Visualization
+          Agent Permission Utilization
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -431,54 +475,105 @@ function DelegationChainViz({
             description="Create delegations to see permission utilization analysis."
           />
         ) : (
-          <div className="space-y-4">
-            {chains.map((chain) => (
-              <div
-                key={chain.delegationId}
-                className="rounded-md border p-4 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="font-medium">{chain.agentName}</span>
-                    <span className="text-xs text-muted-foreground ml-2">
-                      {chain.agentId}
-                    </span>
-                  </div>
-                  <Badge
-                    variant={
-                      chain.utilizationPercent > 75
-                        ? "default"
-                        : chain.utilizationPercent > 25
-                          ? "secondary"
-                          : "destructive"
-                    }
-                  >
-                    {chain.utilizationPercent}% utilized
-                  </Badge>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {chain.permissions.map((p) => (
-                    <div
-                      key={p.permission}
-                      className={`rounded-md border px-2 py-1 text-xs ${
-                        p.used
-                          ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950"
-                          : "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900 opacity-60"
-                      }`}
-                    >
-                      <span className="mr-1">{p.used ? "🟢" : "⚪"}</span>
-                      {p.permission}
-                      {p.used && (
-                        <span className="ml-1 text-muted-foreground">
-                          ({p.usageCount})
-                        </span>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" role="table">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Agent</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Agent ID</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Permissions</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground min-w-[200px]">Utilization</th>
+                  <th className="w-8 px-2 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {chains.map((chain) => {
+                  const isExpanded = expandedAgent === chain.delegationId;
+                  return (
+                    <React.Fragment key={chain.delegationId}>
+                      <tr
+                        className="border-b cursor-pointer hover:bg-muted/30 transition-colors"
+                        onClick={() =>
+                          setExpandedAgent(isExpanded ? null : chain.delegationId)
+                        }
+                      >
+                        <td className="px-3 py-2.5 font-medium">{chain.agentName}</td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground font-mono">{chain.agentId}</td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                          {chain.usedCount} / {chain.totalCount} used
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  chain.utilizationPercent > 75
+                                    ? "bg-green-500"
+                                    : chain.utilizationPercent > 25
+                                      ? "bg-amber-500"
+                                      : "bg-red-500"
+                                }`}
+                                style={{ width: `${chain.utilizationPercent}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-medium tabular-nums w-10 text-right">
+                              {chain.utilizationPercent}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={5} className="p-0">
+                            <div className="border-t border-dashed bg-muted/20">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b">
+                                    <th className="px-6 py-2 text-left font-medium text-muted-foreground">Permission</th>
+                                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">Service</th>
+                                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+                                    <th className="px-3 py-2 text-right font-medium text-muted-foreground">Tool Calls</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {chain.permissions.map((p) => (
+                                    <tr key={p.permission} className="border-b last:border-b-0">
+                                      <td className="px-6 py-1.5 font-mono">{p.permission}</td>
+                                      <td className="px-3 py-1.5 text-muted-foreground">{p.service}</td>
+                                      <td className="px-3 py-1.5">
+                                        {p.used ? (
+                                          <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400">
+                                            <CheckCircle2 className="h-3 w-3" /> Active
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                                            <MinusCircle className="h-3 w-3" /> Unused
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                                        {p.usageCount > 0 ? p.usageCount.toLocaleString() : "—"}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </CardContent>
