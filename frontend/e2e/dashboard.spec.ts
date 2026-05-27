@@ -16,18 +16,29 @@ const MOCK_SERVICES = [
   { service_id: "slack", service_name: "Slack", connected: false, scopes: ["messages:read"], description: "Slack integration" },
 ];
 
-const MOCK_EVENTS = [
-  {
-    id: "evt-1", event_type: "mcp_tool_call", timestamp: "2026-01-15T09:00:00Z",
-    agent_id: "agent-alpha", user_id: "user-1", token_layer: "agent",
-    details: { tool: "notion.search" },
-    attribution_chain: [{ actor: "user-1", action: "delegate", layer: "user" }],
-  },
-  {
-    id: "evt-2", event_type: "agent_auth", timestamp: "2026-01-15T10:00:00Z",
-    agent_id: "agent-beta", token_layer: "delegation", details: {}, attribution_chain: [],
-  },
-];
+const MOCK_EVENTS = {
+  events: [
+    {
+      id: "evt-1", event_type: "mcp_tool_call", timestamp: "2026-01-15T09:00:00Z",
+      agent_id: "agent-alpha", on_behalf_of: "sarah@acme.com", organization_id: null,
+      tool: "notion.search_pages", success: true, arguments: { query: "test" },
+      result_summary: "Found 3 results", reason: null, attempted_tool: null,
+      required_permission: null, duration_ms: 250, session_id: null,
+      agent_session_id: null, mcp_session_id: null, delegation_id: null, extra_data: null,
+    },
+    {
+      id: "evt-2", event_type: "permission_denied", timestamp: "2026-01-15T10:00:00Z",
+      agent_id: "agent-beta", on_behalf_of: "admin@acme.com", organization_id: null,
+      tool: null, success: false, arguments: null, result_summary: null,
+      reason: "Permission not delegated", attempted_tool: "slack.post_message",
+      required_permission: "slack:messages:send", duration_ms: null, session_id: null,
+      agent_session_id: null, mcp_session_id: null, delegation_id: null, extra_data: null,
+    },
+  ],
+  total: 2,
+  limit: 100,
+  offset: 0,
+};
 
 const MOCK_SECRETS = [
   { id: "secret-1", name: "NOTION_TOKEN", service: "notion", created_at: "2026-01-01T00:00:00Z" },
@@ -273,16 +284,13 @@ test.describe("Services Page", () => {
 // ── Audit Trail Page ────────────────────────────────────────────
 
 test.describe("Audit Trail Page", () => {
-  test("lists audit events", async ({ authedPage }) => {
+  test("lists audit events with tool names", async ({ authedPage }) => {
     await setupHappyPathMocks(authedPage);
     await authedPage.goto("/dashboard/audit");
 
     const main = authedPage.getByRole("main");
-    // Wait for event data to load — agent-alpha is unique to mock event cards
-    await expect(main.getByText("agent-alpha")).toBeVisible({ timeout: 10000 });
-    // Verify event types are rendered (nth(1) skips the hidden <option> in the filter dropdown)
-    await expect(main.getByText("mcp_tool_call").nth(1)).toBeVisible();
-    await expect(main.getByText("agent_auth").nth(1)).toBeVisible();
+    await expect(main.getByText("notion.search_pages")).toBeVisible({ timeout: 10000 });
+    await expect(main.getByText("slack.post_message")).toBeVisible();
   });
 
   test("shows empty state when no events", async ({ authedPage }) => {
@@ -304,20 +312,26 @@ test.describe("Audit Trail Page", () => {
     await authedPage.goto("/dashboard/audit");
 
     const main = authedPage.getByRole("main");
-    await expect(main.getByText("agent-alpha")).toBeVisible({ timeout: 10000 });
+    await expect(main.getByText("notion.search_pages")).toBeVisible({ timeout: 10000 });
     const filterSelect = authedPage.getByLabel("Event Type");
     await expect(filterSelect).toBeVisible();
     await expect(filterSelect).toBeEnabled();
   });
 
-  test("displays token layer badges", async ({ authedPage }) => {
+  test("displays event type badges", async ({ authedPage }) => {
     await setupHappyPathMocks(authedPage);
     await authedPage.goto("/dashboard/audit");
 
     const main = authedPage.getByRole("main");
-    await expect(main.getByText("agent-alpha")).toBeVisible({ timeout: 10000 });
-    // Verify token layer badge is rendered — use Badge locator to avoid hidden <option> elements
-    await expect(main.locator(".inline-flex").getByText("agent", { exact: true }).first()).toBeVisible();
+    await expect(main.getByText("notion.search_pages")).toBeVisible({ timeout: 10000 });
+    await expect(main.locator(".inline-flex").getByText("mcp_tool_call", { exact: true }).first()).toBeVisible();
+  });
+
+  test("navigates to analytics via sidebar", async ({ authedPage }) => {
+    await setupHappyPathMocks(authedPage);
+    await authedPage.goto("/dashboard");
+    await authedPage.getByRole("link", { name: "Analytics" }).click();
+    await expect(authedPage).toHaveURL(/\/dashboard\/analytics/);
   });
 });
 
