@@ -237,11 +237,14 @@ Additional references (read at least ONE more for cross-referencing):
 Must include **Complete** and **Status** columns for execution tracking.
 Pattern from all 4 gold-standard docs.
 
+**Merge point tag naming convention:** Tags in the Quick Reference table show the **base tag** only (e.g., `mp1-foundation-complete`). At tag creation time, `/run-batch` appends the feature branch name to produce the full tag: `{base-tag}-{feature-branch}` (e.g., `mp1-foundation-complete-feature/ui-improvements-audit-activity`). Do NOT hardcode the feature branch in the table — it is appended automatically.
+
     ## Quick Reference
 
     | Batch | Total Tasks | Complete | Waves | Status | Worktrees |
     |-------|-------------|----------|-------|--------|-----------|
     | P0-B1 | [N] | 0 | [N] | ⏳ Pending | [list] |
+    | **MP1** | — | — | — | ⏳ Pending | Tag: `mp1-[description]-complete` |
     | P0-B2 | [N] | 0 | [N] | ⏳ Pending | [list] |
     | P1-B1 | [N] | 0 | [N] | ⏳ Pending | [list] |
 
@@ -417,6 +420,7 @@ standalone merge point section. Pattern from idp-enhanced-sso.
     │  [branch/worktree 2] ──┘                                    │
     │                                                             │
     │  Prerequisites: All prior batches complete ([X]/[Y] tasks)   │
+    │  Tag: {base-tag}-$(git branch --show-current)              │
     │  Action: [Merge/Tag/Rebuild description]                    │
     └─────────────────────────────────────────────────────────────┘
     ```
@@ -425,6 +429,12 @@ standalone merge point section. Pattern from idp-enhanced-sso.
 
     ### Quick Merge Commands
     ```bash
+    # Tag with feature branch suffix (convention: {base-tag}-{feature-branch})
+    BASE_TAG="mp[N]-[description]-complete"
+    FULL_TAG="${BASE_TAG}-$(git branch --show-current)"
+    git tag "$FULL_TAG"
+    git push origin "$FULL_TAG"
+
     # concrete push, PR, merge, rebuild commands
     ```
 

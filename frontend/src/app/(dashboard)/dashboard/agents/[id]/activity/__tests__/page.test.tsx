@@ -108,17 +108,45 @@ const TOOLS_RESPONSE = {
 const EVENTS_RESPONSE = [
   {
     id: "evt-1",
-    tool_name: "notion.search_pages",
-    status: "success",
+    event_type: "mcp_tool_call",
     timestamp: "2026-05-06T12:00:00Z",
-    details: "Found 3 pages",
+    agent_id: "sdr-assistant-001",
+    on_behalf_of: "sarah@acme.com",
+    organization_id: null,
+    tool: "notion.search_pages",
+    success: true,
+    arguments: null,
+    result_summary: "Found 3 pages",
+    reason: null,
+    attempted_tool: null,
+    required_permission: null,
+    duration_ms: 250,
+    session_id: null,
+    agent_session_id: null,
+    mcp_session_id: null,
+    delegation_id: null,
+    extra_data: null,
   },
   {
     id: "evt-2",
-    tool_name: "slack.post_message",
-    status: "error",
+    event_type: "mcp_tool_call",
     timestamp: "2026-05-06T11:55:00Z",
-    details: "Rate limited",
+    agent_id: "sdr-assistant-001",
+    on_behalf_of: "sarah@acme.com",
+    organization_id: null,
+    tool: "slack.post_message",
+    success: false,
+    arguments: null,
+    result_summary: "Rate limited",
+    reason: "Rate limited",
+    attempted_tool: null,
+    required_permission: null,
+    duration_ms: null,
+    session_id: null,
+    agent_session_id: null,
+    mcp_session_id: null,
+    delegation_id: null,
+    extra_data: null,
   },
 ];
 
@@ -180,16 +208,13 @@ describe("AgentDetailPage", () => {
     expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
   });
 
-  it("renders Agent Integration section", async () => {
+  it("renders Agent Authentication section", async () => {
     mockSuccessfulFetch();
     render(<AgentDetailPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Agent Integration")).toBeInTheDocument();
+      expect(screen.getByText("Agent Authentication")).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/DEEPSECURE_AGENT_ID="sdr-assistant-001"/)
-    ).toBeInTheDocument();
   });
 
   it("renders Session History section", async () => {

@@ -927,6 +927,35 @@ async def client():
 
 **Template:** `docs/workstreams/MERGE_POINT_GUIDE.md`
 
+### Merge Point Tag Naming Convention (MANDATORY)
+
+**LESSON LEARNED (May 2026):** Bare merge point tags like `mp1-foundation-complete` collide across workstreams. When multiple workstreams have an MP1, the tag name is ambiguous and can't be traced to a specific feature.
+
+**Convention:** Tags MUST include the feature branch name as a suffix:
+
+```
+{base-tag}-{feature-branch}
+```
+
+| Component | Source | Example |
+|-----------|--------|---------|
+| `{base-tag}` | From `BATCH_EXECUTION_PLAN.md` Quick Reference table | `mp1-foundation-complete` |
+| `{feature-branch}` | From `git branch --show-current` | `feature/ui-improvements-audit-activity` |
+| **Full tag** | Concatenated with `-` | `mp1-foundation-complete-feature/ui-improvements-audit-activity` |
+
+**Tag creation command (used in `/run-batch` Step 7d):**
+```bash
+BASE_TAG="mp1-foundation-complete"
+FULL_TAG="${BASE_TAG}-$(git branch --show-current)"
+git tag "$FULL_TAG"
+git push origin "$FULL_TAG"
+```
+
+**Where enforced:**
+- `/run-batch` Step 7d (tag creation) — appends branch automatically
+- `/create-batch-execution-plan` Section 1 — documents base tag in Quick Reference
+- `/create-workstream` — MERGE_POINTS.md Merge Actions use dynamic construction
+
 ### Documentation Consistency (MANDATORY)
 
 **LESSON LEARNED (Feb 2026):** Status files drifted out of sync with completion reports, causing confusion about batch completion and blocking next batch unnecessarily.
@@ -1005,6 +1034,7 @@ async def client():
 | May 2026 | MERGE_POINTS.md verification checked only 6 of 18 required sections — p3-gcp file passed with 10 sections missing entirely | Expanded `/create-workstream` verification from 6 to 18+2 section checks; added N/A-block pattern for inapplicable sections | MERGE_POINTS.md Required Sections |
 | May 2026 | Deploy batch in BATCH_EXECUTION_PLAN.md used inline `docker build`/`docker push` instead of existing `infra/build-and-push.sh`; `migrate.sh` used wrong gcloud flag (`--add-cloudsql-instances` vs `--set-cloudsql-instances`) hidden by `2>/dev/null` | Added deploy-script prerequisite check to `/create-batch-execution-plan`; fixed `migrate.sh` flag and error handling; added verification check for inline docker commands | Deploy Commands |
 | May 2026 | Workstream fully deployed and verified on live site but all status files still showed "in progress" — closure was manual and forgotten | Added auto-closure to `/verify-batch-completion`: detects final batch, auto-updates STATUS.md, BATCH_EXECUTION_PLAN.md, MERGE_POINTS.md, and workstreams/README.md | Verify Batch Completion |
+| May 2026 | Merge point tags like `mp1-foundation-complete` collided across workstreams — no way to tell which workstream a tag belonged to | Tags now include feature branch suffix: `{base-tag}-{feature-branch}` (e.g., `mp1-foundation-complete-feature/ui-improvements-audit-activity`). Updated `/run-batch`, `/create-batch-execution-plan`, `/create-workstream` | Merge Point Tag Naming Convention |
 
 ### How to Add New Lessons
 

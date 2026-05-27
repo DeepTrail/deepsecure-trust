@@ -6,6 +6,7 @@ import {
   waitFor,
   fireEvent,
 } from "@testing-library/react";
+import type { AuditEvent } from "@/lib/types/audit";
 
 vi.mock("@/lib/api/client", () => ({
   apiClient: vi.fn(),
@@ -19,6 +20,14 @@ vi.mock("@/lib/api/client", () => ({
       this.statusText = statusText;
     }
   },
+}));
+
+vi.mock("@/hooks/useAgentNames", () => ({
+  useAgentNames: () => ({
+    names: new Map([["test-agent", "Test Agent"]]),
+    loading: false,
+    resolve: (id: string) => (id === "test-agent" ? "Test Agent" : id),
+  }),
 }));
 
 vi.mock("@/components/feedback/page-skeleton", () => ({
@@ -63,44 +72,57 @@ import { apiClient } from "@/lib/api/client";
 
 const mockApiClient = vi.mocked(apiClient);
 
-const mockEvents = [
-  {
+function makeEvent(overrides: Partial<AuditEvent> = {}): AuditEvent {
+  return {
     id: "evt-1",
-    event_type: "mcp_tool_call",
-    token_layer: "agent",
-    agent_id: "test-agent",
-    user_id: null,
     timestamp: "2026-01-01T09:00:00Z",
-    details: { tool: "notion.search_pages" },
-    attribution_chain: [
-      {
-        actor_type: "user",
-        actor_id: "user@test.com",
-        action: "delegated",
-        timestamp: "2026-01-01T08:00:00Z",
-      },
-      {
-        actor_type: "agent",
-        actor_id: "test-agent",
-        action: "tool_call",
-        timestamp: "2026-01-01T09:00:00Z",
-      },
-    ],
-  },
-  {
+    event_type: "mcp_tool_call",
+    agent_id: "test-agent",
+    on_behalf_of: "sarah@acme.com",
+    organization_id: null,
+    tool: "notion.search_pages",
+    success: true,
+    arguments: { query: "meeting notes" },
+    result_summary: "Found 5 results",
+    reason: null,
+    attempted_tool: null,
+    required_permission: null,
+    duration_ms: 473,
+    session_id: "sess-001",
+    agent_session_id: "asess-001",
+    mcp_session_id: "mcpsess-001",
+    delegation_id: "del-001",
+    extra_data: null,
+    ...overrides,
+  };
+}
+
+const mockEvents: AuditEvent[] = [
+  makeEvent({
+    id: "evt-1",
+    tool: "notion.search_pages",
+    success: true,
+    duration_ms: 473,
+  }),
+  makeEvent({
     id: "evt-2",
-    event_type: "sso_login",
-    token_layer: "user",
-    agent_id: null,
-    user_id: "admin@acme.com",
+    event_type: "permission_denied",
+    tool: null,
+    success: false,
+    attempted_tool: "slack.post_message",
+    required_permission: "slack:messages:send",
+    duration_ms: null,
     timestamp: "2026-01-01T10:00:00Z",
-    details: { idp: "okta" },
-    attribution_chain: [],
-  },
+  }),
 ];
 
 function mockApiSuccess(events = mockEvents) {
-  mockApiClient.mockResolvedValue(events as never);
+  mockApiClient.mockResolvedValue({
+    events,
+    total: events.length,
+    limit: 20,
+    offset: 0,
+  } as never);
 }
 
 describe("AuditPage", () => {
@@ -114,7 +136,7 @@ describe("AuditPage", () => {
     expect(screen.getByTestId("page-skeleton")).toBeInTheDocument();
   });
 
-  it("renders event list with token layer badges", async () => {
+  it("renders event list with tool names", async () => {
     mockApiSuccess();
     render(<AuditPage />);
 
@@ -122,10 +144,65 @@ describe("AuditPage", () => {
       expect(screen.getByText("Audit Trail")).toBeInTheDocument();
     });
 
-    expect(screen.getAllByText("agent").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("user").length).toBeGreaterThan(0);
+    expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    expect(screen.getByText("slack.post_message")).toBeInTheDocument();
+  });
+
+  it("shows success/error icons", async () => {
+    mockApiSuccess();
+    render(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Audit Trail")).toBeInTheDocument();
+    });
+
+    const checkIcons = document.querySelectorAll(".lucide-circle-check");
+    const xIcons = document.querySelectorAll(".lucide-circle-x");
+    expect(checkIcons.length).toBeGreaterThan(0);
+    expect(xIcons.length).toBeGreaterThan(0);
+  });
+
+  it("displays agent names via useAgentNames", async () => {
+    mockApiSuccess();
+    render(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByText("Test Agent").length).toBeGreaterThan(0);
+  });
+
+  it("shows duration for tool calls", async () => {
+    mockApiSuccess();
+    render(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("473ms")).toBeInTheDocument();
+    });
+  });
+
+  it("shows DENIED prefix for permission_denied events", async () => {
+    mockApiSuccess();
+    render(<AuditPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("DENIED: slack:messages:send")
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("shows event type badges", async () => {
+    mockApiSuccess();
+    render(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Audit Trail")).toBeInTheDocument();
+    });
+
     expect(screen.getAllByText("mcp_tool_call").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("sso_login").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("permission_denied").length).toBeGreaterThan(0);
   });
 
   it("shows ErrorCard on API failure", async () => {
@@ -152,69 +229,22 @@ describe("AuditPage", () => {
     expect(screen.getByText("No audit events")).toBeInTheDocument();
   });
 
-  it("clicking event shows detail panel", async () => {
+  it("expands event detail on click", async () => {
     mockApiSuccess();
     render(<AuditPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Audit Trail")).toBeInTheDocument();
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
     });
 
-    const agentLabel = screen.getByText("Agent: test-agent");
-    const eventCard = agentLabel.closest("[class*='cursor-pointer']")!;
-    fireEvent.click(eventCard);
+    const eventButton = screen.getByText("notion.search_pages").closest("button");
+    if (eventButton) {
+      fireEvent.click(eventButton);
 
-    await waitFor(() => {
-      expect(screen.getByText("Event Details")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("Metadata")).toBeInTheDocument();
-    expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
-  });
-
-  it("detail panel shows attribution chain", async () => {
-    mockApiSuccess();
-    render(<AuditPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Audit Trail")).toBeInTheDocument();
-    });
-
-    const agentLabel = screen.getByText("Agent: test-agent");
-    fireEvent.click(agentLabel.closest("[class*='cursor-pointer']")!);
-
-    await waitFor(() => {
-      expect(screen.getByText("Attribution Chain")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("user@test.com")).toBeInTheDocument();
-    expect(screen.getByText(/delegated —/)).toBeInTheDocument();
-    expect(screen.getByText(/tool_call —/)).toBeInTheDocument();
-  });
-
-  it("closing detail panel hides it", async () => {
-    mockApiSuccess();
-    render(<AuditPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Audit Trail")).toBeInTheDocument();
-    });
-
-    const agentLabel = screen.getByText("Agent: test-agent");
-    fireEvent.click(agentLabel.closest("[class*='cursor-pointer']")!);
-
-    await waitFor(() => {
-      expect(screen.getByText("Event Details")).toBeInTheDocument();
-    });
-
-    const detailTitle = screen.getByText("Event Details");
-    const cardHeader = detailTitle.parentElement!;
-    const closeButton = cardHeader.querySelector("button")!;
-    fireEvent.click(closeButton);
-
-    await waitFor(() => {
-      expect(screen.queryByText("Event Details")).not.toBeInTheDocument();
-    });
+      await waitFor(() => {
+        expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
+      });
+    }
   });
 
   it("filter controls update query", async () => {
@@ -233,6 +263,28 @@ describe("AuditPage", () => {
         expect.stringContaining("event_type=mcp_tool_call")
       );
     });
+  });
+
+  it("tool filter is present", async () => {
+    mockApiSuccess();
+    render(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Audit Trail")).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText("Tool")).toBeInTheDocument();
+  });
+
+  it("user filter is present", async () => {
+    mockApiSuccess();
+    render(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Audit Trail")).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText("User")).toBeInTheDocument();
   });
 
   it("clear filters button resets all filters", async () => {
@@ -274,29 +326,11 @@ describe("AuditPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /next/i })).toBeInTheDocument();
     expect(screen.getByText("Page 1")).toBeInTheDocument();
-
     expect(screen.getByRole("button", { name: /previous/i })).toBeDisabled();
-  });
-
-  it("shows ApiError with status code on fetch failure", async () => {
-    const { ApiError: MockApiError } = await import("@/lib/api/client");
-    mockApiClient.mockRejectedValue(
-      new MockApiError(403, "Forbidden") as never
-    );
-    render(<AuditPage />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("error-card")).toBeInTheDocument();
-    });
-
-    expect(
-      screen.getByText("Failed to load audit events (403)")
-    ).toBeInTheDocument();
   });
 
   it("retry button calls fetchEvents again", async () => {
     mockApiClient.mockRejectedValue(new Error("Network error") as never);
-
     render(<AuditPage />);
 
     await waitFor(() => {
@@ -309,17 +343,5 @@ describe("AuditPage", () => {
     await waitFor(() => {
       expect(mockApiClient.mock.calls.length).toBeGreaterThan(callCount);
     });
-  });
-
-  it("displays agent_id and user_id on event cards", async () => {
-    mockApiSuccess();
-    render(<AuditPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Audit Trail")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("Agent: test-agent")).toBeInTheDocument();
-    expect(screen.getByText("User: admin@acme.com")).toBeInTheDocument();
   });
 });

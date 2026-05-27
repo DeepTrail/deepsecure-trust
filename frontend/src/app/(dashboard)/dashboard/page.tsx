@@ -3,21 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { apiClient, ApiError } from "@/lib/api/client";
+import type { AuditEvent, AuditEventsResponse } from "@/lib/types/audit";
+import { useAgentNames } from "@/hooks/useAgentNames";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
-import { Bot, Shield, ScrollText, Activity, Sparkles } from "lucide-react";
+import {
+  Bot,
+  Shield,
+  ScrollText,
+  Activity,
+  Sparkles,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 import { checkOnboardingStatus } from "@/lib/auth/onboarding";
-
-interface AuditEvent {
-  id: string;
-  event_type: string;
-  timestamp: string;
-  agent_id?: string;
-}
 
 interface DashboardData {
   agentCount: number;
@@ -33,6 +36,7 @@ type PageState =
 export default function DashboardPage() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const { resolve } = useAgentNames();
 
   useEffect(() => {
     checkOnboardingStatus()
@@ -43,25 +47,23 @@ export default function DashboardPage() {
   const fetchData = useCallback(async () => {
     setState({ kind: "loading" });
     try {
-      const [rawAgents, rawPolicies, events] = await Promise.all([
+      const [rawAgents, rawPolicies, eventsData] = await Promise.all([
         apiClient<unknown[] | { agents: unknown[]; total?: number }>("agents/").catch(() => []),
         apiClient<unknown[]>("policies/").catch(() => []),
-        apiClient<AuditEvent[] | { events: AuditEvent[] }>(
+        apiClient<AuditEventsResponse>(
           "audit/events?limit=10"
-        ).catch(() => [] as AuditEvent[]),
+        ).catch(() => ({ events: [], total: 0, limit: 10, offset: 0 })),
       ]);
 
       const agentCount = Array.isArray(rawAgents)
         ? rawAgents.length
         : (rawAgents as { total?: number }).total ?? (rawAgents as { agents: unknown[] }).agents?.length ?? 0;
       const policyCount = Array.isArray(rawPolicies) ? rawPolicies.length : 0;
-      const rawEvents = Array.isArray(events)
-        ? events
-        : (events as { events: AuditEvent[] }).events ?? [];
+      const recentEvents = (eventsData as AuditEventsResponse).events ?? [];
 
       setState({
         kind: "data",
-        data: { agentCount, policyCount, recentEvents: rawEvents.slice(0, 10) },
+        data: { agentCount, policyCount, recentEvents: recentEvents.slice(0, 10) },
       });
     } catch (err) {
       const message =
@@ -152,24 +154,38 @@ export default function DashboardPage() {
             />
           ) : (
             <div className="space-y-3">
-              {data.recentEvents.map((event) => (
-                <div
-                  key={event.id}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">{event.event_type}</Badge>
-                    {event.agent_id && (
-                      <span className="text-xs text-muted-foreground">
-                        {event.agent_id}
+              {data.recentEvents.map((event) => {
+                const isDenied = event.event_type === "permission_denied";
+                const toolDisplay = isDenied
+                  ? event.attempted_tool ?? event.event_type
+                  : event.tool ?? event.event_type;
+
+                return (
+                  <div
+                    key={event.id}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      {event.success === false || isDenied ? (
+                        <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                      )}
+                      <span className="font-mono text-xs truncate max-w-[200px]">
+                        {toolDisplay}
                       </span>
-                    )}
+                      {event.agent_id && (
+                        <span className="text-xs text-muted-foreground">
+                          {resolve(event.agent_id)}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-muted-foreground text-xs shrink-0">
+                      {new Date(event.timestamp).toLocaleString()}
+                    </span>
                   </div>
-                  <span className="text-muted-foreground text-xs">
-                    {new Date(event.timestamp).toLocaleString()}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
