@@ -6,7 +6,8 @@ import { apiClient, ApiError } from "@/lib/api/client";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { DelegatedToolsCard, UnavailableToolsDisclosure, type AgentTool } from "@/components/agents/ToolsList";
-import { ActivityFeed, type ActivityEvent } from "@/components/agents/ActivityFeed";
+import { ActivityFeed } from "@/components/agents/ActivityFeed";
+import type { AuditEvent } from "@/lib/types/audit";
 import { AgentAuthenticator } from "@/components/agents/AgentAuthenticator";
 import {
   LifecycleBadge,
@@ -40,8 +41,8 @@ interface ToolsResponse {
   tools: AgentTool[];
 }
 
-interface AuditEventsResponse {
-  events?: ActivityEvent[];
+interface AgentAuditEventsResponse {
+  events?: AuditEvent[];
 }
 
 interface AgentInfo {
@@ -76,7 +77,7 @@ type PageState =
       agent: AgentInfo | null;
       delegations: DelegationSummary[];
       tools: AgentTool[];
-      events: ActivityEvent[];
+      events: AuditEvent[];
     };
 
 function formatTtl(seconds: number): string {
@@ -90,7 +91,7 @@ export default function AgentDetailPage() {
   const agentId = params.id;
   const [state, setState] = useState<PageState>({ kind: "loading" });
 
-  const { data: liveEvents, connected: sseConnected } = useSSE<ActivityEvent>(
+  const { data: liveEvents, connected: sseConnected } = useSSE<AuditEvent>(
     "/api/events/stream",
     { enabled: !!agentId }
   );
@@ -105,7 +106,7 @@ export default function AgentDetailPage() {
           apiClient<ToolsResponse>(`agents/${agentId}/tools`).catch(
             () => ({ agent_id: agentId, tools: [] }) as ToolsResponse
           ),
-          apiClient<ActivityEvent[] | AuditEventsResponse>(
+          apiClient<AuditEvent[] | AgentAuditEventsResponse>(
             `audit/events?agent_id=${agentId}&limit=20`
           ).catch(() => []),
         ]);
@@ -113,7 +114,7 @@ export default function AgentDetailPage() {
       const tools = toolsData.tools ?? [];
       const events = Array.isArray(eventsData)
         ? eventsData
-        : (eventsData as AuditEventsResponse).events ?? [];
+        : (eventsData as AgentAuditEventsResponse).events ?? [];
 
       const agentDelegations = (
         Array.isArray(delegationsData) ? delegationsData : []
