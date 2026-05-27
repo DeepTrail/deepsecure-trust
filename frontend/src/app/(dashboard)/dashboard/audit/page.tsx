@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { apiClient, ApiError } from "@/lib/api/client";
 import type { AuditEvent, AuditEventsResponse, AuditEventType } from "@/lib/types/audit";
 import { useAgentNames } from "@/hooks/useAgentNames";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
@@ -61,6 +60,12 @@ function formatDuration(ms: number | null): string {
 function EventDetailPanel({ event }: { event: AuditEvent }) {
   return (
     <div className="pl-8 py-2 border-t border-dashed text-sm text-muted-foreground space-y-1">
+      {event.organization_id && (
+        <div>
+          <span className="font-medium">Organization:</span>{" "}
+          {event.organization_id}
+        </div>
+      )}
       {event.arguments && (
         <div>
           <span className="font-medium">Arguments:</span>{" "}
@@ -85,7 +90,9 @@ function EventDetailPanel({ event }: { event: AuditEvent }) {
       )}
       <div>
         <span className="font-medium">Session:</span>{" "}
-        {event.agent_session_id ?? "—"} | MCP: {event.mcp_session_id ?? "—"}
+        {event.agent_session_id ?? "—"} |{" "}
+        <span className="font-medium">MCP:</span>{" "}
+        {event.mcp_session_id ?? "—"}
       </div>
     </div>
   );
@@ -283,105 +290,127 @@ export default function AuditPage() {
         </CardContent>
       </Card>
 
-      {/* Event List */}
-      <div className="space-y-2">
-        {events.length === 0 ? (
-          <EmptyState
-            title="No audit events"
-            description={
-              hasActiveFilters
-                ? "No events match the current filters. Try adjusting your criteria."
-                : "Audit events will appear here as agents perform actions."
-            }
-          />
-        ) : (
-          <>
-            {events.map((event) => {
-              const isDenied = event.event_type === "permission_denied";
-              const toolDisplay = isDenied
-                ? event.attempted_tool ?? "—"
-                : event.tool ?? "—";
-              const isExpanded = expandedId === event.id;
+      {/* Event Table */}
+      {events.length === 0 ? (
+        <EmptyState
+          title="No audit events"
+          description={
+            hasActiveFilters
+              ? "No events match the current filters. Try adjusting your criteria."
+              : "Audit events will appear here as agents perform actions."
+          }
+        />
+      ) : (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" role="table">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Agent</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">On Behalf Of</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Tool Call</th>
+                  <th className="w-20 px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">Duration</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Timestamp</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Event Type</th>
+                  <th className="w-10 px-3 py-2.5 text-center text-xs font-medium text-muted-foreground">Status</th>
+                  <th className="w-8 px-2 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((event) => {
+                  const isDenied = event.event_type === "permission_denied";
+                  const toolDisplay = isDenied
+                    ? event.attempted_tool ?? "—"
+                    : event.tool ?? "—";
+                  const isExpanded = expandedId === event.id;
 
-              return (
-                <Card key={event.id} className="overflow-hidden">
-                  <button
-                    className="w-full text-left"
-                    onClick={() =>
-                      setExpandedId(isExpanded ? null : event.id)
-                    }
-                  >
-                    <CardContent className="py-3 px-4">
-                      {/* Line 1: success_icon  tool  agent_name  duration */}
-                      <div className="flex items-center gap-3">
-                        <div className="shrink-0">
-                          {event.success === false || isDenied ? (
-                            <XCircle className="h-4 w-4 text-red-500" />
-                          ) : (
-                            <CheckCircle2 className="h-4 w-4 text-green-600" />
-                          )}
-                        </div>
-                        <span className="font-mono text-sm font-medium truncate">
-                          {toolDisplay}
-                        </span>
-                        <span className="text-sm text-muted-foreground truncate ml-auto">
+                  return (
+                    <React.Fragment key={event.id}>
+                      <tr
+                        className={`border-b cursor-pointer hover:bg-muted/30 transition-colors ${
+                          isDenied || event.success === false
+                            ? "bg-red-50 dark:bg-red-950/20"
+                            : ""
+                        }`}
+                        onClick={() =>
+                          setExpandedId(isExpanded ? null : event.id)
+                        }
+                      >
+                        <td className="px-3 py-2.5 text-xs font-medium">
                           {event.agent_id ? resolve(event.agent_id) : "—"}
-                        </span>
-                        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-                          {formatDuration(event.duration_ms)}
-                        </span>
-                        {isExpanded ? (
-                          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                        )}
-                      </div>
-                      {/* Line 2: user  timestamp  event_type */}
-                      <div className="flex items-center gap-3 mt-1 pl-7 text-xs text-muted-foreground">
-                        <span className="truncate">
+                        </td>
+                        <td className="px-3 py-2.5 text-xs truncate max-w-[200px]">
                           {isDenied
-                            ? `DENIED: ${event.required_permission ?? "unknown"}`
-                            : event.on_behalf_of}
-                        </span>
-                        <span className="ml-auto shrink-0">
+                            ? <span className="text-red-600 font-medium">DENIED: {event.required_permission ?? "unknown"}</span>
+                            : event.on_behalf_of ?? "—"}
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-xs font-medium truncate max-w-[200px]">
+                          {toolDisplay}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground tabular-nums text-right">
+                          {formatDuration(event.duration_ms)}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground tabular-nums whitespace-nowrap">
                           {new Date(event.timestamp).toLocaleString()}
-                        </span>
-                        <Badge variant="outline" className="text-[10px] shrink-0">
-                          {event.event_type}
-                        </Badge>
-                      </div>
-                    </CardContent>
-                  </button>
-                  {isExpanded && <EventDetailPanel event={event} />}
-                </Card>
-              );
-            })}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                            {event.event_type}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {event.success === false || isDenied ? (
+                            <XCircle className="h-4 w-4 text-red-500 inline-block" />
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4 text-green-600 inline-block" />
+                          )}
+                        </td>
+                        <td className="px-2 py-2.5">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={8} className="p-0">
+                            <EventDetailPanel event={event} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-            {/* Pagination */}
-            <div className="flex items-center justify-between pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page === 0}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-              >
-                Previous
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                Page {page + 1}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={events.length < PAGE_SIZE}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
+          {/* Pagination */}
+          <div className="flex items-center justify-between px-4 py-3 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {page + 1}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={events.length < PAGE_SIZE}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

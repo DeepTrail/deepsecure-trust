@@ -62,6 +62,30 @@ vi.mock("@/components/feedback/empty-state", () => ({
   ),
 }));
 
+vi.mock("@/components/charts/DelegationChainFlow", () => ({
+  __esModule: true,
+  default: ({
+    userEmail,
+    connectedServices,
+    delegations,
+  }: {
+    userEmail: string;
+    connectedServices: { services: Record<string, unknown> };
+    delegations: unknown[];
+  }) => (
+    <div data-testid="delegation-chain-flow">
+      <span>Delegation Chain</span>
+      <span data-testid="chain-user">{userEmail}</span>
+      <span data-testid="chain-services">
+        {Object.keys(connectedServices.services).length} services
+      </span>
+      <span data-testid="chain-delegations">
+        {delegations.length} delegations
+      </span>
+    </div>
+  ),
+}));
+
 import AnalyticsPage from "../page";
 import { apiClient } from "@/lib/api/client";
 
@@ -110,11 +134,44 @@ const mockDenials = {
 
 const mockDelegations = [
   {
-    id: "del-001",
+    delegation_id: "del-001",
     agent_id: "agent-001",
     permissions: ["notion:pages:search", "notion:pages:read"],
   },
 ];
+
+const mockServices = {
+  services: {
+    notion: {
+      connected: true,
+      service_name: "Notion",
+      scopes_granted: ["read_content", "update_content"],
+      available_permissions: [
+        "notion:pages:search",
+        "notion:pages:read",
+        "notion:pages:update",
+      ],
+      connected_at: "2026-05-20T04:58:51Z",
+    },
+    slack: {
+      connected: true,
+      service_name: "Slack",
+      scopes_granted: ["channels:read"],
+      available_permissions: ["slack:channels:list"],
+      connected_at: "2026-05-20T05:00:00Z",
+    },
+  },
+  all_permissions: [
+    "notion:pages:search",
+    "notion:pages:read",
+    "notion:pages:update",
+    "slack:channels:list",
+  ],
+  total_services: 2,
+  total_permissions: 4,
+};
+
+const mockProfile = { email: "test@acme.com", user_id: "test@acme.com" };
 
 function mockApiSuccess() {
   mockApiClient.mockImplementation(((path: string) => {
@@ -122,6 +179,9 @@ function mockApiSuccess() {
     if (path.includes("audit/events")) return Promise.resolve(mockDenials);
     if (path.includes("auth/delegations"))
       return Promise.resolve(mockDelegations);
+    if (path.includes("users/me/available-permissions"))
+      return Promise.resolve(mockServices);
+    if (path.includes("users/me")) return Promise.resolve(mockProfile);
     return Promise.resolve([]);
   }) as typeof apiClient);
 }
@@ -199,17 +259,48 @@ describe("AnalyticsPage", () => {
     expect(screen.getByText("1 denials")).toBeInTheDocument();
   });
 
-  it("renders delegation chain visualization", async () => {
+  it("renders agent permission utilization table", async () => {
     mockApiSuccess();
     render(<AnalyticsPage />);
 
     await waitFor(() => {
       expect(
-        screen.getByText("Delegation Chain Visualization")
+        screen.getByText("Agent Permission Utilization")
       ).toBeInTheDocument();
     });
 
     expect(screen.getByText("SDR Agent")).toBeInTheDocument();
+  });
+
+  it("renders delegation chain flow section", async () => {
+    mockApiSuccess();
+    render(<AnalyticsPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("delegation-chain-flow")
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Delegation Chain")).toBeInTheDocument();
+  });
+
+  it("passes correct data to delegation chain flow", async () => {
+    mockApiSuccess();
+    render(<AnalyticsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chain-user")).toHaveTextContent(
+        "test@acme.com"
+      );
+    });
+
+    expect(screen.getByTestId("chain-services")).toHaveTextContent(
+      "2 services"
+    );
+    expect(screen.getByTestId("chain-delegations")).toHaveTextContent(
+      "1 delegations"
+    );
   });
 
   it("shows ErrorCard on API failure", async () => {

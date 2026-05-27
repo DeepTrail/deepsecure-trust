@@ -154,7 +154,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Activity")).toBeInTheDocument();
   });
 
-  it("renders recent events with tool names", async () => {
+  it("renders recent events with tool names, duration, and user", async () => {
     mockApiSuccess();
     render(<DashboardPage />);
 
@@ -164,6 +164,50 @@ describe("DashboardPage", () => {
 
     expect(screen.getByText("slack.post_message")).toBeInTheDocument();
     expect(screen.getByText("Test Agent")).toBeInTheDocument();
+    expect(screen.getByText("250ms")).toBeInTheDocument();
+    expect(screen.getByText("sarah@acme.com")).toBeInTheDocument();
+  });
+
+  it("shows health summary with denial count", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("2 events")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("1 denied")).toBeInTheDocument();
+    expect(screen.getByText(/avg 250ms/)).toBeInTheDocument();
+  });
+
+  it("denied events show DENIED text and event type badge", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("DENIED: slack:messages:send")
+      ).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getAllByText("permission_denied").length
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("mcp_tool_call").length
+    ).toBeGreaterThan(0);
+  });
+
+  it("View all link points to /dashboard/audit", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    });
+
+    const viewAllLink = screen.getByText("View all in Audit Trail").closest("a");
+    expect(viewAllLink).toHaveAttribute("href", "/dashboard/audit");
   });
 
   it("shows EmptyState when events array is empty", async () => {
@@ -238,6 +282,76 @@ describe("DashboardPage", () => {
       const agentsText = screen.queryByText("Agents");
       expect(errorCard || agentsText).toBeTruthy();
     });
+  });
+
+  it("shows table headers (Agent, On Behalf Of, Tool Call, Duration, Timestamp, Event Type, Status)", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Agent")).toBeInTheDocument();
+    expect(screen.getByText("On Behalf Of")).toBeInTheDocument();
+    expect(screen.getByText("Tool Call")).toBeInTheDocument();
+    expect(screen.getByText("Duration")).toBeInTheDocument();
+    expect(screen.getByText("Timestamp")).toBeInTheDocument();
+    expect(screen.getByText("Event Type")).toBeInTheDocument();
+    expect(screen.getByText("Status")).toBeInTheDocument();
+  });
+
+  it("expands event detail on click showing reason", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Not delegated")).not.toBeInTheDocument();
+
+    const deniedCell = screen.getByText("slack.post_message").closest("tr");
+    fireEvent.click(deniedCell!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Not delegated")).toBeInTheDocument();
+    });
+  });
+
+  it("shows organization_id in expanded detail when present", async () => {
+    const eventsWithOrg = {
+      events: [
+        {
+          ...mockEventsResponse.events[0],
+          organization_id: "org-acme-123",
+        },
+      ],
+      total: 1,
+      limit: 10,
+      offset: 0,
+    };
+
+    mockApiClient.mockImplementation(((path: string) => {
+      if (path.startsWith("agents")) return Promise.resolve(mockAgents);
+      if (path.startsWith("policies")) return Promise.resolve(mockPolicies);
+      if (path.startsWith("audit")) return Promise.resolve(eventsWithOrg);
+      return Promise.resolve([]);
+    }) as typeof apiClient);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    });
+
+    const row = screen.getByText("notion.search_pages").closest("tr");
+    fireEvent.click(row!);
+
+    await waitFor(() => {
+      expect(screen.getByText("org-acme-123")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Organization:")).toBeInTheDocument();
   });
 
   it("displays zero count when API returns empty arrays", async () => {
