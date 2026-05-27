@@ -80,14 +80,23 @@ def get_current_user_from_token(
         if token.startswith("mock_user_token_"):
             return token.replace("mock_user_token_", "")
 
-        # Try to decode JWT
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-            return payload.get("sub", "unknown")
-        except jwt.exceptions.PyJWTError:
-            # MVP fallback
-            return "sarah@acme.com"
+        # Decode JWT — expired tokens must fail, not silently fallback
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        return payload.get("sub", "unknown")
 
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired. Please log in again.",
+        )
+    except jwt.exceptions.PyJWTError as e:
+        logger.warning(f"JWT decode failed in OAuth: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"Failed to extract user from token: {e}")
         raise HTTPException(

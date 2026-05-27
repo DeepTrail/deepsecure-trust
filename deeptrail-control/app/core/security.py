@@ -30,6 +30,7 @@ def create_access_token(
     *,
     actions: Optional[List[str]] = None,
     resources: Optional[List[str]] = None,
+    extra_claims: Optional[dict] = None,
 ) -> str:
     """
     Generates a new JWT access token.
@@ -51,6 +52,8 @@ def create_access_token(
         to_encode["scope"] = " ".join(actions)
     if resources:
         to_encode["resources"] = resources
+    if extra_claims:
+        to_encode.update(extra_claims)
         
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt

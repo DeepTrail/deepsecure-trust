@@ -62,11 +62,13 @@ Error Response:
     }
 """
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from pydantic import BaseModel, Field
 
 from ..namespace import NamespaceError, unprefix_tool_name
@@ -105,6 +107,29 @@ class ToolsCallErrorCode:
     BACKEND_UNAVAILABLE = -32011  # Backend not connected
     CONSTRAINT_VIOLATED = -32012  # Rate limit, quota exceeded
     TOOL_EXECUTION_ERROR = -32013  # Backend returned error
+
+
+# =============================================================================
+# Heartbeat Propagation (gateway → control plane)
+# =============================================================================
+
+
+async def _send_heartbeat(agent_id: str) -> None:
+    """Fire-and-forget heartbeat to control plane after successful tool call.
+
+    Updates agent_sessions.last_activity_at so LifecycleService computes "active".
+    Failures are logged but never raised — tool call results are not affected.
+    """
+    from ...core.proxy_config import config as proxy_config
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{proxy_config.control_plane_url}/api/v1/agents/internal/sessions/{agent_id}/heartbeat",
+                headers={"X-Internal-API-Token": proxy_config.internal_api_token},
+            )
+    except Exception as e:
+        logger.warning("Heartbeat failed for agent %s: %s", agent_id, e)
 
 
 # =============================================================================
@@ -721,13 +746,17 @@ async def _forward_to_backend(
     
     if _backend_client is not None:
         # Production: Use configured backend client with injected credentials
-        return await _backend_client.call_tool(
+        result = await _backend_client.call_tool(
             backend_id=backend_id,
             tool_name=tool_name,
             arguments=arguments,
             auth_headers=auth_headers,  # C7: Pass injected headers
             mcp_session_id=backend_session.mcp_session_id
         )
+        # Propagate activity to control plane DB (non-blocking)
+        if agent_context and agent_context.agent_id:
+            asyncio.create_task(_send_heartbeat(agent_context.agent_id))
+        return result
     
     # MVP: Mock response (credentials were validated but mock doesn't use them)
     # Log that credentials were injected without exposing token
@@ -740,6 +769,10 @@ async def _forward_to_backend(
     
     # Update backend session activity
     backend_session.update_activity()
+    
+    # Propagate activity to control plane DB (non-blocking)
+    if agent_context and agent_context.agent_id:
+        asyncio.create_task(_send_heartbeat(agent_context.agent_id))
     
     # Generate mock response based on tool
     mock_text = _generate_mock_response(backend_id, tool_name, arguments)

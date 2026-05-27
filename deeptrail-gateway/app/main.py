@@ -21,6 +21,7 @@ For Future - Enterprise Grade:
 
 import logging
 import os
+import json
 import sys
 from contextlib import asynccontextmanager
 from typing import Dict, Any
@@ -576,6 +577,20 @@ async def mcp_endpoint(request: Request):
         # Read raw request body
         raw_body = await request.body()
         
+        # Phase 1: Diagnostic logging for MCP Streamable HTTP debugging
+        try:
+            parsed_body = json.loads(raw_body)
+            req_method = parsed_body.get("method", "?") if isinstance(parsed_body, dict) else "batch"
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            req_method = "<invalid>"
+        
+        mcp_headers = {
+            k: (v[:20] + "..." if k.lower() == "authorization" else v)
+            for k, v in request.headers.items()
+            if k.lower() in ("accept", "content-type", "mcp-session-id", "authorization")
+        }
+        logger.info("MCP IN: method=%s headers=%s", req_method, mcp_headers)
+        
         # Extract context from request state (populated by JWTValidationMiddleware)
         agent_context = getattr(request.state, "agent_context", None)
         
@@ -583,6 +598,11 @@ async def mcp_endpoint(request: Request):
         context = {
             "request_id": request.headers.get("X-Request-ID"),
         }
+        
+        # Accept Mcp-Session-Id from client (stateless — JWT is source of truth)
+        client_session_id = request.headers.get("Mcp-Session-Id")
+        if client_session_id:
+            context["mcp_session_id"] = client_session_id
         
         # Map agent context to handler-expected fields
         if agent_context:
@@ -602,21 +622,35 @@ async def mcp_endpoint(request: Request):
         
         # Handle different response types
         if response is None:
-            # Notification - no response body, return 204
-            return Response(status_code=204)
+            # Notification — per MCP Streamable HTTP spec: return 202 Accepted
+            logger.info("MCP OUT: 202 Accepted (notification: %s)", req_method)
+            return Response(status_code=202)
         
         if isinstance(response, list):
             # Batch response
+            logger.info("MCP OUT: 200 batch (%d responses)", len(response))
             return JSONResponse(
                 content=[r.model_dump() for r in response],
                 media_type="application/json"
             )
         
-        # Single response
-        return JSONResponse(
+        # Single response — build JSONResponse
+        response_obj = JSONResponse(
             content=response.model_dump(),
             media_type="application/json"
         )
+        
+        # Echo Mcp-Session-Id on InitializeResult per Streamable HTTP spec
+        if req_method == "initialize" and agent_context and agent_context.session_id:
+            response_obj.headers["Mcp-Session-Id"] = agent_context.session_id
+            logger.info(
+                "MCP OUT: 200 initialize (Mcp-Session-Id: %s)",
+                agent_context.session_id,
+            )
+        else:
+            logger.info("MCP OUT: 200 %s", req_method)
+        
+        return response_obj
         
     except Exception as e:
         logger.error(f"Unexpected error in MCP endpoint: {e}", exc_info=True)
@@ -630,6 +664,40 @@ async def mcp_endpoint(request: Request):
             }
         }
         return JSONResponse(content=error_response, status_code=500)
+
+
+# MCP Streamable HTTP spec: GET opens SSE stream for server-initiated messages
+@app.get("/mcp", include_in_schema=False)
+async def mcp_get_endpoint(request: Request):
+    """SSE stream endpoint for server-to-client notifications. Returns minimal valid stream."""
+    from starlette.responses import StreamingResponse
+    import asyncio
+
+    session_id = request.headers.get("Mcp-Session-Id", "")
+    logger.info("MCP GET: SSE stream requested (session=%s)", session_id)
+
+    async def event_generator():
+        yield ": keepalive\n\n"
+        await asyncio.sleep(30)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# MCP Streamable HTTP spec: DELETE terminates session (no-op for stateless gateway)
+@app.delete("/mcp", include_in_schema=False)
+async def mcp_delete_endpoint(request: Request):
+    """Acknowledge session termination request. Stateless — JWT expiry handles cleanup."""
+    session_id = request.headers.get("Mcp-Session-Id", "none")
+    logger.info("MCP DELETE: session termination requested (session=%s)", session_id)
+    return Response(status_code=200)
 
 
 # Internal endpoint models for share storage

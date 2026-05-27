@@ -379,8 +379,12 @@ class MCPProtocolHandler:
         # Notifications don't get responses
         if request.is_notification:
             logger.debug(f"Received notification: {request.method}")
-            # Still try to handle notification methods
-            await self._invoke_handler(request, context)
+            handler = self._handlers.get(request.method)
+            if handler:
+                try:
+                    await self._invoke_handler(request, context)
+                except Exception as e:
+                    logger.debug(f"Notification handler error (ignored): {e}")
             return None
         
         # Route to handler

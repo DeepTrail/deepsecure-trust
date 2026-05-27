@@ -46,7 +46,10 @@ class Settings(BaseSettings):
 
     # Gateway connection info
     GATEWAY_URL: str = os.getenv("GATEWAY_URL", "http://localhost:8001")
-    GATEWAY_INTERNAL_API_TOKEN: str = os.getenv("GATEWAY_INTERNAL_API_TOKEN", "insecure_default_gateway_token_for_dev")
+    GATEWAY_INTERNAL_API_TOKEN: str = os.getenv(
+        "GATEWAY_INTERNAL_API_TOKEN",
+        os.getenv("GATEWAY_INTERNAL_TOKEN", "insecure_default_gateway_token_for_dev"),
+    )
 
     # Add other settings like secret keys, etc.
     # SECRET_KEY: str = os.getenv("SECRET_KEY", "default_secret")

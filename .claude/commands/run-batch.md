@@ -423,7 +423,30 @@ npm test -- --run  # or pytest, depending on service
     **Tests after fixes:** [X] passing, [Y] failing
     **Lint:** ✅ Clean
 
-Proceed to Step 7 (Verify Batch Completion).
+Proceed to Step 6.5 (Batch Commands & Validation from BATCH_EXECUTION_PLAN.md).
+
+### Step 6.5: Execute Batch Commands & Validation (from BATCH_EXECUTION_PLAN.md)
+
+**MANDATORY after all waves are complete and audit is done, BEFORE the merge point check.**
+
+After each batch is run, go to `BATCH_EXECUTION_PLAN.md` and:
+
+#### 6.5a. Run the "Commands" section
+
+Find the **"Commands"** section for this batch in `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md`. Execute each command listed there. **Skip any lines that start with `/run-batch` or other `/` orchestration commands** — those are self-references to the command you're already executing. Only run the actual shell commands (e.g., `cd`, `docker build`, `pytest`, `curl`, `gcloud`).
+
+#### 6.5b. Run the "Validation" section
+
+Find the **"Validation"** section for this batch in `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md`. Execute every validation command listed. Report each result (expected vs actual). If any validation command fails, attempt to fix. If the fix is non-trivial, STOP and report to the user.
+
+**Example flow:**
+```
+1. Read BATCH_EXECUTION_PLAN.md → find "### Commands" for this batch
+2. Execute each command (tests, builds, curls)
+3. Read BATCH_EXECUTION_PLAN.md → find "### Validation" for this batch
+4. Execute each validation command
+5. Report: all pass → proceed to Step 7 | any fail → fix or report
+```
 
 ### Step 7: Verify Batch Completion
 
@@ -432,6 +455,28 @@ After audit is complete and all gaps are fixed:
     /verify-batch-completion [batch-id] [feature-name]
 
 **If this batch triggers a merge point** (check the parsed batch plan):
+
+**MANDATORY: Before moving to the next batch, always check if there is a merge point at the end of the batch in `BATCH_EXECUTION_PLAN.md`. If yes, go to `MERGE_POINTS.md` and execute the following in order:**
+
+#### 7a. Container Test Scenarios (from MERGE_POINTS.md)
+
+Open `docs/workstreams/[feature-name]/MERGE_POINTS.md`, find the merge point section for this batch, and execute every command listed under **"Container Test Scenarios"**. Report each result.
+
+#### 7b. Success Criteria (from MERGE_POINTS.md)
+
+Go through each checkbox under **"Success Criteria"** in the merge point section. Verify each one explicitly and report pass/fail for every criterion. If any criterion fails, STOP and report to user.
+
+#### 7c. Merge Actions (from MERGE_POINTS.md)
+
+Execute the **"Merge Actions"** from the merge point section. **IMPORTANT:**
+- **Commit locally:** Always commit the batch's code changes to the feature branch without asking.
+- **Push to remote:** Always push to the remote feature branch (`origin feature/[name]`) without asking.
+- **Pre-existing uncommitted changes (tracked files):** Include in the commit without asking — these are part of the feature work.
+- **Untracked files:** ASK the user which untracked files (if any) should be added before committing. List the untracked files and wait for confirmation.
+
+#### 7d. Merge Point Tag
+
+After merge actions are confirmed and executed:
 
 ```bash
 # Create merge point tag

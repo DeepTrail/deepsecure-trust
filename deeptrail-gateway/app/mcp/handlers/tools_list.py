@@ -265,7 +265,7 @@ async def handle_tools_list(params: dict[str, Any]) -> dict[str, Any]:
     
     # Build response
     result = ToolsListResult(tools=tools)
-    return result.model_dump(by_alias=True)
+    return result.model_dump(by_alias=True, exclude_none=True)
 
 
 async def _build_tool_schemas(
