@@ -24,6 +24,7 @@ from app.core.config import settings
 from app.main import app
 from app.api.v1.endpoints import sso as sso_module
 from app.api.v1.endpoints.sso import _decode_jwt_for_refresh
+from app.models.pending_oauth_state import PendingOAuthState
 from app.services.idp_service import (
     OIDCClaims,
     OIDCError,
@@ -41,17 +42,30 @@ _CREATE_PROVIDER_PATCH = "app.api.v1.endpoints.sso.create_oidc_provider"
 
 
 @pytest.fixture(autouse=True)
-def clear_pending_sso():
-    """Reset pending SSO state between tests."""
-    sso_module._pending_sso.clear()
+def clear_pending_sso(db):
+    """Reset pending SSO state between tests (DB-backed)."""
+    db.query(PendingOAuthState).delete()
+    db.commit()
     yield
-    sso_module._pending_sso.clear()
+    db.query(PendingOAuthState).delete()
+    db.commit()
 
 
 @pytest.fixture
-def client():
-    """FastAPI test client."""
-    return TestClient(app)
+def client(db):
+    """FastAPI test client with DB dependency override."""
+    from app.api.deps import get_db
+
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c
+    del app.dependency_overrides[get_db]
 
 
 @pytest.fixture
@@ -100,17 +114,26 @@ def user_token():
     return pyjwt.encode(data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def _inject_state(idp: str = "keycloak", state: str = "test-state", **overrides):
-    """Plant a PendingSSO entry directly."""
+def _inject_state(db, idp: str = "keycloak", state: str = "test-state", **overrides):
+    """Plant a PendingOAuthState entry directly into the DB."""
+    from app.models.pending_oauth_state import PendingOAuthState, _default_expires_at
     defaults = dict(
         state=state,
         idp=idp,
         redirect_uri="http://localhost:8000/api/v1/auth/sso/keycloak/callback",
+        expires_at=_default_expires_at(),
     )
     defaults.update(overrides)
-    pending = sso_module.PendingSSO(**defaults)
-    sso_module._pending_sso[state] = pending
+    pending = PendingOAuthState(**defaults)
+    db.add(pending)
+    db.commit()
+    db.refresh(pending)
     return pending
+
+
+def _get_pending_state(db, state: str):
+    """Retrieve a PendingOAuthState from the DB."""
+    return db.query(PendingOAuthState).filter(PendingOAuthState.state == state).first()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,16 +150,16 @@ class TestAuthorize:
         data = resp.json()
         assert "authorization_url" in data
         assert "state" in data
-        assert data["expires_in"] == 300
+        assert 290 <= data["expires_in"] <= 300
         assert data["authorization_url"].startswith("https://keycloak")
 
-    def test_authorize_stores_state(self, client, mock_provider):
+    def test_authorize_stores_state(self, client, mock_provider, db):
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get("/api/v1/auth/sso/keycloak/authorize")
 
         state = resp.json()["state"]
-        assert state in sso_module._pending_sso
-        pending = sso_module._pending_sso[state]
+        pending = _get_pending_state(db, state)
+        assert pending is not None
         assert pending.idp == "keycloak"
 
     def test_authorize_redirect_mode(self, client, mock_provider):
@@ -155,7 +178,7 @@ class TestAuthorize:
         assert resp.status_code == 400
         assert "Unknown IdP" in resp.json()["detail"]
 
-    def test_authorize_stores_post_login_redirect(self, client, mock_provider):
+    def test_authorize_stores_post_login_redirect(self, client, mock_provider, db):
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
                 "/api/v1/auth/sso/keycloak/authorize",
@@ -163,15 +186,15 @@ class TestAuthorize:
             )
         assert resp.status_code == 200
         state = resp.json()["state"]
-        assert sso_module._pending_sso[state].post_login_redirect == "http://localhost:9876/done"
+        assert _get_pending_state(db, state).post_login_redirect == "http://localhost:9876/done"
 
-    def test_authorize_no_post_login_redirect(self, client, mock_provider):
+    def test_authorize_no_post_login_redirect(self, client, mock_provider, db):
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get("/api/v1/auth/sso/keycloak/authorize")
         state = resp.json()["state"]
-        assert sso_module._pending_sso[state].post_login_redirect is None
+        assert _get_pending_state(db, state).post_login_redirect is None
 
-    def test_authorize_custom_redirect_uri(self, client, mock_provider):
+    def test_authorize_custom_redirect_uri(self, client, mock_provider, db):
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
                 "/api/v1/auth/sso/keycloak/authorize",
@@ -180,7 +203,7 @@ class TestAuthorize:
 
         assert resp.status_code == 200
         state = resp.json()["state"]
-        assert sso_module._pending_sso[state].redirect_uri == "https://app.example.com/callback"
+        assert _get_pending_state(db, state).redirect_uri == "https://app.example.com/callback"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -189,8 +212,8 @@ class TestAuthorize:
 
 
 class TestCallback:
-    def test_callback_success(self, client, mock_provider):
-        _inject_state()
+    def test_callback_success(self, client, mock_provider, db):
+        _inject_state(db)
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
                 "/api/v1/auth/sso/keycloak/callback",
@@ -212,9 +235,9 @@ class TestCallback:
         assert "session_id" in decoded
         assert decoded["idp"] == "keycloak"
 
-    def test_callback_state_consumed(self, client, mock_provider):
+    def test_callback_state_consumed(self, client, mock_provider, db):
         """State is one-time use — consumed on first callback."""
-        _inject_state()
+        _inject_state(db)
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp1 = client.get(
                 "/api/v1/auth/sso/keycloak/callback",
@@ -230,8 +253,8 @@ class TestCallback:
         assert resp2.status_code == 400
         assert "Invalid or expired" in resp2.json()["detail"]
 
-    def test_callback_missing_code(self, client):
-        _inject_state()
+    def test_callback_missing_code(self, client, db):
+        _inject_state(db)
         resp = client.get(
             "/api/v1/auth/sso/keycloak/callback",
             params={"state": "test-state"},
@@ -255,10 +278,10 @@ class TestCallback:
         assert resp.status_code == 400
         assert "Missing state" in resp.json()["detail"]
 
-    def test_callback_expired_state(self, client, mock_provider):
+    def test_callback_expired_state(self, client, mock_provider, db):
         _inject_state(
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=10),
-            expires_in=300,
+            db,
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
         )
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
@@ -285,8 +308,8 @@ class TestCallback:
         assert resp.status_code == 400
         assert "access_denied" in resp.json()["detail"]
 
-    def test_callback_code_exchange_failure(self, client, mock_provider):
-        _inject_state()
+    def test_callback_code_exchange_failure(self, client, mock_provider, db):
+        _inject_state(db)
         mock_provider.exchange_code = AsyncMock(
             side_effect=OIDCError("exchange failed")
         )
@@ -298,8 +321,8 @@ class TestCallback:
         assert resp.status_code == 500
         assert "Failed to exchange" in resp.json()["detail"]
 
-    def test_callback_token_validation_failure(self, client, mock_provider):
-        _inject_state()
+    def test_callback_token_validation_failure(self, client, mock_provider, db):
+        _inject_state(db)
         mock_provider.validate_token = AsyncMock(
             side_effect=OIDCTokenInvalidError("signature mismatch")
         )
@@ -311,9 +334,9 @@ class TestCallback:
         assert resp.status_code == 401
         assert "ID token validation failed" in resp.json()["detail"]
 
-    def test_callback_new_user_provisioned(self, client, mock_provider):
+    def test_callback_new_user_provisioned(self, client, mock_provider, db):
         """First-time login should show is_new_user=True."""
-        _inject_state()
+        _inject_state(db)
         mock_claims = OIDCClaims(
             sub="brand-new-user",
             email="newuser@acme.com",
@@ -330,13 +353,13 @@ class TestCallback:
         assert resp.status_code == 200
         assert resp.json()["user"]["is_new_user"] is True
 
-    def test_callback_existing_user_matched(self, client, mock_provider):
+    def test_callback_existing_user_matched(self, client, mock_provider, db):
         """Second login for same sub should show is_new_user=False."""
         from app.services.idp_service import _provisioned_users
 
         _provisioned_users["kc-user-001"] = {"user_id": "kc-user-001", "email": "sarah@acme.com"}
 
-        _inject_state()
+        _inject_state(db)
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
                 "/api/v1/auth/sso/keycloak/callback",
@@ -347,10 +370,10 @@ class TestCallback:
 
         _provisioned_users.pop("kc-user-001", None)
 
-    def test_callback_redirects_when_post_login_redirect_set(self, client, mock_provider):
+    def test_callback_redirects_when_post_login_redirect_set(self, client, mock_provider, db):
         from urllib.parse import parse_qs, urlparse
 
-        _inject_state(post_login_redirect="http://localhost:9876/done")
+        _inject_state(db, post_login_redirect="http://localhost:9876/done")
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
                 "/api/v1/auth/sso/keycloak/callback",
@@ -369,8 +392,8 @@ class TestCallback:
         assert decoded["groups"] == ["acme-org"]
         assert "user" in decoded["roles"]
 
-    def test_callback_returns_json_when_no_redirect(self, client, mock_provider):
-        _inject_state()
+    def test_callback_returns_json_when_no_redirect(self, client, mock_provider, db):
+        _inject_state(db)
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
                 "/api/v1/auth/sso/keycloak/callback",
@@ -380,9 +403,9 @@ class TestCallback:
         assert "token" in resp.json()
         assert resp.json()["idp"] == "keycloak"
 
-    def test_callback_idp_mismatch(self, client, mock_provider):
+    def test_callback_idp_mismatch(self, client, mock_provider, db):
         """State was created for keycloak but callback comes with okta."""
-        _inject_state(idp="keycloak")
+        _inject_state(db, idp="keycloak")
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
                 "/api/v1/auth/sso/okta/callback",
@@ -445,9 +468,9 @@ class TestCallbackGroups:
         yield
         sso_module._group_mapper = None
 
-    def _google_callback(self, client, mock_provider, *, fetch_groups=True, extra_patches=None):
+    def _google_callback(self, client, mock_provider, db, *, fetch_groups=True, extra_patches=None):
         """Helper: run a Google SSO callback with given mocks."""
-        _inject_state(idp="google", redirect_uri="http://localhost:8000/api/v1/auth/sso/google/callback")
+        _inject_state(db, idp="google", redirect_uri="http://localhost:8000/api/v1/auth/sso/google/callback")
         env_val = "true" if fetch_groups else "false"
         patches = [
             patch.object(sso_module, "create_oidc_provider", return_value=mock_provider),
@@ -465,19 +488,19 @@ class TestCallbackGroups:
                 params={"code": "auth-code", "state": "test-state"},
             )
 
-    def test_google_callback_populates_jwt_groups(self, client):
+    def test_google_callback_populates_jwt_groups(self, client, db):
         """Google callback with fetch_groups=True populates JWT groups claim."""
         mock_prov = self._make_google_provider_mock(
             groups=["engineering@acme.com", "all@acme.com"],
         )
-        resp = self._google_callback(client, mock_prov)
+        resp = self._google_callback(client, mock_prov, db)
 
         assert resp.status_code == 200
         decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         assert "engineering@acme.com" in decoded["groups"]
         assert "all@acme.com" in decoded["groups"]
 
-    def test_google_callback_policy_roles_in_jwt(self, client):
+    def test_google_callback_policy_roles_in_jwt(self, client, db):
         """GroupPolicyMapper.resolve() merges roles into JWT roles claim."""
         mock_prov = self._make_google_provider_mock(groups=["engineering@acme.com"])
 
@@ -486,7 +509,7 @@ class TestCallbackGroups:
             GroupPolicy(group="engineering@acme.com", role="engineer", default_permissions=["github:repos:read"]),
         ])
 
-        resp = self._google_callback(client, mock_prov, extra_patches=[
+        resp = self._google_callback(client, mock_prov, db, extra_patches=[
             patch.object(sso_module, "_get_group_policy_mapper", return_value=mapper),
         ])
 
@@ -494,24 +517,24 @@ class TestCallbackGroups:
         decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         assert "engineer" in decoded["roles"]
 
-    def test_group_fetch_failure_is_fail_open(self, client):
+    def test_group_fetch_failure_is_fail_open(self, client, db):
         """Group fetch failure: callback succeeds with groups=[]."""
         mock_prov = self._make_google_provider_mock(fetch_raises=True)
-        resp = self._google_callback(client, mock_prov)
+        resp = self._google_callback(client, mock_prov, db)
 
         assert resp.status_code == 200
         decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         assert decoded["groups"] == []
 
-    def test_fetch_groups_false_skips_directory_call(self, client):
+    def test_fetch_groups_false_skips_directory_call(self, client, db):
         """fetch_groups=False: fetch_user_groups is NOT called."""
         mock_prov = self._make_google_provider_mock(groups=["should-not-appear@acme.com"])
-        resp = self._google_callback(client, mock_prov, fetch_groups=False)
+        resp = self._google_callback(client, mock_prov, db, fetch_groups=False)
 
         assert resp.status_code == 200
         mock_prov.fetch_user_groups.assert_not_called()
 
-    def test_keycloak_preserves_groups_from_id_token(self, client, mock_provider):
+    def test_keycloak_preserves_groups_from_id_token(self, client, mock_provider, db):
         """Keycloak callback preserves groups from ID token claims."""
         mock_provider.validate_token = AsyncMock(
             return_value=OIDCClaims(
@@ -523,7 +546,7 @@ class TestCallbackGroups:
                 issuer="https://keycloak:8080/realms/deepsecure",
             )
         )
-        _inject_state(idp="keycloak")
+        _inject_state(db, idp="keycloak")
 
         with patch.object(sso_module, "create_oidc_provider", return_value=mock_provider):
             resp = client.get(
@@ -536,11 +559,11 @@ class TestCallbackGroups:
         assert "acme-org" in decoded["groups"]
         assert "admin-org" in decoded["groups"]
 
-    def test_missing_yaml_uses_empty_mapper(self, client):
+    def test_missing_yaml_uses_empty_mapper(self, client, db):
         """Missing group_policies.yaml: no crash, no extra roles added."""
         mock_prov = self._make_google_provider_mock(groups=["unknown-group@acme.com"])
 
-        resp = self._google_callback(client, mock_prov, extra_patches=[
+        resp = self._google_callback(client, mock_prov, db, extra_patches=[
             patch("pathlib.Path.exists", return_value=False),
         ])
 
@@ -548,7 +571,7 @@ class TestCallbackGroups:
         decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         assert "unknown-group@acme.com" in decoded["groups"]
 
-    def test_role_deduplication(self, client):
+    def test_role_deduplication(self, client, db):
         """Duplicate roles from legacy map + policy mapper are deduplicated."""
         mock_prov = self._make_google_provider_mock(groups=["acme-org"])
         mock_prov.validate_token = AsyncMock(
@@ -566,7 +589,7 @@ class TestCallbackGroups:
             GroupPolicy(group="acme-org", role="user", default_permissions=[]),
         ])
 
-        resp = self._google_callback(client, mock_prov, extra_patches=[
+        resp = self._google_callback(client, mock_prov, db, extra_patches=[
             patch.object(sso_module, "_get_group_policy_mapper", return_value=mapper),
         ])
 
@@ -574,7 +597,7 @@ class TestCallbackGroups:
         decoded = pyjwt.decode(resp.json()["token"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         assert decoded["roles"].count("user") == 1
 
-    def test_multiple_group_policies_merge(self, client):
+    def test_multiple_group_policies_merge(self, client, db):
         """Multiple matched groups: all policy roles and permissions merged."""
         mock_prov = self._make_google_provider_mock(
             groups=["engineering@acme.com", "security@acme.com"],
@@ -586,7 +609,7 @@ class TestCallbackGroups:
             GroupPolicy(group="security@acme.com", role="security-analyst", default_permissions=["vault:secrets:read"]),
         ])
 
-        resp = self._google_callback(client, mock_prov, extra_patches=[
+        resp = self._google_callback(client, mock_prov, db, extra_patches=[
             patch.object(sso_module, "_get_group_policy_mapper", return_value=mapper),
         ])
 
@@ -595,7 +618,7 @@ class TestCallbackGroups:
         assert "engineer" in decoded["roles"]
         assert "security-analyst" in decoded["roles"]
 
-    def test_policy_default_permissions_set(self, client):
+    def test_policy_default_permissions_set(self, client, db):
         """Policy default_permissions are set on user data (verified via roles)."""
         mock_prov = self._make_google_provider_mock(groups=["engineering@acme.com"])
 
@@ -604,7 +627,7 @@ class TestCallbackGroups:
             GroupPolicy(group="engineering@acme.com", role="engineer", default_permissions=["github:repos:read", "jira:issues:read"]),
         ])
 
-        resp = self._google_callback(client, mock_prov, extra_patches=[
+        resp = self._google_callback(client, mock_prov, db, extra_patches=[
             patch.object(sso_module, "_get_group_policy_mapper", return_value=mapper),
         ])
 
@@ -718,51 +741,41 @@ class TestSchemas:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestPendingSSO:
-    def test_not_expired(self):
-        p = sso_module.PendingSSO(
-            state="s", idp="keycloak", redirect_uri="http://localhost"
-        )
+class TestPendingOAuthState:
+    def test_not_expired(self, db):
+        p = _inject_state(db, state="not-expired")
         assert p.is_expired is False
 
-    def test_expired(self):
-        p = sso_module.PendingSSO(
-            state="s",
-            idp="keycloak",
-            redirect_uri="http://localhost",
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=10),
-            expires_in=300,
+    def test_expired(self, db):
+        p = _inject_state(
+            db,
+            state="expired-state",
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
         )
         assert p.is_expired is True
 
-    def test_post_login_redirect_default_none(self):
-        p = sso_module.PendingSSO(
-            state="s", idp="keycloak", redirect_uri="http://localhost"
-        )
+    def test_post_login_redirect_default_none(self, db):
+        p = _inject_state(db, state="no-redirect")
         assert p.post_login_redirect is None
 
-    def test_post_login_redirect_set(self):
-        p = sso_module.PendingSSO(
-            state="s", idp="keycloak", redirect_uri="http://localhost",
+    def test_post_login_redirect_set(self, db):
+        p = _inject_state(
+            db,
+            state="with-redirect",
             post_login_redirect="http://localhost:9876/done",
         )
         assert p.post_login_redirect == "http://localhost:9876/done"
 
-    def test_cleanup_removes_expired(self):
-        sso_module._pending_sso["old"] = sso_module.PendingSSO(
+    def test_cleanup_removes_expired(self, db):
+        _inject_state(
+            db,
             state="old",
-            idp="keycloak",
-            redirect_uri="http://localhost",
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=10),
         )
-        sso_module._pending_sso["new"] = sso_module.PendingSSO(
-            state="new",
-            idp="keycloak",
-            redirect_uri="http://localhost",
-        )
-        sso_module._cleanup_expired()
-        assert "old" not in sso_module._pending_sso
-        assert "new" in sso_module._pending_sso
+        _inject_state(db, state="new")
+        sso_module._cleanup_expired(db)
+        assert _get_pending_state(db, "old") is None
+        assert _get_pending_state(db, "new") is not None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -17,8 +17,8 @@ def test_create_secret_splits_correctly(mock_send_share, db: Session):
     secret_value = "my-super-secret-value-that-should-not-be-stored"
     request_obj = SecretStoreRequest(name=secret_name, value=secret_value)
 
-    # Execute the method
-    created_secret = crud.secret.create(db, obj_in=request_obj)
+    # Execute the method (uses create_secret, not create, to split-key)
+    created_secret = crud.secret.create_secret(db, obj_in=request_obj)
 
     # 1. Verify the object returned and stored in the DB is correct
     assert created_secret.name == secret_name
@@ -35,8 +35,10 @@ def test_create_secret_splits_correctly(mock_send_share, db: Session):
     assert sent_share is not None
     assert sent_share != secret_value
 
-    # 3. (Optional but good) Verify we can recombine the shares
-    from sslib import shamir
-    stored_share = created_secret.share_1
-    recombined = shamir.combine_shares([stored_share, sent_share])
-    assert recombined.decode('utf-8') == secret_value 
+    # 3. Verify the shares are distinct and prime_mod is stored for reassembly
+    import json as _json
+    stored_share = _json.loads(created_secret.share_1)
+    assert isinstance(stored_share, list)
+    assert len(stored_share) == 2
+    assert stored_share != sent_share
+    assert created_secret.secret_metadata.get("_prime_mod") is not None

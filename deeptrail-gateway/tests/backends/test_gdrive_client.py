@@ -513,7 +513,11 @@ class TestNetworkErrors:
 class TestCallToolDispatch:
     @pytest.mark.asyncio
     async def test_dispatch_search_files(self, gdrive_client):
-        """Test 13a: call_tool('search_files', ...) routes to search_files."""
+        """Test 13a: call_tool('search_files', ...) routes to search_files.
+
+        The dispatcher wraps plain-text queries (without Drive operators)
+        into ``fullText contains '...'`` syntax automatically.
+        """
         with patch.object(
             gdrive_client, "search_files", new_callable=AsyncMock
         ) as mock_method:
@@ -524,7 +528,7 @@ class TestCallToolDispatch:
             )
 
             mock_method.assert_awaited_once()
-            assert mock_method.await_args.kwargs["query"] == "test"
+            assert mock_method.await_args.kwargs["query"] == "fullText contains 'test'"
             assert mock_method.await_args.kwargs["auth_token"] == "ya29.test"
 
     @pytest.mark.asyncio

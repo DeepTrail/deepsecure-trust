@@ -60,7 +60,7 @@ def test_get_secret_share_not_found(client: TestClient, db: Session):
 
 def test_get_secret_share_wrong_auth(client: TestClient, db: Session):
     response_no_auth = client.get("/api/v1/internal/secrets/some-secret/share")
-    assert response_no_auth.status_code == 403
+    assert response_no_auth.status_code == 401
 
     headers = {"X-Internal-API-Token": "wrong-token"}
     response_wrong_auth = client.get("/api/v1/internal/secrets/some-secret/share", headers=headers)

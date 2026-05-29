@@ -350,20 +350,28 @@ class TestCreateBackendAdapter:
         assert "notion" in adapter.registered_backends
         assert "slack" in adapter.registered_backends
         assert "hubspot" in adapter.registered_backends
-        assert len(adapter.registered_backends) == 3
+        assert "gdrive" in adapter.registered_backends
+        assert "gcalendar" in adapter.registered_backends
+        assert "gmail" in adapter.registered_backends
+        assert len(adapter.registered_backends) == 6
 
     def test_clients_are_correct_types(self):
         """Should register correct client types."""
         from app.backends.notion_client import NotionDirectClient
         from app.backends.slack_client import SlackDirectClient
         from app.backends.hubspot_client import HubSpotDirectClient
+        from app.backends.gdrive_client import GDriveDirectClient
+        from app.backends.gcalendar_client import GCalendarDirectClient
+        from app.backends.gmail_client import GmailDirectClient
 
         adapter = create_backend_adapter()
 
-        # Access internal clients to verify types
         assert isinstance(adapter._clients["notion"], NotionDirectClient)
         assert isinstance(adapter._clients["slack"], SlackDirectClient)
         assert isinstance(adapter._clients["hubspot"], HubSpotDirectClient)
+        assert isinstance(adapter._clients["gdrive"], GDriveDirectClient)
+        assert isinstance(adapter._clients["gcalendar"], GCalendarDirectClient)
+        assert isinstance(adapter._clients["gmail"], GmailDirectClient)
 
 
 # =============================================================================

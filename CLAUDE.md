@@ -990,6 +990,38 @@ Code → Local tests pass → Container build → Container deploy → Container
 - `/run-batch` Step 7 — must run Container Deployment + Test Scenarios before Merge Actions
 - Agent self-check — before any `git tag` for a merge point, verify Container Test Scenarios were executed in this session
 
+### Test Suite Health (MANDATORY)
+
+**LESSON LEARNED (May 2026):** During P5.2 batch execution, 151 pre-existing test failures (19 FAILED + 83 ERRORs in `deeptrail-control`, 132 FAILED + 5 ERRORs in `deeptrail-gateway`) were encountered and skipped with the rationale "not from this workstream." This is wrong — test failures compound, root causes become harder to diagnose over time, and new code may silently break old tests.
+
+**Rule: ALL tests must pass before a batch is declared complete.**
+
+| Scenario | Action |
+|----------|--------|
+| Test fails and was broken by your changes | Fix immediately — this is a regression |
+| Test was already failing before your changes | Fix it anyway — you encountered it, you own it |
+| Test requires live services (Redis, PostgreSQL) | Mark with `@pytest.mark.e2e` or `@pytest.mark.integration`, but do NOT skip silently |
+| Test references non-existent code (design spec drift) | Rewrite to test actual implementation |
+| Test is flaky (passes alone, fails in suite) | Fix the root cause (usually fixture cleanup, DB state pollution, or `dependency_overrides.clear()`) |
+
+**Common root causes of pre-existing failures:**
+- Tests written against design specs, not actual implementation (wrong imports, non-existent classes)
+- `app.dependency_overrides.clear()` in one test fixture destroying overrides set by conftest (use `pop()` instead)
+- Hardcoded expected values that drifted (version numbers, backend counts, response field names)
+- Missing fixture cleanup causing `UNIQUE constraint` violations across tests
+- Pydantic V2 migration: aliases in error messages, `ConfigDict` vs `class Config`
+
+**Verification command (run before declaring any batch complete):**
+```bash
+cd deeptrail-control && python -m pytest tests/ --ignore=tests/test_jwt_tokens.py -q --tb=short
+cd deeptrail-gateway && python -m pytest tests/ -q --tb=short
+```
+
+**Where enforced:**
+- `/run-batch` Step 6 (after task execution) — full test suite must pass
+- `/execute-task` completion gate — tests in the modified service must pass
+- Agent self-check — never dismiss a failing test as "not mine"
+
 ### Documentation Consistency (MANDATORY)
 
 **LESSON LEARNED (Feb 2026):** Status files drifted out of sync with completion reports, causing confusion about batch completion and blocking next batch unnecessarily.
@@ -1073,6 +1105,7 @@ Code → Local tests pass → Container build → Container deploy → Container
 | May 2026 | `execute_merge_point.sh` Phase 4 had hardcoded agent-lifecycle API smoke tests; Phase 5 had hardcoded commit-message grep | Replaced with config-driven `SMOKE_ENDPOINTS[]` array and `COMMIT_PATTERN` variable; added single-branch mode support (empty `WORKTREE_PATH`) | Execute Merge Point Generalization |
 | May 2026 | `/run-batch` did not call `execute_merge_point.sh` or `validate_integration.sh`; no batch chaining | Added Steps 7e (execute_merge_point.sh), 7f (validate_integration.sh for backend batches), and 8a (`--continue` flag for auto-chaining batches) | Batch Automation Generalization |
 | May 2026 | Merge Actions (commit, tag, push) were run before BATCH_EXECUTION_PLAN Validation scripts, Container Deployment, and Container Test Scenarios — migration had never been tested on PostgreSQL before MP1 was tagged | Added "Merge Point Protocol" section: Validation → Container Deployment → Container Test Scenarios → Success Criteria → Merge Actions. This is a sequential pre-merge gate, not an optional post-merge check | Merge Point Protocol |
+| May 2026 | P0-B1/B2 execution skipped 151 pre-existing test failures (19F+83E control, 132F+5E gateway) — tests were dismissed as "not from this workstream" but many were broken by new code or drifted from implementation | Added mandatory rule: ALL tests must pass before batch completion, not just workstream-generated tests. Pre-existing failures must be fixed if encountered. Added "Test Suite Health (MANDATORY)" section | Test Suite Health |
 
 ### How to Add New Lessons
 

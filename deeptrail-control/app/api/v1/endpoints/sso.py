@@ -228,10 +228,12 @@ async def sso_authorize(
     if response_mode == "redirect":
         return RedirectResponse(url=authorization_url, status_code=302)
 
+    _exp = pending.expires_at if pending.expires_at.tzinfo else pending.expires_at.replace(tzinfo=timezone.utc)
+    expires_in = max(0, int((_exp - datetime.now(timezone.utc)).total_seconds()))
     return SSOAuthorizeResponse(
         authorization_url=authorization_url,
         state=state,
-        expires_in=pending.expires_in,
+        expires_in=expires_in,
     )
 
 

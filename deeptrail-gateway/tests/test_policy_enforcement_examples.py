@@ -163,7 +163,7 @@ class TestSimpleGatewayEnforcement:
         self.test_claims = {
             'sub': 'agent-demo-test-123',
             'agent_id': 'agent-demo-test-123', 
-            'scope': ['read:web', 'write:api', 'read:database'],
+            'scope': ['read:web', 'read:api', 'write:api', 'read:database'],
             'resources': ['https://api.example.com', 'postgres://db.example.com'],
             'iat': int(now.timestamp()),
             'exp': int((now + timedelta(minutes=30)).timestamp()),
@@ -315,7 +315,7 @@ class TestGatewayPerformance:
         claims = {
             'sub': 'agent-perf-test',
             'agent_id': 'agent-perf-test',
-            'scope': ['read:web', 'write:api'] * 5,  # Larger scope
+            'scope': ['read:web', 'read:api', 'write:api'] * 5,  # Larger scope
             'resources': ['https://api.example.com'] * 3,
             'iat': int(now.timestamp()),
             'exp': int((now + timedelta(minutes=30)).timestamp()),
@@ -361,7 +361,7 @@ class TestComplexPolicyScenarios:
         claims = {
             'sub': 'agent-multi-resource',
             'agent_id': 'agent-multi-resource',
-            'scope': ['read:web', 'write:api', 'read:database', 'read:secret'],
+            'scope': ['read:web', 'read:api', 'write:api', 'read:database', 'read:secret'],
             'resources': [
                 'https://api.example.com',
                 'https://api.openai.com',
@@ -403,7 +403,7 @@ class TestComplexPolicyScenarios:
         claims = {
             'sub': 'agent-restricted',
             'agent_id': 'agent-restricted',
-            'scope': ['read:web'],  # Only read:web allowed
+            'scope': ['read:api'],  # Only read:api allowed
             'resources': ['https://api.example.com'],  # Only one resource
             'iat': int(now.timestamp()),
             'exp': int((now + timedelta(minutes=30)).timestamp()),

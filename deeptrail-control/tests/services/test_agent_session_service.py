@@ -432,9 +432,20 @@ class TestJWTGeneration:
         ed25519_keypair,
         jwt_secret,
         agent_id,
+        mock_delegation,
     ):
         """Test JWT contains all required claims from design doc."""
         private_key, _ = ed25519_keypair
+
+        agent_session_service.db.query.return_value.filter.return_value.order_by.return_value.first.return_value = mock_delegation
+
+        def _fake_refresh(session):
+            if not hasattr(session, "id") or session.id is None:
+                session.id = f"asess-{uuid.uuid4().hex[:12]}"
+            if not hasattr(session, "created_at") or session.created_at is None:
+                session.created_at = datetime.now(timezone.utc)
+
+        agent_session_service.db.refresh.side_effect = _fake_refresh
 
         challenge = agent_session_service.create_challenge(agent_id)
         signature = sign_challenge(private_key, challenge)

@@ -64,13 +64,20 @@ def client(db: Session, mock_vault_client):
     app.dependency_overrides[get_vault_client] = lambda: mock_vault_client
     app.dependency_overrides[get_db] = override_get_db
     yield TestClient(app)
-    # Clean up after test
-    app.dependency_overrides.clear()
+    # Clean up only the overrides we set
+    app.dependency_overrides.pop(get_vault_client, None)
+    app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture
 def connected_service_notion(db: Session):
     """Create a connected service record for Notion in the test database."""
+    existing = db.query(ConnectedService).filter_by(
+        user_id="sarah@acme.com", service_id="notion"
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
     connection = ConnectedService(
         id="conn-test-notion-001",
         user_id="sarah@acme.com",
@@ -83,6 +90,8 @@ def connected_service_notion(db: Session):
     db.commit()
     db.refresh(connection)
     yield connection
+    db.delete(connection)
+    db.commit()
     # Cleanup
     db.delete(connection)
     db.commit()
@@ -212,10 +221,12 @@ class TestGetTokenHappyPath:
         data = response.json()
         assert data["access_token"] == "xoxb-notion-token-abc123"
         assert data["token_type"] == "bearer"
-        assert data["expires_in"] == 3600
-        assert data["scope"] == "read write"
+        assert data["expires_at"] is not None
+        assert data["scopes_granted"] == ["read", "write"]
         # Verify vault was called with the correct token_ref from database
-        mock_vault_client.retrieve_token.assert_called_once_with(connected_service_notion.oauth_token_ref)
+        mock_vault_client.retrieve_token.assert_called_once()
+        call_args = mock_vault_client.retrieve_token.call_args
+        assert call_args[0][0] == connected_service_notion.oauth_token_ref
 
     def test_does_not_return_refresh_token(
         self, client, mock_vault_client, valid_agent_jwt, sample_token_data, connected_service_notion
@@ -233,7 +244,7 @@ class TestGetTokenHappyPath:
         assert "refresh_token" not in data
 
     def test_handles_scope_as_list(self, client, mock_vault_client, valid_agent_jwt, connected_service_notion):
-        """Should convert scope list to space-separated string."""
+        """Should preserve scope list as scopes_granted list."""
         token_data = {
             "access_token": "test-token",
             "token_type": "bearer",
@@ -248,7 +259,7 @@ class TestGetTokenHappyPath:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["scope"] == "read_content write_content search"
+        assert data["scopes_granted"] == ["read_content", "write_content", "search"]
 
     def test_handles_missing_optional_fields(
         self, client, mock_vault_client, valid_agent_jwt, connected_service_notion
@@ -269,8 +280,8 @@ class TestGetTokenHappyPath:
         data = response.json()
         assert data["access_token"] == "minimal-token"
         assert data["token_type"] == "bearer"  # Default
-        assert data["expires_in"] is None
-        assert data["scope"] is None
+        assert data["expires_at"] is None
+        assert data["scopes_granted"] is None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -569,7 +580,9 @@ def client_with_oauth(db: Session, mock_vault_client, mock_oauth_service):
     app.dependency_overrides[get_oauth_service_dep] = lambda: mock_oauth_service
     app.dependency_overrides[get_db] = override_get_db
     yield TestClient(app)
-    app.dependency_overrides.clear()
+    app.dependency_overrides.pop(get_vault_client, None)
+    app.dependency_overrides.pop(get_oauth_service_dep, None)
+    app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture

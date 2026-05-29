@@ -354,7 +354,7 @@ class TestRequestPolicyMatching:
     
     def test_allowed_api_write_request(self):
         """Test allowed API write request."""
-        request = MockHTTPRequest('POST', 'https://api.openai.com/completions')
+        request = MockHTTPRequest('POST', 'https://api.openai.com/api/completions')
         is_allowed, reason = self.engine.match_request_to_policy(request, self.policy_claims)
         
         assert is_allowed is True
@@ -454,7 +454,7 @@ class TestGatewayEnforcement:
         
         body = json.loads(response.body)
         assert body['status'] == 'allowed'
-        assert 'access granted' in body['reason']
+        assert 'access granted' in body['reason'].lower()
     
     def test_denied_request_missing_authorization(self):
         """Test denied request missing Authorization header."""
@@ -726,6 +726,7 @@ class TestEnforcementEdgeCases:
         
         # Create large scope and resources lists
         large_scope = [f'action_{i}:service_{i%10}' for i in range(100)]
+        large_scope.append('read:web')  # Ensure the test request's action is in scope
         large_resources = [f'https://service_{i}.example.com' for i in range(50)]
         
         payload = {
@@ -764,7 +765,7 @@ class TestEnforcementEdgeCases:
         payload = {
             'sub': 'agent-special-chars',
             'agent_id': 'agent-special-chars',
-            'scope': ['read:api/v1', 'write:data-store', 'admin:user_management'],
+            'scope': ['read:web', 'read:api/v1', 'write:data-store', 'admin:user_management'],
             'resources': [
                 'https://api.example.com/v1/users',
                 'postgres://db-cluster.example.com:5432/app_db',

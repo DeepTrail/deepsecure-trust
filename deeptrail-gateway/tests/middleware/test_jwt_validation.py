@@ -547,7 +547,7 @@ class TestJWTValidationTaskToken:
         data = response.json()
         assert data["agent_id"] == "sdr-assistant-001"
         assert data["owner"] == ""
-        assert data["delegation_id"] == ""
+        assert data["delegation_id"] is None
         assert data["permissions_count"] == 2
 
     def test_task_token_session_id_is_task_id(self, task_token_payload):
