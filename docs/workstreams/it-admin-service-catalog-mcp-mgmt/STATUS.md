@@ -8,7 +8,7 @@
 | Phase | Status |
 |-------|--------|
 | PLAN | ✅ Complete |
-| EXECUTE | 🚧 In Progress (B1+B2 done) |
+| EXECUTE | 🚧 In Progress (B1+B2+B3 done) |
 | REVIEW | ⏳ Not Started |
 | SHIP | ⏳ Not Started |
 
@@ -18,7 +18,7 @@
 |-------|-------|-----------|--------|
 | P0-B1: Foundation | 5 | 5/5 | ✅ Complete |
 | P0-B2: Backend APIs | 15 | 15/15 | ✅ Complete |
-| P0-B3: Gateway + Frontend | 11 | 0/11 | 🔲 Not Started |
+| P0-B3: Gateway + Frontend | 11 | 11/11 | ✅ Complete |
 | P0-B4: Integration | 4 | 0/4 | 🔲 Not Started |
 
 ## Task Status
@@ -45,17 +45,17 @@
 | WS-D3 | Delegation template CRUD | ✅ Complete | 2026-05-29 |
 | WS-D4 | Admin delegation management | ✅ Complete | 2026-05-29 |
 | WS-D5 | Emergency endpoints | ✅ Complete | 2026-05-29 |
-| WS-C1 | Dynamic backend loader | 🔲 Not Started | — |
-| WS-C2 | Gateway startup integration | 🔲 Not Started | — |
-| WS-C3 | ToolCache dynamic population | 🔲 Not Started | — |
-| WS-C4 | Health reporter | 🔲 Not Started | — |
-| WS-E1 | Admin role hook + sidebar | 🔲 Not Started | — |
-| WS-E2 | Service Catalog page | 🔲 Not Started | — |
-| WS-E3 | Add Service modal | 🔲 Not Started | — |
-| WS-E4 | Health dashboard | 🔲 Not Started | — |
-| WS-E5 | Agent Fleet view | 🔲 Not Started | — |
-| WS-E6 | Delegation Management | 🔲 Not Started | — |
-| WS-E7 | Admin TypeScript types | 🔲 Not Started | — |
+| WS-C1 | Dynamic backend loader | ✅ Complete | 2026-05-29 |
+| WS-C2 | Gateway startup integration | ✅ Complete | 2026-05-29 |
+| WS-C3 | ToolCache dynamic population | ✅ Complete | 2026-05-29 |
+| WS-C4 | Health reporter | ✅ Complete | 2026-05-29 |
+| WS-E1 | Admin role hook + sidebar | ✅ Complete | 2026-05-29 |
+| WS-E2 | Service Catalog page | ✅ Complete | 2026-05-29 |
+| WS-E3 | Add Service modal | ✅ Complete | 2026-05-29 |
+| WS-E4 | Health dashboard | ✅ Complete | 2026-05-29 |
+| WS-E5 | Agent Fleet view | ✅ Complete | 2026-05-29 |
+| WS-E6 | Delegation Management | ✅ Complete | 2026-05-29 |
+| WS-E7 | Admin TypeScript types | ✅ Complete | 2026-05-29 |
 | WS-F1 | Employee services from DB | 🔲 Not Started | — |
 | WS-F2 | Template enforcement | 🔲 Not Started | — |
 | WS-F3 | E2E tests | 🔲 Not Started | — |
@@ -67,4 +67,4 @@
 |----|---------|--------|
 | MP1 | P0-B1 complete (schema + middleware) | ✅ Reached |
 | MP2 | P0-B2 complete (all backend APIs) | ✅ Reached |
-| MP3 | P0-B3 complete (gateway + frontend) | 🔲 Not Reached |
+| MP3 | P0-B3 complete (gateway + frontend) | ✅ Reached |
