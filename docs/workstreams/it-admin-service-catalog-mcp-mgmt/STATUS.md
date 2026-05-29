@@ -8,7 +8,7 @@
 | Phase | Status |
 |-------|--------|
 | PLAN | ✅ Complete |
-| EXECUTE | 🚧 In Progress (B1+B2+B3 done) |
+| EXECUTE | ✅ Complete (B1+B2+B3+B4 done) |
 | REVIEW | ⏳ Not Started |
 | SHIP | ⏳ Not Started |
 
@@ -19,7 +19,7 @@
 | P0-B1: Foundation | 5 | 5/5 | ✅ Complete |
 | P0-B2: Backend APIs | 15 | 15/15 | ✅ Complete |
 | P0-B3: Gateway + Frontend | 11 | 11/11 | ✅ Complete |
-| P0-B4: Integration | 4 | 0/4 | 🔲 Not Started |
+| P0-B4: Integration | 4 | 4/4 | ✅ Complete |
 
 ## Task Status
 
@@ -56,10 +56,10 @@
 | WS-E5 | Agent Fleet view | ✅ Complete | 2026-05-29 |
 | WS-E6 | Delegation Management | ✅ Complete | 2026-05-29 |
 | WS-E7 | Admin TypeScript types | ✅ Complete | 2026-05-29 |
-| WS-F1 | Employee services from DB | 🔲 Not Started | — |
-| WS-F2 | Template enforcement | 🔲 Not Started | — |
-| WS-F3 | E2E tests | 🔲 Not Started | — |
-| WS-F4 | Multi-user demo | 🔲 Not Started | — |
+| WS-F1 | Employee services from DB | ✅ Complete | 2026-05-29 |
+| WS-F2 | Template enforcement | ✅ Complete | 2026-05-29 |
+| WS-F3 | E2E tests | ✅ Complete | 2026-05-29 |
+| WS-F4 | Multi-user demo | ✅ Complete | 2026-05-29 |
 
 ## Merge Points
 
