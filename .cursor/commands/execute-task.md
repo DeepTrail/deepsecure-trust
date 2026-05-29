@@ -178,6 +178,96 @@ d. **Run quality checks:**
    pytest [test_file] -v
    ```
 
+### 5.5 Self-Healing Loop (Auto-Fix Failures)
+
+**If any quality check from Step 5d fails, enter the self-healing loop instead of stopping.**
+
+This step is always active — it does not require a flag. The agent should always attempt to fix its own mistakes before giving up.
+
+#### 5.5a. Failure Classification
+
+Classify each failure before attempting a fix:
+
+| Class | Examples | Fix Strategy | Max Retries |
+|-------|----------|-------------|-------------|
+| **Auto-fixable** | Lint errors, import sorting, formatting, missing imports, wrong type annotation | Run formatter/fixer tool, apply the obvious fix | 2 |
+| **Diagnosable** | Test assertion failures, build errors, type check errors with clear messages, API contract mismatches | Read error output + source file, diagnose root cause, edit code | 3 |
+| **Opaque** | Timeouts, non-deterministic failures, deep architectural issues, errors with no actionable message | Cannot fix autonomously | 0 (skip immediately) |
+| **Security-sensitive** | Auth test failures, crypto errors, permission check failures | Must NOT auto-fix — escalate to human | 0 (escalate immediately) |
+
+**How to classify:** Read the error output. If the error message contains a file path and line number with a clear description (e.g., "missing import X", "expected Y got Z", "undefined variable"), it is Diagnosable. If the error is a formatting/lint violation, it is Auto-fixable. If the error mentions auth, crypto, JWT, key, permission, or signature, it is Security-sensitive. Everything else is Opaque.
+
+#### 5.5b. The Heal Loop
+
+```
+RETRY_COUNT = 0
+
+WHILE any quality check is still failing:
+
+  IF RETRY_COUNT >= MAX_RETRIES for this failure class:
+    → BREAK (go to 5.5c — exhausted)
+
+  1. CAPTURE the full error output (test traceback, lint message, type error)
+  
+  2. DIAGNOSE:
+     - For Auto-fixable: identify the fixer tool (ruff --fix, black, isort)
+     - For Diagnosable: read the failing file at the error line,
+       read the test file if it's a test failure, identify the root cause
+  
+  3. FIX:
+     - For Auto-fixable: run the fixer tool, or apply the single-line fix
+     - For Diagnosable: edit the source code to address the root cause
+     - Run ReadLints on modified files after each fix
+  
+  4. RETEST: re-run ONLY the check(s) that failed — not the full suite
+     - If lint failed: re-run lint on the fixed file
+     - If test failed: re-run the specific failing test
+     - If type check failed: re-run type check on the fixed file
+  
+  5. RETRY_COUNT += 1
+  
+  6. IF all checks now pass: BREAK (healed successfully)
+```
+
+#### 5.5c. Exhausted — Mark as BLOCKED
+
+If the heal loop exhausts its retry budget without all checks passing:
+
+1. **Do NOT proceed to Step 6** (Verify Implementation)
+2. **Do NOT complete the task** (skip Steps 6-8)
+3. **Mark the task as BLOCKED** in STATUS.md with the failure details:
+   ```
+   | [WS-ID] | [description] | BLOCKED | [date] | Heal loop exhausted: [error summary] |
+   ```
+4. **Return a structured failure summary** for `/run-batch` to consume:
+   ```
+   TASK_RESULT = {
+     id: "[WS-ID]",
+     status: "BLOCKED",
+     failure_class: "Diagnosable",  
+     retries_attempted: 3,
+     last_error: "[final error output]",
+     files_modified: ["path/to/file.ts"],
+     suggestion: "Test expects X but implementation returns Y — may need spec clarification"
+   }
+   ```
+
+#### 5.5d. Healing Log
+
+After the heal loop (whether successful or exhausted), record what happened in the task ticket's Progress Updates:
+
+```markdown
+| [date] | Self-healing: [N] retries on [failure class] |
+| [date] | Healed: [what was fixed] |
+```
+
+Or if blocked:
+
+```markdown
+| [date] | Self-healing: [N] retries exhausted on [failure class] |
+| [date] | BLOCKED: [final error summary] |
+```
+
 ### 6. Verify Implementation
 
 After implementation, verify each acceptance criterion:

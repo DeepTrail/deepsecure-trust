@@ -1,10 +1,12 @@
 # MCP Authorization Specification vs DeepSecure Implementation: Gap Analysis Audit
 
-**Date:** 2026-04-30 (Updated: 2026-05-01)
+**Date:** 2026-04-30 (Updated: 2026-05-28)
 **Auditor:** AI Security Audit Agent
-**Scope:** MCP Authorization Spec (2025-11-25, formal normative spec) + Tutorial + Security Best Practices + Extensions vs DeepSecure (deeptrail-control, deeptrail-gateway, deepsecure SDK)
+**Scope:** MCP Authorization Spec (2025-11-25) + MCP 2026-07-28 Release Candidate (stateless core + auth hardening) vs DeepSecure (deeptrail-control, deeptrail-gateway, deepsecure SDK)
 **Severity Scale:** CRITICAL | HIGH | MEDIUM | LOW | INFO
-**Spec Source:** https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+**Spec Sources:**
+- https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization (current)
+- https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/ (incoming, ships July 28 2026)
 
 ---
 
@@ -13,6 +15,8 @@
 DeepSecure implements a **fundamentally different authorization architecture** than what the MCP Authorization specification prescribes. The MCP spec mandates **OAuth 2.1 with Protected Resource Metadata (RFC 9728)** for HTTP-based transports, where the MCP server acts as a standard OAuth 2.1 Resource Server. DeepSecure instead implements a **custom Ed25519 challenge-response authentication system** with proprietary JWT issuance via a Control Plane, where the Gateway acts as a "Virtual MCP Server."
 
 This is not inherently wrong — the MCP spec states authorization is **OPTIONAL** — but it means DeepSecure's Gateway is **not interoperable with standard MCP clients** (like VS Code, Claude Desktop, or any client implementing the MCP auth spec). A standard MCP client connecting to the DeepSecure Gateway would fail at the first `401 Unauthorized` because it would expect a `WWW-Authenticate` header with `resource_metadata` pointing to a Protected Resource Metadata document, which DeepSecure does not serve.
+
+**Critical Update (2026-05-28):** The MCP 2026-07-28 Release Candidate (ships July 28, 2026) introduces **breaking changes** that directly impact DeepSecure's Gateway architecture. The `initialize`/`initialized` handshake and `Mcp-Session-Id` header are **removed** in favor of a fully stateless protocol. DeepSecure's Gateway still requires `initialize` to create in-memory sessions — this must be fixed before July 28 when Tier 1 SDKs begin targeting the new spec. See [Section 0](#0-mcp-2026-07-28-release-candidate-impact-on-deepsecure-critical) for details.
 
 ### Overall Assessment
 
@@ -33,6 +37,139 @@ This is not inherently wrong — the MCP spec states authorization is **OPTIONAL
 | Session security | **Partial** — sessions not tied to auth | Session hijacking risk per MCP spec |
 | Token passthrough prevention | **Concern** — agent JWT in handler context | Needs explicit audit of all forwarding paths |
 | Confused deputy protection | **Partial** — delegation helps | No per-client consent at Gateway |
+
+---
+
+## 0. MCP 2026-07-28 Release Candidate: Impact on DeepSecure (CRITICAL)
+
+> **The release candidate is locked as of May 21, 2026. The final specification ships on July 28, 2026.** This is the largest revision of the protocol since launch.
+
+### 0.1 Stateless Protocol Core — DeepSecure Gateway Is NOT Stateless (CRITICAL)
+
+The headline change in 2026-07-28 is that **MCP is now stateless at the protocol layer**. Six SEPs work together to remove the `initialize`/`initialized` handshake and `Mcp-Session-Id`, so any request can land on any server instance.
+
+**What 2026-07-28 Removes:**
+- `initialize` / `initialized` handshake (SEP-2575) — **REMOVED**
+- `Mcp-Session-Id` header and protocol-level session (SEP-2567) — **REMOVED**
+- Sticky sessions and shared session stores are no longer needed
+
+**What 2026-07-28 Adds:**
+- `MCP-Protocol-Version` header on every request
+- `_meta` carries `clientInfo` and capabilities on every request (not just `initialize`)
+- `server/discover` method replaces `initialize` for capability discovery
+- `Mcp-Method` and `Mcp-Name` headers **REQUIRED** (SEP-2243) for routing
+- `ttlMs` and `cacheScope` on list/resource results (SEP-2549)
+- W3C Trace Context (`traceparent`, `tracestate`, `baggage`) in `_meta` (SEP-414)
+- Multi Round-Trip Requests with `InputRequiredResult` and `requestState` (SEP-2322)
+- Server-initiated requests only during active client request (SEP-2260)
+
+**DeepSecure's Current Architecture (CRITICAL MISMATCH):**
+
+Despite comments in `main.py` stating "stateless — JWT is source of truth," the Gateway is **actually stateful at the protocol level**:
+
+1. **`initialize` is required.** The `handle_initialize` handler calls `session_manager.create_agent_session()` which creates an in-memory `AgentMCPSession` with backend sessions (Notion, Slack, HubSpot, etc.). Without this, `tools/list` and `tools/call` return empty results or fail.
+
+2. **In-memory session store.** `MCPSessionManager._sessions` is a Python `dict` — not distributed, not Redis-backed. The docstring explicitly states: "This is in-memory storage for MVP. Production should use Redis or distributed cache for horizontal scaling."
+
+3. **Session is NOT thread-safe.** The session manager explicitly notes: "This implementation is NOT thread-safe."
+
+4. **Requests must hit the same instance.** Because sessions are in-memory, the Gateway requires sticky routing — exactly what 2026-07-28 eliminates.
+
+5. **`Mcp-Session-Id` still used.** The `/mcp` endpoint reads `Mcp-Session-Id` from headers and returns it on `initialize` responses (line 644 of `main.py`). This header is being removed in 2026-07-28.
+
+6. **Supported versions don't include 2026-07-28.** `SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2024-11-05", "2024-10-07"]` — the upcoming version is absent.
+
+**The Design Tension:**
+
+There's a fundamental tension in DeepSecure's architecture: the JWT already carries **all the context needed** for stateless operation (`agent_id`, `owner`, `delegated_permissions`, `delegation_id`, `session_id`). The `MCPSessionManager` reconstructs state from the JWT during `initialize`, then later looks it up by `agent_session_id`. This is exactly the anti-pattern that 2026-07-28 eliminates.
+
+The Gateway COULD be made truly stateless by:
+1. Deriving tool permissions from JWT `delegated_permissions` directly on each request
+2. Using the `PermissionMapper` to resolve tools on each `tools/list` call (no session needed)
+3. Resolving credentials on each `tools/call` from the JWT context (no session lookup needed)
+
+This would align perfectly with 2026-07-28 and leverage DeepSecure's existing JWT design.
+
+### 0.2 Routing and Operability Gaps (HIGH)
+
+**`Mcp-Method` and `Mcp-Name` headers (SEP-2243) — NOT IMPLEMENTED:**
+
+2026-07-28 **requires** these headers on every request so load balancers and gateways can route without inspecting the JSON-RPC body. Servers must reject requests where headers and body disagree.
+
+```http
+POST /mcp HTTP/1.1
+MCP-Protocol-Version: 2026-07-28
+Mcp-Method: tools/call
+Mcp-Name: search
+Content-Type: application/json
+```
+
+DeepSecure currently parses the JSON body to extract `method` (line 583 of `main.py`). There is no header-based routing.
+
+**Impact:** Without these headers, the Gateway cannot be placed behind a standard MCP-aware load balancer or API gateway that routes on headers.
+
+### 0.3 Caching — NOT IMPLEMENTED (MEDIUM)
+
+**`ttlMs` and `cacheScope` on responses (SEP-2549):**
+
+List and resource read results now carry cache metadata modeled on HTTP `Cache-Control`:
+- `ttlMs`: How long the response is fresh
+- `cacheScope`: Whether it's safe to share across users
+
+DeepSecure's `tools/list` response includes no caching metadata. This means clients must re-fetch on every call, adding unnecessary latency.
+
+### 0.4 Trace Context — NOT IMPLEMENTED (MEDIUM)
+
+**W3C Trace Context in `_meta` (SEP-414):**
+
+The spec locks down `traceparent`, `tracestate`, and `baggage` key names so distributed traces correlate across SDKs and gateways. DeepSecure reads `X-Request-ID` but does not propagate W3C Trace Context.
+
+### 0.5 Multi Round-Trip Requests — NOT IMPLEMENTED (MEDIUM)
+
+**`InputRequiredResult` and `requestState` (SEP-2322):**
+
+Instead of holding an SSE stream open, servers return an `InputRequiredResult` with `requestState`. The client gathers answers and re-issues the call with `inputResponses`. Any server instance can handle the retry because state is in the payload.
+
+DeepSecure's GET `/mcp` endpoint is a minimal SSE keepalive stream (line 679 of `main.py`). It does not implement multi round-trip request handling.
+
+### 0.6 Authorization Hardening — 6 SEPs (HIGH)
+
+The 2026-07-28 RC includes six authorization-specific SEPs:
+
+| SEP | Requirement | DeepSecure Status | Impact |
+|-----|-------------|-------------------|--------|
+| SEP-2468 | Validate `iss` on auth responses (RFC 9207) | **N/A** — no OAuth flow | Mix-up attack prevention for future |
+| SEP-837 | Declare `application_type` during DCR | **N/A** — no DCR | Prevents localhost redirect rejection |
+| SEP-2352 | Bind credentials to issuer, re-register on migration | **N/A** — no OAuth | Credential lifecycle management |
+| SEP-2207 | Request refresh tokens from OIDC AS | **Not implemented** | No refresh tokens at all |
+| SEP-2350 | Scope accumulation during step-up | **Not implemented** | No step-up authorization |
+| SEP-2351 | `.well-known` discovery suffix clarification | **Not implemented** | No `.well-known` endpoints |
+
+### 0.7 Other Breaking Changes
+
+| Change | DeepSecure Impact | Severity |
+|--------|-------------------|----------|
+| Extensions framework with reverse-DNS IDs | Not implemented | LOW |
+| MCP Apps (server-rendered UIs via iframe) | Not implemented | LOW |
+| Tasks extension redesign (server-directed, no `tasks/list`) | Not applicable | INFO |
+| Roots deprecated → tool parameters | Not applicable | INFO |
+| Sampling deprecated → direct LLM API integration | Not applicable | INFO |
+| Logging deprecated → stderr / OpenTelemetry | Not applicable | INFO |
+| JSON Schema 2020-12 for `inputSchema`/`outputSchema` | Tool schemas need audit | MEDIUM |
+| Error code `-32002` → `-32602` for missing resource | DeepSecure uses `-32002` for `SESSION_INVALID` (different semantics) — may cause confusion | LOW |
+
+### 0.8 Protocol Version Negotiation Gap (HIGH)
+
+`SUPPORTED_PROTOCOL_VERSIONS` in `initialize.py`:
+```python
+SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2024-11-05", "2024-10-07"]
+```
+
+`2026-07-28` is absent. After July 28, clients targeting the new spec will send requests without `initialize`, using `MCP-Protocol-Version: 2026-07-28` header. The Gateway will:
+1. Not recognize the version
+2. Require an `initialize` that the client won't send
+3. Fail to read `Mcp-Method` / `Mcp-Name` headers
+4. Return errors that the client doesn't expect
 
 ---
 
@@ -256,7 +393,16 @@ This fallback **completely bypasses** audience and issuer validation for "legacy
 1. The raw agent JWT is stored in `request.state.agent_jwt_token` and passed into MCP handler context as `agent_jwt_token`. If any handler or middleware forwards this token to upstream APIs directly, it would constitute token passthrough.
 2. The credential injection middleware (`credential_injection.py`) retrieves separate backend tokens — this is the correct pattern.
 
-**Recommendation:** Audit all paths where `agent_jwt_token` flows to ensure it is never sent to external services. Add explicit documentation/guardrails.
+**Audit Findings (2026-05-28):**
+
+The MCP path is **safe**: `tools/call` uses `CredentialInjector` which exchanges the agent JWT for a backend-specific OAuth token via Keycloak (RFC 8693) or vault fetch. The agent JWT is sent only to Keycloak and the Control Plane vault endpoint, never to external backends.
+
+The `/proxy` path has a **confirmed leak vector**: `SecretInjectionMiddleware` is fail-open — if Shamir reassembly fails or no domain-to-secret mapping exists, the middleware logs and continues. The proxy then forwards the original `Authorization` header (the agent JWT) because `proxy_config.py` explicitly preserves `authorization` in forwarded headers. An attacker controlling an external endpoint could harvest agent JWTs this way.
+
+**Recommendation:**
+1. Make secret injection **fail-closed** on the `/proxy` path — if no credential can be injected, reject the request rather than forwarding the agent JWT
+2. Strip the original `Authorization` header before proxy forwarding, then inject backend-specific credentials only
+3. Add explicit guardrails preventing `agent_jwt_token` from being set on outbound requests
 
 ### 4.4 No Token Revocation Mechanism (MEDIUM)
 
@@ -584,7 +730,11 @@ Several error responses include detailed internal information:
 
 As detailed in Sections 2 and 6, DeepSecure's error responses do not include the structured `WWW-Authenticate` headers that MCP clients need to initiate or step-up authorization. This is the most actionable gap — even without full OAuth implementation, adding proper headers would provide a path for future interoperability.
 
-### 13.3 No Correlation IDs (LOW)
+### 13.3 Error Code Inconsistency: `-32002` vs `-32600` for Missing Session (LOW)
+
+`tools/call` returns `-32002` (`SESSION_INVALID`) when no agent session exists ("Call initialize first"), but `tools/list` returns `-32600` (`INVALID_REQUEST`) for the identical condition. This inconsistency means clients cannot reliably detect "session missing" errors across methods. Additionally, MCP 2026-07-28 (SEP-2164) changes `-32002` semantics for missing resources to standard `-32602`, which may cause confusion with DeepSecure's `SESSION_INVALID` usage.
+
+### 13.4 No Correlation IDs (LOW)
 
 The MCP endpoint supports an `X-Request-ID` header but doesn't generate one if absent. Error logs don't consistently include correlation IDs for troubleshooting.
 
@@ -662,20 +812,55 @@ The spec highlights two critical dimensions:
 | 40 | No credential logging | MCP Security BP | Best practice | **Not fully audited** | MEDIUM | Scrub Authorization headers from logs |
 | 41 | Client credentials flow (M2M) | ext-auth extension | Optional | **Missing** | LOW | Implement for CI/CD agents |
 | 42 | Enterprise-managed auth (IdP) | ext-auth extension | Optional | **Partial** — SSO exists, not ID-JAG | MEDIUM | Adapt SSO for MCP enterprise ext |
+| | | | | | | |
+| | **MCP 2026-07-28 RC (ships July 28)** | | | | | |
+| 43 | Stateless: no `initialize` handshake | SEP-2575 | REMOVED | **Still required** — creates in-memory sessions | CRITICAL | Derive state from JWT per-request |
+| 44 | Stateless: no `Mcp-Session-Id` | SEP-2567 | REMOVED | **Still used** — returned on init | CRITICAL | Remove session-id dependency |
+| 45 | `Mcp-Method` + `Mcp-Name` headers required | SEP-2243 | REQUIRED | **Not implemented** | HIGH | Add header-based routing + validation |
+| 46 | `MCP-Protocol-Version` header | SEP-2575 | REQUIRED | **Not implemented** | HIGH | Read version from header |
+| 47 | `server/discover` method | SEP-2575 | NEW | **Not implemented** | HIGH | Implement capability endpoint |
+| 48 | `ttlMs` + `cacheScope` on responses | SEP-2549 | NEW | **Not implemented** | MEDIUM | Add cache metadata |
+| 49 | W3C Trace Context in `_meta` | SEP-414 | Documented | **Not implemented** | MEDIUM | Add OTel trace propagation |
+| 50 | Multi Round-Trip Requests | SEP-2322 | NEW | **Not implemented** | MEDIUM | Implement `InputRequiredResult` |
+| 51 | Validate `iss` on auth responses (RFC 9207) | SEP-2468 | MUST (future) | **N/A** — no OAuth | HIGH (future) | Add when implementing OAuth |
+| 52 | `application_type` during DCR | SEP-837 | NEW | **N/A** | MEDIUM (future) | Include with DCR |
+| 53 | Refresh tokens from OIDC AS | SEP-2207 | Documented | **Missing** | HIGH | Request `offline_access` scope |
+| 54 | Scope accumulation in step-up | SEP-2350 | Clarified | **Missing** | MEDIUM | Union existing + new scopes |
+| 55 | Protocol version `2026-07-28` | Lifecycle | Expected | **Missing** from version list | HIGH | Add to supported versions |
+| 56 | In-memory sessions → stateless | Architecture | Pattern | **Anti-pattern** — dict-based sessions | CRITICAL | Derive from JWT per-request |
+| 57 | JSON Schema 2020-12 for tools | SEP-2106 | REQUIRED | **Needs audit** | MEDIUM | Update tool schemas |
+| 58 | Error code `-32002` semantics | SEP-2164 | Changed | Uses `-32002` for `SESSION_INVALID` | LOW | Review error code usage |
+| 59 | `/proxy` path: agent JWT leaked on secret injection failure | MCP spec §Token Passthrough | MUST NOT | **Confirmed leak** — fail-open + preserved `Authorization` | **CRITICAL** | Make secret injection fail-closed |
+| 60 | Error code inconsistency (`-32002` vs `-32600` for missing session) | JSON-RPC | Convention | `tools/call` vs `tools/list` return different codes | LOW | Unify to single code |
 
 ---
 
 ## 16. Prioritized Remediation Roadmap
 
-### Phase 0: Quick Wins (HIGH — 1-2 days)
+### Phase 0: Quick Wins + 2026-07-28 Preparation (HIGH — 1-2 days)
 
-**Goal:** Improve spec alignment with minimal architectural change.
+**Goal:** Improve spec alignment with minimal architectural change and prepare for the July 28 deadline.
 
 1. **Remove legacy JWT fallback** that bypasses `aud`/`iss` verification in `jwt_validation.py` — this is a single code change with immediate security benefit
 2. **Restrict CORS** from `allow_origins=["*"]` to specific allowed origins
 3. **Reduce JWT TTL** from 8 hours to 15-30 minutes
 4. **Increase session ID entropy** from `uuid4().hex[:12]` (48 bits) to full UUID (128 bits)
 5. **Enhance 401 responses** with structured `WWW-Authenticate` headers (even if pointing to non-standard auth, the structure helps clients)
+6. **Add `2026-07-28` to `SUPPORTED_PROTOCOL_VERSIONS`** in `initialize.py` — version negotiation should not fail for new clients
+7. **Make `/proxy` secret injection fail-closed** — if no credential can be injected for the target domain, reject the request instead of forwarding the agent JWT. This is a confirmed token passthrough vulnerability (the MCP spec says "MUST NOT pass through the token it received from the MCP client").
+
+### Phase 0.5: Stateless Gateway Migration (CRITICAL — 1 week, deadline July 28)
+
+**Goal:** Make the Gateway truly stateless per the 2026-07-28 protocol.
+
+7. **Eliminate `initialize` requirement** — derive tool permissions from JWT `delegated_permissions` directly on each `tools/list` call using `PermissionMapper`. The JWT already carries all needed context.
+8. **Remove `MCPSessionManager` dependency from handlers** — the `tools/call` handler should resolve credentials from JWT context per-request, not from a session lookup.
+9. **Implement `server/discover` method** — expose server capabilities (tools, protocol version) via the new discovery endpoint.
+10. **Add `Mcp-Method` and `Mcp-Name` header validation** — read from headers, validate against JSON-RPC body, reject on mismatch.
+11. **Add `MCP-Protocol-Version` header reading** — extract version from header, route to correct handling logic (2025-11-25 legacy vs 2026-07-28 stateless).
+12. **Remove `Mcp-Session-Id` from responses** — stop returning it on `initialize` (line 644 of `main.py`). For backward compatibility, accept but ignore if sent.
+13. **Add `ttlMs` and `cacheScope` to `tools/list` responses** — tool lists are relatively stable; a 60-second TTL reduces client chatter.
+14. **Add W3C Trace Context propagation** — read `traceparent`/`tracestate` from `_meta`, propagate to backend calls via OpenTelemetry.
 
 ### Phase 1: MCP Standard Interoperability (CRITICAL — Estimated 2-3 weeks)
 
@@ -748,12 +933,14 @@ Despite the gaps with the MCP authorization spec, DeepSecure has several strong 
 
 1. **Ed25519 Challenge-Response**: Cryptographically strong agent authentication that prevents credential theft (no static secrets transmitted)
 2. **Delegation Model**: Users explicitly grant scoped permissions to agents — a principled least-privilege approach
-3. **Split-Key Architecture**: Secrets are split between Control Plane and Gateway, requiring both to reconstruct
-4. **Backend OAuth with PKCE**: Properly implements PKCE for backend service connections (Notion, Google)
-5. **RFC 8693 Token Exchange**: Uses standard token exchange for backend access tokens instead of token passthrough
-6. **Middleware Pipeline**: Layered security with JWT validation → Policy enforcement → Secret injection
-7. **Fail-Closed Design**: Gateway denies access on any validation failure
-8. **Audit Logging**: Comprehensive audit trail for security events
+3. **JWT Carries Full Context**: The agent JWT includes `agent_id`, `owner`, `delegated_permissions`, `delegation_id`, and `session_id` — this design is already aligned with the MCP 2026-07-28 stateless model. The `MCPSessionManager` is an implementation artifact, not an architectural necessity.
+4. **Split-Key Architecture**: Secrets are split between Control Plane and Gateway, requiring both to reconstruct
+5. **Backend OAuth with PKCE**: Properly implements PKCE for backend service connections (Notion, Google)
+6. **RFC 8693 Token Exchange**: Uses standard token exchange for backend access tokens instead of token passthrough — this is the correct pattern per the MCP spec's "token passthrough is explicitly forbidden" rule
+7. **Middleware Pipeline**: Layered security with JWT validation → Policy enforcement → Secret injection
+8. **Fail-Closed Design**: Gateway denies access on any validation failure
+9. **Audit Logging**: Comprehensive audit trail for security events
+10. **`PermissionMapper` Already Exists**: The `PermissionMapper` class can resolve `delegated_permissions` to tool lists without needing a session — this is the key enabler for stateless `tools/list`
 
 ---
 
@@ -761,12 +948,14 @@ Despite the gaps with the MCP authorization spec, DeepSecure has several strong 
 
 Understanding the spec's normative language is critical for prioritization:
 
-| Keyword | Meaning | Count in MCP Auth Spec | DeepSecure Compliance |
-|---|---|---|---|
-| **MUST** | Absolute requirement | ~40+ occurrences | ~3 of ~40+ met |
-| **MUST NOT** | Absolute prohibition | ~8 occurrences | ~5 of ~8 met |
-| **SHOULD** | Recommended, strong reason to deviate | ~20+ occurrences | ~5 of ~20+ met |
-| **MAY** | Optional | ~10 occurrences | Few applicable |
+| Keyword | Meaning | Count (2025-11-25) | Count (2026-07-28 RC) | DeepSecure Compliance |
+|---|---|---|---|---|
+| **MUST** | Absolute requirement | ~40+ | ~50+ (including SEP changes) | ~3 of ~50+ met |
+| **MUST NOT** | Absolute prohibition | ~8 | ~10 | ~5 of ~10 met |
+| **SHOULD** | Recommended | ~20+ | ~25+ | ~5 of ~25+ met |
+| **MAY** | Optional | ~10 | ~15 | Few applicable |
+| **REMOVED** | Breaking change in 2026-07-28 | — | 2 (initialize, Mcp-Session-Id) | DeepSecure still depends on both |
+| **REQUIRED** (new) | New mandatory features in 2026-07-28 | — | 3 (Mcp-Method, Mcp-Name, MCP-Protocol-Version) | None implemented |
 
 ### Key MUST Requirements DeepSecure Fails
 
@@ -802,41 +991,73 @@ Understanding the spec's normative language is critical for prioritization:
 
 ## 19. Conclusion
 
-DeepSecure has built a **security-first platform** with strong cryptographic foundations, but it operates in a **proprietary authorization silo** that is incompatible with the MCP authorization standard. This audit identified **42 specific gaps** against the normative MCP Authorization Specification (2025-11-25), including approximately **15 MUST-level requirement failures**.
+DeepSecure has built a **security-first platform** with strong cryptographic foundations, but it operates in a **proprietary authorization silo** that is incompatible with the MCP authorization standard. This audit identified **60 specific gaps** against the normative MCP Authorization Specification (2025-11-25) and the MCP 2026-07-28 Release Candidate, including approximately **15 MUST-level requirement failures** in the current spec, **2 CRITICAL architectural mismatches** with the incoming stateless protocol, and **1 confirmed token passthrough vulnerability** on the `/proxy` path.
 
-The most critical finding: any standard MCP client (VS Code, Claude Desktop, or clients built with official MCP SDKs) **cannot authenticate** with the DeepSecure Gateway. The entire OAuth 2.1 discovery → registration → authorization → token flow is absent.
+### Two Urgent Deadlines
 
-The good news is that DeepSecure already has the **infrastructure building blocks** to bridge this gap:
-- **Keycloak is deployed** and configured for RFC 8693 token exchange — extending it as the MCP Authorization Server is the shortest path to compliance
-- **Keycloak natively provides** OIDC Discovery (`/.well-known/openid-configuration`), `code_challenge_methods_supported`, Dynamic Client Registration, and JWKS endpoints
-- **The Gateway already validates Bearer JWTs** — extending validation to accept Keycloak-issued tokens alongside proprietary JWTs is incremental
-- **The Control Plane has OAuth endpoints** for backend service connections — the PKCE, state, and redirect handling patterns can be reused
-- **SSO/IdP integration exists** for enterprise identity providers — this maps to the enterprise-managed authorization extension
+**1. MCP 2026-07-28 Ships July 28 (7 weeks away):**
+
+The most time-sensitive finding is that the Gateway's in-memory session architecture directly contradicts the 2026-07-28 stateless protocol core. After July 28, MCP Tier 1 SDKs will stop sending `initialize` and `Mcp-Session-Id`. Clients built with these SDKs will fail against the DeepSecure Gateway.
+
+The good news: **DeepSecure's JWT design is already aligned with statelessness.** The JWT carries `agent_id`, `owner`, `delegated_permissions`, `delegation_id`, and `session_id` — everything the `MCPSessionManager` reconstructs during `initialize`. The fix is to derive state from the JWT on each request rather than looking it up from an in-memory store. This is a refactoring, not a rebuild.
+
+**2. OAuth 2.1 / RFC 9728 for Standard Client Interoperability:**
+
+Any standard MCP client (VS Code, Claude Desktop, or clients built with official MCP SDKs) **cannot authenticate** with the DeepSecure Gateway. The entire OAuth 2.1 discovery → registration → authorization → token flow is absent.
+
+### Infrastructure Building Blocks Already in Place
+
+- **JWT carries full context** — the stateless migration is a refactoring to remove `MCPSessionManager`, not a redesign
+- **Keycloak is deployed** for RFC 8693 token exchange — extending it as the MCP Authorization Server is the shortest path to OAuth compliance
+- **Keycloak natively provides** OIDC Discovery, `code_challenge_methods_supported`, DCR, and JWKS
+- **The Control Plane has OAuth endpoints** for backend services — PKCE, state, and redirect patterns can be reused
+- **SSO/IdP integration exists** for enterprise identity providers
 - **RFC 8693 token exchange** for backend access is already the correct pattern per the spec
 
-The primary work is to **expose these capabilities through MCP-standard interfaces** (PRM endpoint, AS metadata, `WWW-Authenticate` headers, `resource` parameter handling) rather than building from scratch.
+### Immediate Actions
 
-### Immediate Actions (Before Phase 1)
-
-Phase 0 items require **no architectural change** and should be done immediately:
+**Before July 28 (Phase 0 + 0.5):**
 1. Remove the legacy JWT fallback (single code change, immediate security benefit)
-2. Restrict CORS from `allow_origins=["*"]`
-3. Reduce JWT TTL from 8 hours
-4. Increase session ID entropy
+2. Make Gateway stateless — derive tool permissions from JWT per-request, remove `MCPSessionManager` dependency
+3. Add `Mcp-Method`/`Mcp-Name` header support for 2026-07-28 compatibility
+4. Implement `server/discover` to replace `initialize` capability exchange
+5. Add `2026-07-28` to supported protocol versions
 
-**Priority:** Addressing the CRITICAL gaps in Phase 1 should be the immediate focus, as they are prerequisite for MCP ecosystem interoperability. As MCP adoption accelerates through 2026, interoperability with standard clients will transition from "nice to have" to "table stakes."
+**After July 28 (Phase 1-4):**
+Address MCP OAuth 2.1 compliance via Keycloak, implement PRM endpoints, Client ID Metadata Documents, scope management, and enterprise extensions.
+
+**Priority:** The stateless migration (Phase 0.5) has a hard deadline of July 28. The OAuth compliance work (Phase 1) is strategically important but not time-bound. Both are prerequisites for MCP ecosystem interoperability.
 
 ---
 
 ## Appendix A: References
 
 ### MCP Specification Documents
-- [MCP Authorization Specification (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) — **Primary source for this audit**
+- [MCP Authorization Specification (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) — **Primary auth spec for this audit**
+- [MCP 2026-07-28 Release Candidate Blog Post](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) — **Incoming spec (ships July 28, 2026)**
+- [MCP Draft Specification (2026-07-28 RC)](https://modelcontextprotocol.io/specification/draft) — Full draft spec
 - [MCP Authorization Tutorial](https://modelcontextprotocol.io/docs/tutorials/security/authorization)
 - [MCP Security Best Practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
 - [MCP Authorization Extensions Repository](https://github.com/modelcontextprotocol/ext-auth)
 - [Enterprise-Managed Authorization Extension](https://modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization)
 - [OAuth Client Credentials Extension](https://modelcontextprotocol.io/extensions/auth/oauth-client-credentials)
+
+### MCP 2026-07-28 SEPs Referenced
+- SEP-2575: Remove `initialize`/`initialized` handshake
+- SEP-2567: Remove `Mcp-Session-Id` and protocol-level session
+- SEP-2243: Require `Mcp-Method` and `Mcp-Name` headers
+- SEP-2549: `ttlMs` and `cacheScope` for response caching
+- SEP-414: W3C Trace Context propagation in `_meta`
+- SEP-2322: Multi Round-Trip Requests (`InputRequiredResult`)
+- SEP-2260: Server-initiated requests only during active client request
+- SEP-2468: Validate `iss` on auth responses (RFC 9207)
+- SEP-837: Declare `application_type` during DCR
+- SEP-2352: Bind credentials to issuer
+- SEP-2207: Request refresh tokens from OIDC AS
+- SEP-2350: Scope accumulation during step-up
+- SEP-2351: `.well-known` discovery suffix
+- SEP-2106: JSON Schema 2020-12 for tools
+- SEP-2164: Error code `-32002` → `-32602`
 
 ### Standards Referenced in MCP Auth Spec
 - [OAuth 2.1 (draft-ietf-oauth-v2-1-13)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-13) — Core auth framework
@@ -851,16 +1072,28 @@ Phase 0 items require **no architectural change** and should be done immediately
 - [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html) — OIDC Discovery
 
 ### DeepSecure Implementation Files Audited
-- `deeptrail-gateway/app/middleware/jwt_validation.py` — JWT validation middleware (HS256, legacy fallback)
-- `deeptrail-gateway/app/middleware/security.py` — Security middleware stack
+
+**Gateway — Deep Dive (2026-05-28 update):**
+- `deeptrail-gateway/app/main.py` — Gateway entry point: MCP endpoint handler, CORS config, middleware registration, SSE stream, session termination, `Mcp-Session-Id` handling (lines 523-701)
+- `deeptrail-gateway/app/mcp/session_manager.py` — In-memory `MCPSessionManager` with `_sessions` dict, `AgentMCPSession`/`BackendMCPSession` dataclasses, not thread-safe, 48-bit session IDs
+- `deeptrail-gateway/app/mcp/protocol.py` — JSON-RPC 2.0 handler: `JsonRpcErrorCode.SESSION_INVALID = -32002`, `MCPMethod` enum, request routing, max 1MB request size
+- `deeptrail-gateway/app/mcp/handlers/initialize.py` — `handle_initialize`: creates sessions via `session_manager.create_agent_session()`, `SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2024-11-05", "2024-10-07"]`, `PermissionMapper` integration
+- `deeptrail-gateway/app/mcp/handlers/tools_list.py` — `handle_tools_list`: requires agent session for tool lookup
+- `deeptrail-gateway/app/mcp/handlers/tools_call.py` — `handle_tools_call`: requires session for credential resolution
+- `deeptrail-gateway/app/middleware/jwt_validation.py` — JWT validation: HS256, legacy fallback (disables aud/iss), `AgentContext` extraction, bare `WWW-Authenticate: Bearer`
+- `deeptrail-gateway/app/middleware/policy_enforcement.py` — Policy enforcement middleware
+- `deeptrail-gateway/app/middleware/secret_injection.py` — Secret injection middleware
+- `deeptrail-gateway/app/middleware/credential_injection.py` — Credential injection for backend API calls
 - `deeptrail-gateway/app/security/token_exchange.py` — RFC 8693 token exchange with Keycloak
-- `deeptrail-gateway/app/main.py` — Gateway entry point, CORS config, middleware registration
-- `deeptrail-gateway/app/mcp/session_manager.py` — In-memory MCP session management
+
+**Control Plane:**
 - `deeptrail-control/app/api/v1/endpoints/agent_auth.py` — Ed25519 challenge-response authentication
 - `deeptrail-control/app/api/v1/endpoints/oauth.py` — Backend OAuth endpoints (Notion, Slack, etc.)
 - `deeptrail-control/app/core/security.py` — JWT creation (HS256) and Ed25519 signature verification
 - `deeptrail-control/app/core/oauth_config.py` — OAuth provider configuration with PKCE
 - `deeptrail-control/app/services/oauth_service.py` — OAuth service with PKCE (S256), state params
 - `deeptrail-control/app/services/agent_session_service.py` — Agent session/JWT issuance service
+
+**SDK:**
 - `deepsecure/_core/identity_manager.py` — SDK identity management (Ed25519 key operations)
 - `deepsecure/_core/base_client.py` — SDK base HTTP client (Authorization header handling)
