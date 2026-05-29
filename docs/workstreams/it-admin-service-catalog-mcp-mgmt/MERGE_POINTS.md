@@ -128,13 +128,13 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/v1/admin/servic
 
 ### Success Criteria
 
-- [ ] Migration runs without errors on PostgreSQL
-- [ ] 3 new tables created: `service_registry`, `service_oauth_configs`, `delegation_templates`
-- [ ] `role` column added to `user_sessions` (default: 'employee')
-- [ ] `template_id` and `source` columns added to `delegation_tokens`
-- [ ] `require_admin` middleware returns 403 for non-admin users
-- [ ] KMS encrypt/decrypt round-trips correctly (Fernet mode in dev)
-- [ ] Seed script sets admin role for specified email addresses
+- [x] Migration runs without errors on PostgreSQL
+- [x] 3 new tables created: `service_registry`, `service_oauth_config`, `delegation_templates`
+- [x] `role` column added to `user_sessions` (default: 'employee')
+- [x] `template_id` and `source` columns added to `delegation_tokens`
+- [x] `require_admin` middleware returns 401/403 for non-admin users
+- [x] KMS encrypt/decrypt round-trips correctly (Fernet mode in dev)
+- [x] Seed script sets admin role for specified email addresses
 
 ### Post-Merge Status Update
 
@@ -224,16 +224,16 @@ curl -s -X DELETE http://localhost:8000/api/v1/admin/services/test-mcp \
 
 ### Success Criteria
 
-- [ ] All 24 admin endpoints return correct responses matching spec
-- [ ] Service CRUD: create REST, create MCP, update, delete, test connection
-- [ ] OAuth config: set encrypted credentials, retrieve redacted
-- [ ] Internal registry API returns active services with decrypted MCP auth
-- [ ] Fleet API: cross-user agent listing with delegation counts
-- [ ] Agent suspend: revokes sessions + delegations
-- [ ] Delegation templates: CRUD with per-permission enforcement
-- [ ] Emergency controls: suspend-all, disable-delegations, lockdown with audit trail
-- [ ] `tools/call` with `_meta.user_id` resolves correct user's delegation
-- [ ] `tools/call` without `_meta.user_id` falls back to JWT owner
+- [x] All 24 admin endpoints return correct responses matching spec
+- [x] Service CRUD: create REST, create MCP, update, delete, test connection
+- [x] OAuth config: set encrypted credentials, retrieve redacted
+- [x] Internal registry API returns active services with decrypted MCP auth
+- [x] Fleet API: cross-user agent listing with delegation counts (102 agents)
+- [x] Agent suspend: revokes sessions + delegations
+- [x] Delegation templates: CRUD with per-permission enforcement
+- [x] Emergency controls: suspend-all, disable-delegations, lockdown with audit trail
+- [x] `tools/call` with `_meta.user_id` resolves correct user's delegation
+- [x] `tools/call` without `_meta.user_id` falls back to JWT owner
 
 ### Post-Merge Status Update
 
@@ -381,17 +381,19 @@ docker compose logs deeptrail-gateway | grep registry
 
 | MP | Status | Date | Tag |
 |----|--------|------|-----|
-| MP1 | 🔲 Not Reached | — | — |
-| MP2 | 🔲 Not Reached | — | — |
+| MP1 | ✅ Reached | May 29, 2026 | `mp1-foundation-complete-feature/it-admin-service-catalog-mcp-mgmt` |
+| MP2 | ✅ Reached | May 29, 2026 | `mp2-backend-apis-complete-feature/it-admin-service-catalog-mcp-mgmt` |
 | MP3 | 🔲 Not Reached | — | — |
 
 ### Progress Summary
 
-- 0 of 3 merge points reached
-- 0 of 35 tasks complete
+- 2 of 3 merge points reached
+- 20 of 35 tasks complete (B1 5/5 + B2 15/15)
 
 ## History
 
 | Date | Event |
 |------|-------|
 | May 29, 2026 | MERGE_POINTS.md created by `/run-plan` |
+| May 29, 2026 | MP1 reached — P0-B1 foundation complete (migration verified on PostgreSQL) |
+| May 29, 2026 | MP2 reached — P0-B2 backend APIs complete (container tests passed) |
