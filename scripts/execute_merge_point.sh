@@ -142,25 +142,35 @@ fi
 log_ok "Repo root: $REPO_ROOT"
 record_result "Repo root valid" "PASS"
 
-# 0b. Verify worktree exists
-log_step "Verify worktree at $WORKTREE_PATH"
-if [[ ! -d "$WORKTREE_PATH" ]]; then
-    abort "Worktree not found: $WORKTREE_PATH"
+# 0b. Verify worktree exists (skip for single-branch workstreams)
+if [[ -n "${WORKTREE_PATH:-}" ]]; then
+    log_step "Verify worktree at $WORKTREE_PATH"
+    if [[ ! -d "$WORKTREE_PATH" ]]; then
+        abort "Worktree not found: $WORKTREE_PATH"
+    fi
+    ACTUAL_BRANCH=$(cd "$WORKTREE_PATH" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "UNKNOWN")
+    if [[ "$ACTUAL_BRANCH" != "$WORKTREE_BRANCH" ]]; then
+        abort "Worktree branch mismatch: expected '$WORKTREE_BRANCH', got '$ACTUAL_BRANCH'"
+    fi
+    log_ok "Worktree exists on branch $WORKTREE_BRANCH"
+    record_result "Worktree valid" "PASS"
+else
+    log_step "Single-branch mode (no worktree)"
+    log_ok "No worktree configured — skipping worktree checks"
+    record_result "Single-branch mode" "PASS"
 fi
-ACTUAL_BRANCH=$(cd "$WORKTREE_PATH" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "UNKNOWN")
-if [[ "$ACTUAL_BRANCH" != "$WORKTREE_BRANCH" ]]; then
-    abort "Worktree branch mismatch: expected '$WORKTREE_BRANCH', got '$ACTUAL_BRANCH'"
-fi
-log_ok "Worktree exists on branch $WORKTREE_BRANCH"
-record_result "Worktree valid" "PASS"
 
-# 0c. Verify main repo is on target branch
-log_step "Verify main repo on $TARGET_BRANCH"
+# 0c. Verify main repo branch
+log_step "Verify main repo branch"
 MAIN_BRANCH=$(cd "$REPO_ROOT" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "UNKNOWN")
-if [[ "$MAIN_BRANCH" != "$TARGET_BRANCH" ]]; then
-    abort "Main repo branch mismatch: expected '$TARGET_BRANCH', got '$MAIN_BRANCH'"
+if [[ -n "${TARGET_BRANCH:-}" ]]; then
+    if [[ "$MAIN_BRANCH" != "$TARGET_BRANCH" ]]; then
+        abort "Main repo branch mismatch: expected '$TARGET_BRANCH', got '$MAIN_BRANCH'"
+    fi
+    log_ok "Main repo on $TARGET_BRANCH"
+else
+    log_ok "Main repo on $MAIN_BRANCH (no target branch constraint)"
 fi
-log_ok "Main repo on $TARGET_BRANCH"
 record_result "Main branch valid" "PASS"
 
 # 0d. Verify docker services
@@ -173,14 +183,20 @@ else
     record_result "Docker services running" "PASS"
 fi
 
-# 0e. Verify changed files exist
-log_step "Verify uncommitted backend files in main repo"
-CHANGED_COUNT=$(cd "$REPO_ROOT" && git status --short | grep -cE "deeptrail-control/" || true)
-if [[ "$CHANGED_COUNT" -eq 0 ]]; then
-    log_warn "No uncommitted deeptrail-control/ changes found — merge phase may be a no-op"
+# 0e. Verify changed files exist (only when SYNC_PREFIX is set for worktree sync)
+if [[ -n "${SYNC_PREFIX:-}" ]]; then
+    log_step "Verify uncommitted files under $SYNC_PREFIX"
+    CHANGED_COUNT=$(cd "$REPO_ROOT" && git status --short | grep -cE "$SYNC_PREFIX" || true)
+    if [[ "$CHANGED_COUNT" -eq 0 ]]; then
+        log_warn "No uncommitted $SYNC_PREFIX changes found — merge phase may be a no-op"
+    fi
+    log_ok "Found $CHANGED_COUNT changed files under $SYNC_PREFIX"
+    record_result "Changed files detected ($CHANGED_COUNT)" "PASS"
+else
+    log_step "No SYNC_PREFIX configured (single-branch mode)"
+    log_ok "Skipping file-sync check"
+    record_result "File sync check (skipped)" "PASS"
 fi
-log_ok "Found $CHANGED_COUNT changed files under $SYNC_PREFIX"
-record_result "Backend files detected ($CHANGED_COUNT)" "PASS"
 
 fi # phase 0
 
@@ -282,6 +298,12 @@ fi # phase 1
 if [[ $START_PHASE -le 2 ]]; then
 log_phase 2 "Worktree Commit + Merge"
 
+if [[ -z "${WORKTREE_PATH:-}" ]]; then
+    log_step "Single-branch mode — skipping worktree sync/merge"
+    log_ok "No worktree configured; commit/push handled by /run-batch Step 7c"
+    record_result "Worktree sync (single-branch skip)" "PASS"
+else
+
 cd "$REPO_ROOT"
 
 # 2a. Collect files to sync
@@ -375,6 +397,7 @@ else
 fi
 record_result "Branch merge" "PASS"
 
+fi # worktree check
 fi # phase 2
 
 # =============================================================================
@@ -542,10 +565,6 @@ if [[ -z "$USER_TOKEN" || "$USER_TOKEN" == "null" ]] && ! $DRY_RUN; then
     log_warn "Could not authenticate — API smoke tests skipped"
     log_warn "Login response: $LOGIN_RESPONSE"
     record_result "Smoke: authentication" "SKIP"
-    record_result "Smoke: lifecycle_state on detail" "SKIP"
-    record_result "Smoke: lifecycle_state on list" "SKIP"
-    record_result "Smoke: sessions endpoint" "SKIP"
-    record_result "Smoke: sessions active_only filter" "SKIP"
 else
 
 if ! $DRY_RUN; then
@@ -553,91 +572,34 @@ if ! $DRY_RUN; then
     record_result "Smoke: authentication" "PASS"
 fi
 
-# Smoke: lifecycle_state on agent detail
-log_step "API smoke: lifecycle_state on agent detail"
-if $DRY_RUN; then
-    log_dry "curl GET $API_BASE/api/v1/agents/ | jq .[0].agent_id"
-else
-    AGENT_ID=$(curl -sf -H "Authorization: Bearer $USER_TOKEN" \
-        "$API_BASE/api/v1/agents/" 2>/dev/null | jq -r '.[0].agent_id // empty' 2>/dev/null || true)
-
-    if [[ -z "$AGENT_ID" ]]; then
-        log_warn "No agents found — creating one would be needed for full smoke test"
-        record_result "Smoke: lifecycle_state on detail" "SKIP"
-    else
-        DETAIL=$(curl -sf -H "Authorization: Bearer $USER_TOKEN" \
-            "$API_BASE/api/v1/agents/$AGENT_ID" 2>/dev/null || echo "{}")
-        STATE=$(echo "$DETAIL" | jq -r '.lifecycle_state // empty' 2>/dev/null || true)
-        if [[ -n "$STATE" && "$STATE" != "null" ]]; then
-            log_ok "lifecycle_state = '$STATE' on /agents/$AGENT_ID"
-            record_result "Smoke: lifecycle_state on detail" "PASS"
+# Config-driven API endpoint smoke tests (SMOKE_ENDPOINTS array)
+# Each entry: "METHOD|PATH|JQ_CHECK|LABEL"
+#   METHOD: GET or POST
+#   PATH: relative to API_BASE (e.g., /api/v1/audit/events?limit=1)
+#   JQ_CHECK: jq expression that should return non-empty/non-null (e.g., .events[0].tool)
+#   LABEL: human-readable description
+if [[ -n "${SMOKE_ENDPOINTS[*]:-}" ]]; then
+    EP_IDX=0
+    for ep_entry in "${SMOKE_ENDPOINTS[@]}"; do
+        EP_IDX=$((EP_IDX + 1))
+        IFS='|' read -r EP_METHOD EP_PATH EP_JQ EP_LABEL <<< "$ep_entry"
+        log_step "API smoke $EP_IDX: $EP_LABEL"
+        if $DRY_RUN; then
+            log_dry "curl $EP_METHOD $API_BASE$EP_PATH | jq '$EP_JQ'"
+            record_result "Smoke: $EP_LABEL" "SKIP"
         else
-            log_fail "lifecycle_state missing from /agents/$AGENT_ID"
-            record_result "Smoke: lifecycle_state on detail" "FAIL"
+            RESP=$(curl -sf -X "$EP_METHOD" -H "Authorization: Bearer $USER_TOKEN" \
+                "$API_BASE$EP_PATH" 2>/dev/null || echo "{}")
+            VALUE=$(echo "$RESP" | jq -r "$EP_JQ // empty" 2>/dev/null || true)
+            if [[ -n "$VALUE" && "$VALUE" != "null" ]]; then
+                log_ok "$EP_LABEL: $VALUE"
+                record_result "Smoke: $EP_LABEL" "PASS"
+            else
+                log_fail "$EP_LABEL: jq check '$EP_JQ' returned empty"
+                record_result "Smoke: $EP_LABEL" "FAIL"
+            fi
         fi
-    fi
-fi
-
-# Smoke: lifecycle_state on list
-log_step "API smoke: lifecycle_state on agent list"
-if $DRY_RUN; then
-    log_dry "curl GET $API_BASE/api/v1/agents/ | jq .[].lifecycle_state"
-else
-    LIST=$(curl -sf -H "Authorization: Bearer $USER_TOKEN" \
-        "$API_BASE/api/v1/agents/" 2>/dev/null || echo "[]")
-    NULL_STATES=$(echo "$LIST" | jq '[.[] | select(.lifecycle_state == null)] | length' 2>/dev/null || echo "?")
-    TOTAL=$(echo "$LIST" | jq 'length' 2>/dev/null || echo "0")
-    if [[ "$NULL_STATES" == "0" && "$TOTAL" != "0" ]]; then
-        log_ok "All $TOTAL agents have lifecycle_state"
-        record_result "Smoke: lifecycle_state on list" "PASS"
-    elif [[ "$TOTAL" == "0" ]]; then
-        log_warn "No agents in system — cannot verify"
-        record_result "Smoke: lifecycle_state on list" "SKIP"
-    else
-        log_fail "$NULL_STATES of $TOTAL agents missing lifecycle_state"
-        record_result "Smoke: lifecycle_state on list" "FAIL"
-    fi
-fi
-
-# Smoke: sessions endpoint
-log_step "API smoke: sessions endpoint"
-if $DRY_RUN; then
-    log_dry "curl GET $API_BASE/api/v1/agents/\$AGENT_ID/sessions"
-else
-    if [[ -n "${AGENT_ID:-}" ]]; then
-        HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $USER_TOKEN" \
-            "$API_BASE/api/v1/agents/$AGENT_ID/sessions" 2>/dev/null || echo "000")
-        if [[ "$HTTP_CODE" == "200" ]]; then
-            log_ok "GET /agents/$AGENT_ID/sessions returned $HTTP_CODE"
-            record_result "Smoke: sessions endpoint" "PASS"
-        else
-            log_fail "GET /agents/$AGENT_ID/sessions returned $HTTP_CODE (expected 200)"
-            record_result "Smoke: sessions endpoint" "FAIL"
-        fi
-    else
-        record_result "Smoke: sessions endpoint" "SKIP"
-    fi
-fi
-
-# Smoke: sessions active_only filter
-log_step "API smoke: sessions active_only filter"
-if $DRY_RUN; then
-    log_dry "curl GET $API_BASE/api/v1/agents/\$AGENT_ID/sessions?active_only=true"
-else
-    if [[ -n "${AGENT_ID:-}" ]]; then
-        SESSIONS_RESP=$(curl -sf -H "Authorization: Bearer $USER_TOKEN" \
-            "$API_BASE/api/v1/agents/$AGENT_ID/sessions?active_only=true" 2>/dev/null || echo "{}")
-        HAS_SESSIONS=$(echo "$SESSIONS_RESP" | jq 'has("sessions")' 2>/dev/null || echo "false")
-        if [[ "$HAS_SESSIONS" == "true" ]]; then
-            log_ok "active_only filter returns sessions object (not agent detail)"
-            record_result "Smoke: sessions active_only filter" "PASS"
-        else
-            log_fail "active_only response does not look like a sessions list"
-            record_result "Smoke: sessions active_only filter" "FAIL"
-        fi
-    else
-        record_result "Smoke: sessions active_only filter" "SKIP"
-    fi
+    done
 fi
 
 fi # USER_TOKEN check
@@ -733,20 +695,25 @@ if [[ -n "${SUCCESS_CRITERIA[*]:-}" ]]; then
     done
 fi
 
-# Verify merge happened
-log_step "Verifying merge commit exists"
+# Verify recent commit matches expected pattern
+log_step "Verifying recent commit"
 if $DRY_RUN; then
     log_dry "git log --oneline -1"
-    record_result "Merge commit exists" "SKIP"
+    record_result "Commit verification" "SKIP"
 else
     cd "$REPO_ROOT"
     LAST_COMMIT=$(git log --oneline -1 2>/dev/null || echo "")
-    if echo "$LAST_COMMIT" | grep -qi "merge.*agent-lifecycle\|lifecycle.*merge"; then
-        log_ok "Merge commit: $LAST_COMMIT"
-        record_result "Merge commit exists" "PASS"
+    if [[ -n "${COMMIT_PATTERN:-}" ]]; then
+        if echo "$LAST_COMMIT" | grep -qi "$COMMIT_PATTERN"; then
+            log_ok "Commit matches pattern: $LAST_COMMIT"
+            record_result "Commit verification" "PASS"
+        else
+            log_warn "Last commit doesn't match pattern '$COMMIT_PATTERN': $LAST_COMMIT"
+            record_result "Commit verification" "PASS"
+        fi
     else
-        log_warn "Last commit doesn't look like a merge: $LAST_COMMIT"
-        record_result "Merge commit exists" "PASS"
+        log_ok "Last commit: $LAST_COMMIT (no COMMIT_PATTERN configured)"
+        record_result "Commit verification" "PASS"
     fi
 fi
 

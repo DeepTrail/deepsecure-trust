@@ -16,6 +16,18 @@ vi.mock("@/lib/api/client", () => ({
   },
 }));
 
+vi.mock("@/hooks/useAgentNames", () => ({
+  useAgentNames: () => ({
+    names: new Map([["test-agent", "Test Agent"]]),
+    loading: false,
+    resolve: (id: string) => (id === "test-agent" ? "Test Agent" : id),
+  }),
+}));
+
+vi.mock("@/lib/auth/onboarding", () => ({
+  checkOnboardingStatus: () => Promise.resolve("dashboard"),
+}));
+
 vi.mock("@/components/feedback/page-skeleton", () => ({
   PageSkeleton: () => <div data-testid="page-skeleton">Loading...</div>,
 }));
@@ -57,28 +69,63 @@ const mockPolicies = [
   { id: "policy-4" },
   { id: "policy-5" },
 ];
-const mockEvents = [
-  {
-    id: "evt-1",
-    event_type: "mcp_tool_call",
-    timestamp: "2026-01-01T09:00:00Z",
-    agent_id: "test-agent",
-  },
-  {
-    id: "evt-2",
-    event_type: "agent_auth",
-    timestamp: "2026-01-01T10:00:00Z",
-  },
-];
+const mockEventsResponse = {
+  events: [
+    {
+      id: "evt-1",
+      event_type: "mcp_tool_call",
+      timestamp: "2026-01-01T09:00:00Z",
+      agent_id: "test-agent",
+      on_behalf_of: "sarah@acme.com",
+      organization_id: null,
+      tool: "notion.search_pages",
+      success: true,
+      arguments: null,
+      result_summary: null,
+      reason: null,
+      attempted_tool: null,
+      required_permission: null,
+      duration_ms: 250,
+      session_id: null,
+      agent_session_id: null,
+      mcp_session_id: null,
+      delegation_id: null,
+      extra_data: null,
+    },
+    {
+      id: "evt-2",
+      event_type: "permission_denied",
+      timestamp: "2026-01-01T10:00:00Z",
+      agent_id: null,
+      on_behalf_of: "admin@acme.com",
+      organization_id: null,
+      tool: null,
+      success: false,
+      arguments: null,
+      result_summary: null,
+      reason: "Not delegated",
+      attempted_tool: "slack.post_message",
+      required_permission: "slack:messages:send",
+      duration_ms: null,
+      session_id: null,
+      agent_session_id: null,
+      mcp_session_id: null,
+      delegation_id: null,
+      extra_data: null,
+    },
+  ],
+  total: 2,
+  limit: 10,
+  offset: 0,
+};
 
 function mockApiSuccess() {
-  mockApiClient.mockImplementation((path: string) => {
-    if (path.startsWith("agents")) return Promise.resolve(mockAgents as never);
-    if (path.startsWith("policies"))
-      return Promise.resolve(mockPolicies as never);
-    if (path.startsWith("audit")) return Promise.resolve(mockEvents as never);
-    return Promise.resolve([] as never);
-  });
+  mockApiClient.mockImplementation(((path: string) => {
+    if (path.startsWith("agents")) return Promise.resolve(mockAgents);
+    if (path.startsWith("policies")) return Promise.resolve(mockPolicies);
+    if (path.startsWith("audit")) return Promise.resolve(mockEventsResponse);
+    return Promise.resolve([]);
+  }) as typeof apiClient);
 }
 
 describe("DashboardPage", () => {
@@ -107,27 +154,70 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Activity")).toBeInTheDocument();
   });
 
-  it("renders recent events with badges", async () => {
+  it("renders recent events with tool names, duration, and user", async () => {
     mockApiSuccess();
     render(<DashboardPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("mcp_tool_call")).toBeInTheDocument();
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("agent_auth")).toBeInTheDocument();
-    expect(screen.getByText("test-agent")).toBeInTheDocument();
+    expect(screen.getByText("slack.post_message")).toBeInTheDocument();
+    expect(screen.getByText("Test Agent")).toBeInTheDocument();
+    expect(screen.getByText("250ms")).toBeInTheDocument();
+    expect(screen.getByText("sarah@acme.com")).toBeInTheDocument();
+  });
+
+  it("shows health summary with denial count", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("2 events")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("1 denied")).toBeInTheDocument();
+    expect(screen.getByText(/avg 250ms/)).toBeInTheDocument();
+  });
+
+  it("denied events show DENIED text and event type badge", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("DENIED: slack:messages:send")
+      ).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getAllByText("permission_denied").length
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("mcp_tool_call").length
+    ).toBeGreaterThan(0);
+  });
+
+  it("View all link points to /dashboard/audit", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    });
+
+    const viewAllLink = screen.getByText("View all in Audit Trail").closest("a");
+    expect(viewAllLink).toHaveAttribute("href", "/dashboard/audit");
   });
 
   it("shows EmptyState when events array is empty", async () => {
-    mockApiClient.mockImplementation((path: string) => {
-      if (path.startsWith("agents"))
-        return Promise.resolve(mockAgents as never);
-      if (path.startsWith("policies"))
-        return Promise.resolve(mockPolicies as never);
-      if (path.startsWith("audit")) return Promise.resolve([] as never);
-      return Promise.resolve([] as never);
-    });
+    mockApiClient.mockImplementation(((path: string) => {
+      if (path.startsWith("agents")) return Promise.resolve(mockAgents);
+      if (path.startsWith("policies")) return Promise.resolve(mockPolicies);
+      if (path.startsWith("audit"))
+        return Promise.resolve({ events: [], total: 0, limit: 10, offset: 0 });
+      return Promise.resolve([]);
+    }) as typeof apiClient);
 
     render(<DashboardPage />);
 
@@ -177,14 +267,13 @@ describe("DashboardPage", () => {
   });
 
   it("handles partial API failure gracefully", async () => {
-    mockApiClient.mockImplementation((path: string) => {
-      if (path.startsWith("agents"))
-        return Promise.resolve(mockAgents as never);
+    mockApiClient.mockImplementation(((path: string) => {
+      if (path.startsWith("agents")) return Promise.resolve(mockAgents);
       if (path.startsWith("policies"))
         return Promise.reject(new Error("Policies unavailable"));
-      if (path.startsWith("audit")) return Promise.resolve(mockEvents as never);
-      return Promise.resolve([] as never);
-    });
+      if (path.startsWith("audit")) return Promise.resolve(mockEventsResponse);
+      return Promise.resolve([]);
+    }) as typeof apiClient);
 
     render(<DashboardPage />);
 
@@ -193,6 +282,76 @@ describe("DashboardPage", () => {
       const agentsText = screen.queryByText("Agents");
       expect(errorCard || agentsText).toBeTruthy();
     });
+  });
+
+  it("shows table headers (Agent, On Behalf Of, Tool Call, Duration, Timestamp, Event Type, Status)", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Agent")).toBeInTheDocument();
+    expect(screen.getByText("On Behalf Of")).toBeInTheDocument();
+    expect(screen.getByText("Tool Call")).toBeInTheDocument();
+    expect(screen.getByText("Duration")).toBeInTheDocument();
+    expect(screen.getByText("Timestamp")).toBeInTheDocument();
+    expect(screen.getByText("Event Type")).toBeInTheDocument();
+    expect(screen.getByText("Status")).toBeInTheDocument();
+  });
+
+  it("expands event detail on click showing reason", async () => {
+    mockApiSuccess();
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Not delegated")).not.toBeInTheDocument();
+
+    const deniedCell = screen.getByText("slack.post_message").closest("tr");
+    fireEvent.click(deniedCell!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Not delegated")).toBeInTheDocument();
+    });
+  });
+
+  it("shows organization_id in expanded detail when present", async () => {
+    const eventsWithOrg = {
+      events: [
+        {
+          ...mockEventsResponse.events[0],
+          organization_id: "org-acme-123",
+        },
+      ],
+      total: 1,
+      limit: 10,
+      offset: 0,
+    };
+
+    mockApiClient.mockImplementation(((path: string) => {
+      if (path.startsWith("agents")) return Promise.resolve(mockAgents);
+      if (path.startsWith("policies")) return Promise.resolve(mockPolicies);
+      if (path.startsWith("audit")) return Promise.resolve(eventsWithOrg);
+      return Promise.resolve([]);
+    }) as typeof apiClient);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("notion.search_pages")).toBeInTheDocument();
+    });
+
+    const row = screen.getByText("notion.search_pages").closest("tr");
+    fireEvent.click(row!);
+
+    await waitFor(() => {
+      expect(screen.getByText("org-acme-123")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Organization:")).toBeInTheDocument();
   });
 
   it("displays zero count when API returns empty arrays", async () => {

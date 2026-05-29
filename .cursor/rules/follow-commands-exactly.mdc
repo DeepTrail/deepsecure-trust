@@ -1,0 +1,15 @@
+---
+description: When user prompts with a command (e.g. /spec, /create-design-doc, /breakdown-design), follow that command's workflow exactly as written
+alwaysApply: true
+---
+
+# Follow Commands Exactly
+
+When the user prompts with a command (e.g. `/spec`, `/create-design-doc`, `/breakdown-design`, or any command defined in `.cursor/commands/`):
+
+1. **Follow that command's workflow exactly as written** -- do not deviate, skip steps, or improvise your own approach
+2. **Respect gated phases** -- if the command defines phases (e.g. CLARIFY -> SPECIFY -> VALIDATE -> OUTPUT), complete each phase and STOP at gates that require human input before proceeding
+3. **Use the exact template** -- if the command provides a template with mandatory sections, include every mandatory section. Do not omit sections or substitute your own structure
+4. **Do not blend your own workflow** -- the command IS the workflow. Do not start with the command's foundation and then "go on your own"
+
+If a command says "STOP and wait for answers," stop and wait. If a command says a section is MANDATORY, include it. No exceptions.

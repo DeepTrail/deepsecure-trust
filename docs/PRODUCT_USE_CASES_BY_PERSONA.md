@@ -1,6 +1,6 @@
 # DeepSecure: End-to-End Product Use Cases by Persona
 
-> **Product Use Cases Guide** | Version 1.2 | February 2026
+> **Product Use Cases Guide** | Version 1.3 | May 2026
 >
 > This document describes how different enterprise personas interact with the DeepSecure platform, from initial setup through daily operations.
 
@@ -15,8 +15,9 @@
 5. [Employee (End User)](#5-employee-end-user)
 6. [Security Team](#6-security-team)
 7. [Engineering Team](#7-engineering-team)
-8. [Cross-Persona Workflows](#8-cross-persona-workflows)
-9. [Appendix: Quick Reference](#9-appendix-quick-reference)
+8. [Vendor Admin (Multi-User Agent Model)](#8-vendor-admin-multi-user-agent-model)
+9. [Cross-Persona Workflows](#9-cross-persona-workflows)
+10. [Appendix: Quick Reference](#10-appendix-quick-reference)
 
 ---
 
@@ -30,6 +31,7 @@ DeepSecure enables enterprises to securely deploy AI agents while maintaining co
 | **Employee** | Connect services, delegate to agents, monitor activity | Self-service with guardrails |
 | **Security Team** | Policy definition, threat monitoring, incident response | Zero-trust enforcement, complete audit |
 | **Engineering Team** | Build agents, integrate SDK, test & deploy | Simple integration, no credential handling |
+| **Vendor Admin** | Register agents for customers, manage multi-user delegations, monitor fleet | One agent serving multiple users across organizations |
 
 ---
 
@@ -377,14 +379,24 @@ POST /api/v1/admin/emergency/lockdown
 │           │                       │                       │                 │
 │           └───────────────────────┼───────────────────────┘                 │
 │                                   │                                         │
-│                    ┌──────────────────────────┐                             │
-│                    │    ENGINEERING TEAM      │                             │
-│                    │                          │                             │
-│                    │  • Agent development     │                             │
-│                    │  • SDK integration       │                             │
-│                    │  • MCP server creation   │                             │
-│                    │  • Testing & deployment  │                             │
-│                    └──────────────────────────┘                             │
+│          ┌────────────────────────┼────────────────────────┐                │
+│          │                        │                        │                │
+│  ┌──────────────────────────┐    │    ┌──────────────────────────┐          │
+│  │    ENGINEERING TEAM      │    │    │     VENDOR ADMIN         │          │
+│  │                          │    │    │                          │          │
+│  │  • Agent development     │    │    │  • Agent registration    │          │
+│  │  • SDK integration       │    │    │  • Multi-user management │          │
+│  │  • MCP server creation   │    │    │  • Fleet monitoring      │          │
+│  │  • Testing & deployment  │    │    │  • Cross-user audit view │          │
+│  └──────────────────────────┘    │    └──────────────────────────┘          │
+│                                  │                                          │
+│                    ┌─────────────────────────────┐                          │
+│                    │   MULTI-USER DELEGATION     │                          │
+│                    │                             │                          │
+│                    │  1 Agent → N Users          │                          │
+│                    │  Each user: own OAuth +     │                          │
+│                    │  own permissions + own TTL  │                          │
+│                    └─────────────────────────────┘                          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -738,6 +750,151 @@ curl -s -X POST http://localhost:8002/admin/backends/notion/test \
 | **Audit dormant agents** | Weekly | Identify and disable inactive agents |
 | **Role permission review** | Monthly | Ensure roles align with business needs |
 | **Vendor compliance check** | Quarterly | Verify approved vendors remain compliant |
+
+### 4.6 Admin Agent View (Multi-User Lifecycle)
+
+> **Note:** For the multi-user model (1 agent → N users), IT Admin needs a different view than the employee's single-user Agents page. The admin view shows the agent's relationship to ALL delegating users.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               IT ADMIN: AGENT FLEET VIEW (MULTI-USER)                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  AGENT: Sales Assistant (agent-xxx-yyy-zzz)                                 │
+│  Status: ● Active | Platform: GCP Workload Identity                         │
+│  SA: sales-agent-sa@company.iam.gserviceaccount.com                         │
+│                                                                             │
+│  LIFECYCLE:                                                                  │
+│  ●─────────────●───────────────────────●────────────────●                   │
+│  Reg           Del (3 users)           Auth (1×)       Active               │
+│  (admin)       (user self-service)     (bootstrap)     (heartbeat)          │
+│                                                                             │
+│  WHY 1 AUTH, NOT N:                                                          │
+│  The agent has ONE workload identity (one service account).                  │
+│  It bootstraps ONCE → gets 1 Agent JWT.                                      │
+│  N users create N independent delegations to the SAME agent.                 │
+│  On each tool call, agent specifies which user's context (user_id).          │
+│                                                                             │
+│  DELEGATING USERS (3):                                                       │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  User           │ Services        │ Permissions       │ Expires   │     │
+│  │  ────────────── │ ─────────────── │ ──────────────── │ ───────── │     │
+│  │  sarah@acme.com │ Notion, Slack,  │ Full access       │ 6 days   │     │
+│  │                 │ Gmail, Cal      │ (8 permissions)   │           │     │
+│  │  victor@acme.   │ Notion, Gmail   │ Read-only         │ 4 days   │     │
+│  │                 │                 │ ⚠️ No send email  │           │     │
+│  │  priya@acme.com │ Slack only      │ messages:read     │ 2 days   │     │
+│  │                 │                 │ (2 permissions)   │           │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│  RECENT ACTIVITY (by user context):                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  10:15  │ sarah  │ notion.search_pages │ ✅ 3 results  │ 473ms   │     │
+│  │  10:16  │ victor │ gcalendar.list      │ ✅ 5 events   │ 320ms   │     │
+│  │  10:17  │ priya  │ slack.list_channels │ ✅ 12 chans   │ 210ms   │     │
+│  │  10:18  │ victor │ gmail.send_message  │ ❌ Denied     │ —       │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Architectural Point:**
+- **1 Registration** (by admin)
+- **N Delegations** (by users independently — self-service)
+- **1 Authentication** (agent bootstrap — NOT per user)
+- **Active** status based on agent heartbeat (any user's tool call updates it)
+
+This differs from the current single-employee view where each user sees only their own agents and delegations. The admin view aggregates across all users for a single agent.
+
+### 4.7 Admin Delegation Management
+
+> IT Admin creates default delegation templates that users inherit. Users can narrow (remove permissions) but cannot exceed admin-set limits. This enables "admin sets policy once, N users self-onboard" pattern.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│            IT ADMIN: DELEGATION MANAGEMENT                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  DELEGATION TEMPLATES:                                                       │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  Agent               │ Default Permissions    │ Max TTL │ Users   │     │
+│  │  ──────────────────── │ ────────────────────── │ ─────── │ ─────── │     │
+│  │  Sales Assistant      │ notion:read, slack:*,  │ 7 days  │ 5/10   │     │
+│  │                       │ gmail:read, cal:read   │         │ active  │     │
+│  │  Engineering Audit    │ notion:*, slack:*,     │ 7 days  │ 3/3    │     │
+│  │                       │ github:read            │         │ active  │     │
+│  │  Thunderbolt Agent    │ notion:*, slack:*,     │ 7 days  │ 1/∞    │     │
+│  │                       │ gmail:*, gdrive:*      │         │ active  │     │
+│  │                                                                    │     │
+│  │  [+ Create Template]  [Edit]  [Clone]                              │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│  ALL ACTIVE DELEGATIONS (across all users):                                  │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  User           │ Agent              │ Permissions │ Status │ TTL  │     │
+│  │  ────────────── │ ────────────────── │ ─────────── │ ────── │ ──── │     │
+│  │  sarah@acme     │ Sales Assistant    │ 12 (full)   │ Active │ 6d   │     │
+│  │  victor@acme    │ Sales Assistant    │ 5 (narrowed)│ Active │ 4d   │     │
+│  │  priya@acme     │ Sales Assistant    │ 4 (narrowed)│ Active │ 2d   │     │
+│  │  mahendra@      │ Engineering Audit  │ 12 (full)   │ Active │ 7d   │     │
+│  │  sarah@acme     │ Thunderbolt Agent  │ 15 (full)   │ Active │ 7d   │     │
+│  │  victor@acme    │ Engineering Audit  │ — (pending) │ Invite │ —    │     │
+│  │                                                                    │     │
+│  │  [Create Delegation]  [Bulk Revoke]  [Export CSV]                  │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│  DELEGATION FLOW:                                                            │
+│  ─────────────────                                                           │
+│                                                                             │
+│  Admin creates template:                                                     │
+│    → Sets max permissions per agent (ceiling)                                │
+│    → Sets default TTL                                                        │
+│    → Optionally invites users                                                │
+│                                                                             │
+│  User self-service:                                                          │
+│    → User logs in, sees agents available to them                             │
+│    → User "accepts" delegation (inherits admin template)                     │
+│    → User can REMOVE permissions they don't want (narrow)                    │
+│    → User CANNOT ADD permissions beyond admin template (ceiling)             │
+│    → User can set shorter TTL (but not longer than admin max)                │
+│                                                                             │
+│  Admin override:                                                             │
+│    → Admin can revoke any user's delegation                                  │
+│    → Admin can create delegation on behalf of user                           │
+│    → Admin can update template (existing delegations NOT auto-changed)       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**API Endpoints:**
+```
+# Admin: Create delegation template for an agent
+POST /api/v1/admin/delegation-templates
+{
+  "agent_id": "agent-xxx",
+  "max_permissions": ["notion:pages:read", "slack:messages:*", ...],
+  "default_ttl_days": 7,
+  "available_to_roles": ["sales-rep", "product-manager"]
+}
+
+# Admin: View all delegations across all users
+GET /api/v1/admin/delegations?agent_id=...&user=...&status=active
+
+# Admin: Create delegation on behalf of a user
+POST /api/v1/admin/delegations
+{
+  "agent_id": "agent-xxx",
+  "user_email": "sarah@acme.com",
+  "permissions": [...],   // must be subset of template max
+  "ttl_days": 7
+}
+
+# User: Accept/customize their delegation (narrow only)
+PATCH /api/v1/delegations/{delegation_id}
+{
+  "permissions": [...]    // can only REMOVE, not add beyond template
+}
+```
 
 ---
 
@@ -1882,9 +2039,240 @@ curl -s "http://localhost:8002/debug/replay/call-id-xyz" \
 
 ---
 
-## 8. Cross-Persona Workflows
+## 8. Vendor Admin (Multi-User Agent Model)
 
-### 8.1 New Agent Rollout (All Personas)
+> **Added May 2026** — Based on customer conversation with Scale Agentic (Victor). This persona manages agents that serve multiple human users within a customer organization.
+
+### 8.1 Role Overview
+
+| Aspect | Description |
+|--------|-------------|
+| **Primary Goal** | Deploy one agent per customer that serves multiple human users, each with their own delegated permissions |
+| **Key Concerns** | Multi-user isolation, per-user token management, company-level agent identity, scalable onboarding |
+| **Access Level** | Admin-level agent registration + monitoring; delegates per-user permission management to individual users |
+
+### 8.2 Multi-User Agent Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│            VENDOR ADMIN: MULTI-USER AGENT MODEL                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  CURRENT MODEL (Single-User):          MULTI-USER MODEL (Scale Agentic):   │
+│  ─────────────────────────────          ───────────────────────────────     │
+│                                                                             │
+│  1 User → 1 Agent → 1 Token Set        1 Agent → N Users → N Token Sets   │
+│                                                                             │
+│  ┌────────┐    ┌────────┐              ┌────────────────────┐              │
+│  │ Sarah  │───▶│ Agent  │              │    Sales Agent     │              │
+│  │        │    │        │              │  (1 SA / 1 WI)     │              │
+│  │ tokens │    │ tools  │              └─────────┬──────────┘              │
+│  └────────┘    └────────┘                        │                         │
+│                                         ┌────────┼────────┐                │
+│                                         ▼        ▼        ▼                │
+│                                    ┌────────┐┌────────┐┌────────┐          │
+│                                    │ User A ││ User B ││ User C │          │
+│                                    │        ││        ││        │          │
+│                                    │ Notion ││ Notion ││ Notion │          │
+│                                    │ Slack  ││ Slack  ││ Gmail  │          │
+│                                    │ Gmail  ││ (read) ││ Cal    │          │
+│                                    │ (full) ││        ││(read)  │          │
+│                                    └────────┘└────────┘└────────┘          │
+│                                                                             │
+│  KEY: Each user has their own OAuth tokens + permission scope.              │
+│       Agent dynamically selects user context per tool call.                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 8.3 Vendor Admin: Register Agent for Company
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│            VENDOR ADMIN: REGISTER COMPANY AGENT                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  STEP 1: Register Agent (Admin)                                            │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                             │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  Register Company Agent                                            │     │
+│  │                                                                    │     │
+│  │  Agent Name: [Scale Sales Agent_______________]                   │     │
+│  │  Company: [Deep Trail Inc ▼]                                      │     │
+│  │  Identity Method: ● GCP Workload Identity                         │     │
+│  │  SA Email: [scale-sales-sa@customer-project.iam.gserviceaccount.com]│    │
+│  │                                                                    │     │
+│  │  ⚠️ One service account per customer (company-level identity)     │     │
+│  │                                                                    │     │
+│  │  [ Register Agent ]                                                │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│  STEP 2: Agent Registered — Users Onboard Independently                    │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                             │
+│  ✅ Agent Registered: scale-sales-agent (agent-xxx-yyy-zzz)                │
+│  ✅ Attestation Policy Created (GCP WI + SA email)                          │
+│  📋 Deploy Instructions: [View GCP Setup Commands]                          │
+│                                                                             │
+│  Next: Individual users log in and delegate their own permissions.          │
+│  Agent will access each user's services based on their delegation.          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 8.4 User Self-Service Delegation (Per-User)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│            USER: SELF-SERVICE DELEGATION TO COMPANY AGENT                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Welcome, Victor! Your admin has registered "Scale Sales Agent"             │
+│  for your company. Delegate your permissions below.                         │
+│                                                                             │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  DELEGATE YOUR PERMISSIONS TO: Scale Sales Agent                   │     │
+│  │                                                                    │     │
+│  │  YOUR CONNECTED SERVICES:                                         │     │
+│  │  ✅ Google Calendar (victor@deeptrail.com)                         │     │
+│  │  ✅ Gmail (victor@deeptrail.com)                                   │     │
+│  │  ✅ Notion (Victor's workspace)                                    │     │
+│  │  ⚠️ Slack (not connected) [Connect Now]                           │     │
+│  │                                                                    │     │
+│  │  ────────────────────────────────────────────────────────────────  │     │
+│  │                                                                    │     │
+│  │  GOOGLE CALENDAR:                                                  │     │
+│  │  ☑ List events (gcalendar:events:list)                             │     │
+│  │  ☐ Create events (gcalendar:events:create)                         │     │
+│  │                                                                    │     │
+│  │  GMAIL:                                                            │     │
+│  │  ☑ Search messages (gmail:messages:search)                         │     │
+│  │  ☐ Send messages (gmail:messages:send) ← Victor opts out          │     │
+│  │                                                                    │     │
+│  │  NOTION:                                                           │     │
+│  │  ☑ Search pages (notion:pages:search)                              │     │
+│  │  ☑ Read pages (notion:pages:read)                                  │     │
+│  │                                                                    │     │
+│  │  Expires in: [7 days ▼]                                            │     │
+│  │                                                                    │     │
+│  │  [ Create Delegation ]                                             │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│  ℹ️ Other users in your company can grant different permissions.            │
+│  The agent will only access YOUR data with YOUR permission level.           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 8.5 Agent → Users → Tokens Mapping (Admin View)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│            VENDOR ADMIN: AGENT USER MAPPING VIEW                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  AGENT: Scale Sales Agent (agent-xxx-yyy-zzz)                              │
+│  Status: ● Active | Last Activity: 2 min ago                               │
+│  Identity: GCP WI (scale-sales-sa@customer-project.iam...)                 │
+│                                                                             │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │  DELEGATING USERS (3)                                              │     │
+│  │                                                                    │     │
+│  │  User           │ Services        │ Permissions       │ Expires   │     │
+│  │  ────────────── │ ─────────────── │ ──────────────── │ ───────── │     │
+│  │  mahendra@      │ Notion, Slack,  │ Full access       │ 6 days   │     │
+│  │  deeptrail.com  │ Gmail, Cal      │ (8 permissions)   │           │     │
+│  │                 │                 │                    │           │     │
+│  │  victor@        │ Notion, Gmail,  │ Read-only         │ 4 days   │     │
+│  │  deeptrail.com  │ Calendar        │ (5 permissions)   │           │     │
+│  │                 │                 │ ⚠️ No send email  │           │     │
+│  │                 │                 │                    │           │     │
+│  │  priya@         │ Slack, Notion   │ Slack full,       │ 2 days   │     │
+│  │  deeptrail.com  │                 │ Notion read       │           │     │
+│  │                 │                 │ (4 permissions)   │           │     │
+│  │                                                                    │     │
+│  │  ────────────────────────────────────────────────────────────────  │     │
+│  │                                                                    │     │
+│  │  RECENT TOOL CALLS (by user context):                             │     │
+│  │                                                                    │     │
+│  │  Time     │ User     │ Tool                │ Result               │     │
+│  │  ──────── │ ──────── │ ─────────────────── │ ──────────────────── │     │
+│  │  10:15:32 │ mahendra │ notion.search_pages │ ✅ 3 pages found     │     │
+│  │  10:16:01 │ victor   │ gcalendar.list      │ ✅ 5 events          │     │
+│  │  10:16:45 │ priya    │ slack.send_message  │ ✅ Sent to #general  │     │
+│  │  10:17:12 │ victor   │ gmail.send_message  │ ❌ Denied (not dele) │     │
+│  │                                                                    │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 8.6 Multi-User Tool Call Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│            HOW MULTI-USER TOOL CALLS WORK                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. Agent bootstraps (gets Agent JWT via GCP Workload Identity)             │
+│                                                                             │
+│  2. Agent has a task: "Check Victor's calendar for conflicts"               │
+│                                                                             │
+│  3. Agent makes MCP tool call WITH user context:                            │
+│     POST /mcp                                                               │
+│     {                                                                       │
+│       "method": "tools/call",                                               │
+│       "params": {                                                           │
+│         "name": "gcalendar.events_list",                                    │
+│         "arguments": { "date": "2026-05-27" },                              │
+│         "meta": { "user_id": "victor@deeptrail.com" }   ← WHO              │
+│       }                                                                     │
+│     }                                                                       │
+│                                                                             │
+│  4. Gateway resolves:                                                       │
+│     a. Agent JWT valid? ✅                                                   │
+│     b. Find delegation for victor@deeptrail.com + this agent ✅              │
+│     c. Does delegation include gcalendar:events:list? ✅                     │
+│     d. Get Victor's OAuth token from vault ✅                                │
+│     e. Call Google Calendar API with Victor's token                          │
+│                                                                             │
+│  5. If agent next asks "Send email as Mahendra":                            │
+│     a. Find delegation for mahendra@deeptrail.com + this agent ✅            │
+│     b. Does delegation include gmail:messages:send? ✅                       │
+│     c. Get Mahendra's OAuth token from vault ✅                              │
+│     d. Call Gmail API with Mahendra's token                                 │
+│                                                                             │
+│  KEY: Same agent, same JWT, but different user tokens per call.             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 8.7 Vendor Admin Daily Workflow
+
+| Time | Action | Description |
+|------|--------|-------------|
+| **Morning** | Check agent fleet | Verify all customer agents are Active, review any failures |
+| **As Needed** | User onboarding | New users log in and delegate; no admin action needed |
+| **If Issues** | Token conflicts | Check which user's tokens expired; notify user to re-authorize |
+| **Weekly** | Delegation review | Review expiring delegations; remind users to renew |
+| **Monthly** | Usage report | Per-user tool call stats, permission utilization |
+
+### 8.8 Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| SA per customer (not per user) | 1 SA = 1 company | Prevents data mixing across tenants; simpler identity model |
+| Users self-delegate | No admin action per user | Scales to N users without admin bottleneck |
+| `user_id` in tool call | Agent specifies per-call | Agent decides whose context to use based on task |
+| Per-user permission levels | Different scopes per user | Victor: read-only email; Mahendra: full email access |
+| Delegation renewal | Per-user, independent | Each user manages their own TTL |
+
+---
+
+## 9. Cross-Persona Workflows
+
+### 9.1 New Agent Rollout (All Personas)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1941,7 +2329,7 @@ curl -s "http://localhost:8002/debug/replay/call-id-xyz" \
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 8.2 Security Incident Response (Security + IT Admin)
+### 9.2 Security Incident Response (Security + IT Admin)
 
 | Step | Security Team | IT Admin |
 |------|---------------|----------|
@@ -1952,7 +2340,7 @@ curl -s "http://localhost:8002/debug/replay/call-id-xyz" \
 | **5. Recovery** | Verifies fixes | Re-enables agent if appropriate |
 | **6. Post-Mortem** | Documents findings | Updates procedures |
 
-### 8.3 Employee Offboarding (IT Admin + Security)
+### 9.3 Employee Offboarding (IT Admin + Security)
 
 ```
 OFFBOARDING TRIGGER: Employee deactivated in IdP (Okta/Azure AD)
@@ -1976,26 +2364,29 @@ SECURITY TEAM REVIEW:
 
 ---
 
-## 9. Appendix: Quick Reference
+## 10. Appendix: Quick Reference
 
-### 9.1 Persona Capabilities Matrix
+### 10.1 Persona Capabilities Matrix
 
-| Capability | IT Admin | Employee | Security | Engineering |
-|------------|:--------:|:--------:|:--------:|:-----------:|
-| Deploy/configure platform | ✅ | ❌ | ❌ | ❌ |
-| Configure IdP integration | ✅ | ❌ | ❌ | ❌ |
-| Approve services | ✅ | ❌ | ✅ | ❌ |
-| Approve vendor agents | ✅ | ❌ | ✅ | ❌ |
-| Define security policies | ❌ | ❌ | ✅ | ❌ |
-| Emergency suspension | ✅ | ❌ | ✅ | ❌ |
-| Connect personal services | ❌ | ✅ | ❌ | ❌ |
-| Create delegations | ❌ | ✅ | ❌ | ❌ |
-| View own agent activity | ❌ | ✅ | ❌ | ❌ |
-| View all audit logs | ✅ | ❌ | ✅ | ❌ |
-| Build/deploy agents | ❌ | ❌ | ❌ | ✅ |
-| Register MCP servers | ✅ | ❌ | ❌ | ✅ |
+| Capability | IT Admin | Employee | Security | Engineering | Vendor Admin |
+|------------|:--------:|:--------:|:--------:|:-----------:|:------------:|
+| Deploy/configure platform | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Configure IdP integration | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Approve services | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Approve vendor agents | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Define security policies | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Emergency suspension | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Connect personal services | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Create delegations | ❌ | ✅ | ❌ | ❌ | ❌ |
+| View own agent activity | ❌ | ✅ | ❌ | ❌ | ✅ |
+| View all audit logs | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Build/deploy agents | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Register MCP servers | ✅ | ❌ | ❌ | ✅ | ❌ |
+| Register agents for customers | ❌ | ❌ | ❌ | ❌ | ✅ |
+| View multi-user agent mapping | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Manage fleet across customers | ❌ | ❌ | ❌ | ❌ | ✅ |
 
-### 9.2 Key API Endpoints by Persona
+### 10.2 Key API Endpoints by Persona
 
 | Persona | Endpoint | Purpose |
 |---------|----------|---------|
@@ -2010,8 +2401,11 @@ SECURITY TEAM REVIEW:
 | **Engineering** | `POST /api/v1/agents` | Register agent |
 | **Engineering** | `POST /api/v1/auth/agent/challenge` | Agent auth |
 | **Engineering** | `POST /mcp` | MCP tool calls |
+| **Vendor Admin** | `POST /api/v1/agents` | Register agent for customer |
+| **Vendor Admin** | `GET /api/v1/agents/{id}/delegations` | View all user delegations |
+| **Vendor Admin** | `POST /mcp` (with `meta.user_id`) | Multi-user tool calls |
 
-### 9.3 Common Commands
+### 10.3 Common Commands
 
 ```bash
 # IT Admin: Check system health

@@ -1,52 +1,34 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { apiClient, ApiError } from "@/lib/api/client";
+import type { AuditEvent, AuditEventsResponse, AuditEventType } from "@/lib/types/audit";
+import { useAgentNames } from "@/hooks/useAgentNames";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
-import { ScrollText, RefreshCw, ChevronRight, X } from "lucide-react";
-
-interface AttributionLink {
-  actor_type: "user" | "agent";
-  actor_id: string;
-  action: string;
-  timestamp: string;
-}
-
-interface AuditEvent {
-  id: string;
-  event_type: string;
-  token_layer: "user" | "agent" | "delegation" | "gateway";
-  agent_id: string | null;
-  user_id: string | null;
-  timestamp: string;
-  details: Record<string, unknown>;
-  attribution_chain?: AttributionLink[];
-}
+import {
+  ScrollText,
+  RefreshCw,
+  ChevronDown,
+  ChevronRight,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 
 interface AuditFilters {
   event_type: string;
   agent_id: string;
-  token_layer: string;
+  tool: string;
+  on_behalf_of: string;
   from_date: string;
   to_date: string;
 }
 
-const LAYER_COLORS: Record<string, string> = {
-  user: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  agent: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-  delegation:
-    "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  gateway:
-    "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-};
-
-const EVENT_TYPES = [
+const EVENT_TYPES: AuditEventType[] = [
   "mcp_tool_call",
   "permission_denied",
   "agent_auth",
@@ -55,12 +37,11 @@ const EVENT_TYPES = [
   "sso_login",
 ];
 
-const TOKEN_LAYERS = ["user", "agent", "delegation", "gateway"];
-
 const EMPTY_FILTERS: AuditFilters = {
   event_type: "",
   agent_id: "",
-  token_layer: "",
+  tool: "",
+  on_behalf_of: "",
   from_date: "",
   to_date: "",
 };
@@ -68,37 +49,89 @@ const EMPTY_FILTERS: AuditFilters = {
 type PageState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "data"; events: AuditEvent[] };
+  | { kind: "data"; events: AuditEvent[]; total: number };
+
+function formatDuration(ms: number | null): string {
+  if (ms === null) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function EventDetailPanel({ event }: { event: AuditEvent }) {
+  return (
+    <div className="pl-8 py-2 border-t border-dashed text-sm text-muted-foreground space-y-1">
+      {event.organization_id && (
+        <div>
+          <span className="font-medium">Organization:</span>{" "}
+          {event.organization_id}
+        </div>
+      )}
+      {event.arguments && (
+        <div>
+          <span className="font-medium">Arguments:</span>{" "}
+          {JSON.stringify(event.arguments)}
+        </div>
+      )}
+      {event.result_summary && (
+        <div>
+          <span className="font-medium">Result:</span> {event.result_summary}
+        </div>
+      )}
+      {event.reason && (
+        <div>
+          <span className="font-medium">Reason:</span> {event.reason}
+        </div>
+      )}
+      {event.delegation_id && (
+        <div>
+          <span className="font-medium">Delegation:</span>{" "}
+          {event.delegation_id}
+        </div>
+      )}
+      <div>
+        <span className="font-medium">Session:</span>{" "}
+        {event.agent_session_id ?? "—"} |{" "}
+        <span className="font-medium">MCP:</span>{" "}
+        {event.mcp_session_id ?? "—"}
+      </div>
+    </div>
+  );
+}
 
 export default function AuditPage() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
   const [filters, setFilters] = useState<AuditFilters>(EMPTY_FILTERS);
-  const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
+  const { resolve } = useAgentNames();
 
-  const buildQueryString = useCallback((f: AuditFilters): string => {
-    const params = new URLSearchParams();
-    if (f.event_type) params.set("event_type", f.event_type);
-    if (f.agent_id) params.set("agent_id", f.agent_id);
-    if (f.token_layer) params.set("token_layer", f.token_layer);
-    if (f.from_date) params.set("from_date", f.from_date);
-    if (f.to_date) params.set("to_date", f.to_date);
-    params.set("limit", String(PAGE_SIZE));
-    params.set("offset", String(page * PAGE_SIZE));
-    const qs = params.toString();
-    return qs ? `?${qs}` : "";
-  }, [page]);
+  const buildQueryString = useCallback(
+    (f: AuditFilters): string => {
+      const params = new URLSearchParams();
+      if (f.event_type) params.set("event_type", f.event_type);
+      if (f.agent_id) params.set("agent_id", f.agent_id);
+      if (f.tool) params.set("tool", f.tool);
+      if (f.on_behalf_of) params.set("on_behalf_of", f.on_behalf_of);
+      if (f.from_date) params.set("from_date", f.from_date);
+      if (f.to_date) params.set("to_date", f.to_date);
+      params.set("limit", String(PAGE_SIZE));
+      params.set("offset", String(page * PAGE_SIZE));
+      const qs = params.toString();
+      return qs ? `?${qs}` : "";
+    },
+    [page]
+  );
 
   const fetchEvents = useCallback(async () => {
     setState({ kind: "loading" });
     try {
       const qs = buildQueryString(filters);
-      const data = await apiClient<AuditEvent[] | { events: AuditEvent[] }>(
+      const data = await apiClient<AuditEventsResponse>(
         `audit/events${qs}`
       );
-      const events = Array.isArray(data) ? data : data.events ?? [];
-      setState({ kind: "data", events });
+      const events = data.events ?? [];
+      setState({ kind: "data", events, total: data.total ?? events.length });
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -149,7 +182,7 @@ export default function AuditPage() {
       {/* Filter Bar */}
       <Card>
         <CardContent className="pt-4 pb-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <div className="space-y-1">
               <label
                 htmlFor="filter-event-type"
@@ -188,24 +221,33 @@ export default function AuditPage() {
             </div>
             <div className="space-y-1">
               <label
-                htmlFor="filter-layer"
+                htmlFor="filter-tool"
                 className="text-xs font-medium text-muted-foreground"
               >
-                Token Layer
+                Tool
               </label>
-              <select
-                id="filter-layer"
+              <input
+                id="filter-tool"
                 className="w-full rounded-md border px-3 py-2 text-sm"
-                value={filters.token_layer}
-                onChange={(e) => updateFilter("token_layer", e.target.value)}
+                value={filters.tool}
+                onChange={(e) => updateFilter("tool", e.target.value)}
+                placeholder="e.g. notion.search_pages"
+              />
+            </div>
+            <div className="space-y-1">
+              <label
+                htmlFor="filter-user"
+                className="text-xs font-medium text-muted-foreground"
               >
-                <option value="">All layers</option>
-                {TOKEN_LAYERS.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
+                User
+              </label>
+              <input
+                id="filter-user"
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                value={filters.on_behalf_of}
+                onChange={(e) => updateFilter("on_behalf_of", e.target.value)}
+                placeholder="e.g. sarah@acme.com"
+              />
             </div>
             <div className="space-y-1">
               <label
@@ -248,231 +290,127 @@ export default function AuditPage() {
         </CardContent>
       </Card>
 
-      <div className="flex gap-6">
-        {/* Event list */}
-        <div className="flex-1 space-y-3">
-          {events.length === 0 ? (
-            <EmptyState
-              title="No audit events"
-              description={
-                hasActiveFilters
-                  ? "No events match the current filters. Try adjusting your criteria."
-                  : "Audit events will appear here as agents perform actions."
-              }
-            />
-          ) : (
-            <>
-              {events.map((event) => (
-                <Card
-                  key={event.id}
-                  className={`cursor-pointer transition-colors hover:bg-muted/50 ${
-                    selectedEvent?.id === event.id ? "ring-2 ring-primary" : ""
-                  }`}
-                  onClick={() => setSelectedEvent(event)}
-                >
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                      <ScrollText className="h-4 w-4 text-muted-foreground" />
-                      {event.event_type}
-                    </CardTitle>
-                    <div className="flex gap-2 items-center">
-                      <Badge
-                        className={
-                          LAYER_COLORS[event.token_layer] ?? ""
+      {/* Event Table */}
+      {events.length === 0 ? (
+        <EmptyState
+          title="No audit events"
+          description={
+            hasActiveFilters
+              ? "No events match the current filters. Try adjusting your criteria."
+              : "Audit events will appear here as agents perform actions."
+          }
+        />
+      ) : (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" role="table">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Agent</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">On Behalf Of</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Tool Call</th>
+                  <th className="w-20 px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">Duration</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Timestamp</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Event Type</th>
+                  <th className="w-10 px-3 py-2.5 text-center text-xs font-medium text-muted-foreground">Status</th>
+                  <th className="w-8 px-2 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((event) => {
+                  const isDenied = event.event_type === "permission_denied";
+                  const toolDisplay = isDenied
+                    ? event.attempted_tool ?? "—"
+                    : event.tool ?? "—";
+                  const isExpanded = expandedId === event.id;
+
+                  return (
+                    <React.Fragment key={event.id}>
+                      <tr
+                        className={`border-b cursor-pointer hover:bg-muted/30 transition-colors ${
+                          isDenied || event.success === false
+                            ? "bg-red-50 dark:bg-red-950/20"
+                            : ""
+                        }`}
+                        onClick={() =>
+                          setExpandedId(isExpanded ? null : event.id)
                         }
                       >
-                        {event.token_layer}
-                      </Badge>
-                      <Badge variant="outline">{event.event_type}</Badge>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>
-                        {new Date(event.timestamp).toLocaleString()}
-                      </span>
-                      {event.agent_id && (
-                        <span>Agent: {event.agent_id}</span>
-                      )}
-                      {event.user_id && (
-                        <span>User: {event.user_id}</span>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-
-              {/* Pagination */}
-              <div className="flex items-center justify-between pt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page === 0}
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                >
-                  Previous
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Page {page + 1}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={events.length < PAGE_SIZE}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Detail Panel */}
-        {selectedEvent && (
-          <div className="w-96 shrink-0">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-base">Event Details</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedEvent(null)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Header */}
-                <div>
-                  <h3 className="font-medium">{selectedEvent.event_type}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(selectedEvent.timestamp).toLocaleString()}
-                  </p>
-                </div>
-
-                <Separator />
-
-                {/* Metadata */}
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium">Metadata</h4>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        Token Layer
-                      </span>
-                      <Badge
-                        className={
-                          LAYER_COLORS[selectedEvent.token_layer] ?? ""
-                        }
-                      >
-                        {selectedEvent.token_layer}
-                      </Badge>
-                    </div>
-                    {selectedEvent.agent_id && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">
-                          Agent ID
-                        </span>
-                        <span className="font-mono text-xs">
-                          {selectedEvent.agent_id}
-                        </span>
-                      </div>
-                    )}
-                    {selectedEvent.user_id && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">
-                          User ID
-                        </span>
-                        <span className="font-mono text-xs">
-                          {selectedEvent.user_id}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Details */}
-                {selectedEvent.details &&
-                  Object.keys(selectedEvent.details).length > 0 && (
-                    <div className="space-y-2">
-                      <h4 className="text-sm font-medium">Details</h4>
-                      <div className="space-y-1 text-sm">
-                        {Object.entries(selectedEvent.details).map(
-                          ([key, value]) => (
-                            <div key={key} className="flex justify-between">
-                              <span className="text-muted-foreground">
-                                {key}
-                              </span>
-                              <span className="font-mono text-xs max-w-[200px] truncate">
-                                {typeof value === "string"
-                                  ? value
-                                  : JSON.stringify(value)}
-                              </span>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                {/* Attribution Chain */}
-                {selectedEvent.attribution_chain &&
-                  selectedEvent.attribution_chain.length > 0 && (
-                    <>
-                      <Separator />
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-medium">
-                          Attribution Chain
-                        </h4>
-                        <ol className="space-y-2">
-                          {selectedEvent.attribution_chain.map(
-                            (link, index) => (
-                              <li
-                                key={index}
-                                className="flex items-start gap-2 text-sm"
-                              >
-                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
-                                  {index + 1}
-                                </span>
-                                <div>
-                                  <div className="flex items-center gap-1">
-                                    <Badge
-                                      variant={
-                                        link.actor_type === "user"
-                                          ? "secondary"
-                                          : "default"
-                                      }
-                                      className="text-xs"
-                                    >
-                                      {link.actor_type}
-                                    </Badge>
-                                    <span className="font-mono text-xs">
-                                      {link.actor_id}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs text-muted-foreground">
-                                    {link.action} —{" "}
-                                    {new Date(
-                                      link.timestamp
-                                    ).toLocaleTimeString()}
-                                  </p>
-                                </div>
-                              </li>
-                            )
+                        <td className="px-3 py-2.5 text-xs font-medium">
+                          {event.agent_id ? resolve(event.agent_id) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs truncate max-w-[200px]">
+                          {isDenied
+                            ? <span className="text-red-600 font-medium">DENIED: {event.required_permission ?? "unknown"}</span>
+                            : event.on_behalf_of ?? "—"}
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-xs font-medium truncate max-w-[200px]">
+                          {toolDisplay}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground tabular-nums text-right">
+                          {formatDuration(event.duration_ms)}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                          {new Date(event.timestamp).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                            {event.event_type}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {event.success === false || isDenied ? (
+                            <XCircle className="h-4 w-4 text-red-500 inline-block" />
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4 text-green-600 inline-block" />
                           )}
-                        </ol>
-                      </div>
-                    </>
-                  )}
-              </CardContent>
-            </Card>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={8} className="p-0">
+                            <EventDetailPanel event={event} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+
+          {/* Pagination */}
+          <div className="flex items-center justify-between px-4 py-3 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {page + 1}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={events.length < PAGE_SIZE}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

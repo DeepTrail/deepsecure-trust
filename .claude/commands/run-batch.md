@@ -74,7 +74,7 @@ Read: docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md
             { number: 1, tasks: ["WS-A1"] },
             { number: 2, tasks: ["WS-A3", "WS-A4", "WS-A5"] },
         ],
-        merge_point: null | { id: "MP1", tag: "mp1-dashboard-complete", validation: "..." },
+        merge_point: null | { id: "MP1", tag: "mp1-dashboard-complete-feature/agent-lifecycle", validation: "..." },
     }
 
 ### Step 2: Pre-Flight Checks
@@ -478,10 +478,18 @@ Execute the **"Merge Actions"** from the merge point section. **IMPORTANT:**
 
 After merge actions are confirmed and executed:
 
+**Tag naming convention:** Tags MUST include the feature branch name as a suffix so that merge point tags are unique across workstreams. The format is `{base-tag}-{feature-branch}`, where `{base-tag}` comes from `BATCH_EXECUTION_PLAN.md` and `{feature-branch}` is the current branch from `git branch --show-current`.
+
 ```bash
+# Derive the full tag name
+BASE_TAG="[tag-name-from-batch-plan]"
+FEATURE_BRANCH=$(git branch --show-current)
+FULL_TAG="${BASE_TAG}-${FEATURE_BRANCH}"
+
 # Create merge point tag
-git tag [tag-name]
-# Example: git tag mp1-dashboard-complete
+git tag "$FULL_TAG"
+# Example: git tag mp1-foundation-complete-feature/ui-improvements-audit-activity
+# Example: git tag mp1-dashboard-complete-feature/agent-lifecycle
 ```
 
 Report merge point status:
@@ -492,7 +500,7 @@ Report merge point status:
     |-------|-------|
     | **Merge Point** | [MP-ID] |
     | **After Batch** | [N] |
-    | **Tag** | `[tag-name]` |
+    | **Tag** | `[full-tag-with-branch]` |
     | **Converging Tasks** | [task list] |
     | **Enables** | [what gets unblocked] |
 
@@ -637,13 +645,15 @@ The command checks STATUS.md for already-completed tasks in this batch and skips
 
 Merge points are defined in `BATCH_EXECUTION_PLAN.md` and `MERGE_POINTS.md`.
 
-| Pattern | Merge Point Batch | Tag |
-|---------|-------------------|-----|
-| `MP1` | After last `P0-B*` batch | `mp1-*-complete` |
-| `MP2` | After last `P1-B*` batch | `mp2-*-complete` |
-| `MP3` | After last `P2-B*` batch | `mp3-*-complete` |
+**Tag Naming Convention:** `{base-tag}-{feature-branch}`
 
-The exact tag names are feature-specific — read them from `BATCH_EXECUTION_PLAN.md`.
+| Pattern | Merge Point Batch | Base Tag | Full Tag Example |
+|---------|-------------------|----------|------------------|
+| `MP1` | After last `P0-B*` batch | `mp1-*-complete` | `mp1-foundation-complete-feature/ui-improvements-audit-activity` |
+| `MP2` | After last `P1-B*` batch | `mp2-*-complete` | `mp2-integration-complete-feature/agent-lifecycle` |
+| `MP3` | After last `P2-B*` batch | `mp3-*-complete` | `mp3-e2e-complete-feature/gcp-background-agent` |
+
+The base tag names are feature-specific — read them from `BATCH_EXECUTION_PLAN.md`. The feature branch is always appended at tag creation time using `git branch --show-current`.
 
 ---
 

@@ -356,6 +356,8 @@ class TestGetEvent:
         mock_event.arguments = {"query": "test"}
         mock_event.result_summary = None
         mock_event.reason = None
+        mock_event.attempted_tool = None
+        mock_event.required_permission = None
         mock_event.session_id = None
         mock_event.agent_session_id = None
         mock_event.mcp_session_id = None
@@ -370,6 +372,8 @@ class TestGetEvent:
         data = response.json()
         assert data["id"] == "evt-123"
         assert data["event_type"] == "mcp_tool_call"
+        assert data["attempted_tool"] is None
+        assert data["required_permission"] is None
 
     def test_get_event_not_found(self, client_with_mock_service, mock_audit_logger_service):
         """E2: Should return 404 for non-existent event."""
