@@ -613,6 +613,15 @@ IF still failing after MAX_VALIDATION_RETRIES:
 
 ### Step 7: Verify Batch Completion
 
+> **CRITICAL GATE — DO NOT SKIP (Lesson: May 2026)**
+> Before proceeding to Step 7, verify ALL of the following are true:
+> 1. ✅ All tasks in the batch are implemented (Step 5 complete)
+> 2. ✅ Spec-implementation audit passed (Step 6 complete)
+> 3. ✅ **BATCH_EXECUTION_PLAN.md → Validation** commands have ALL been executed and passed
+>
+> If BATCH_EXECUTION_PLAN Validation commands have NOT been run, go back and run them NOW.
+> Do NOT proceed to merge point steps until batch validation is complete.
+
 After audit is complete and all gaps are fixed:
 
     /verify-batch-completion [batch-id] [feature-name]
@@ -640,6 +649,13 @@ Execute every command listed under **"Container Test Scenarios"** in the merge p
 Go through each checkbox under **"Success Criteria"** in the merge point section. Verify each one explicitly and report pass/fail for every criterion. If any criterion fails, STOP and report to user.
 
 #### 7d. Merge Actions (from MERGE_POINTS.md)
+
+> **PRE-MERGE GATE (Lesson: May 2026):** You MUST NOT execute Merge Actions until ALL of the following have been completed and passed in this session:
+> - ✅ Step 7a (Container Deployment) — containers rebuilt and running
+> - ✅ Step 7b (Container Test Scenarios) — all live endpoint tests passed
+> - ✅ Step 7c (Success Criteria) — every checkbox verified
+>
+> If any of 7a/7b/7c were skipped, GO BACK and run them now. Do NOT commit, tag, or push.
 
 Execute the **"Merge Actions"** from the merge point section. This typically includes:
 1. Verifying all batch tasks are complete

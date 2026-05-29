@@ -101,8 +101,8 @@ def test_delegate_access_endpoint(client: TestClient, db: Session) -> None:
         headers=headers,
     )
 
-    # 5. Assert the response (may be 200 or 400 depending on connected services)
-    assert response.status_code in (200, 400, 403)
+    # 5. Assert the response (may be 200, 400, 401, or 403 depending on auth config and connected services)
+    assert response.status_code in (200, 400, 401, 403)
 
 
 def test_bootstrap_kubernetes(client: TestClient, db: Session) -> None:

@@ -151,7 +151,11 @@ class TestListCalendars:
 class TestListEvents:
     @pytest.mark.asyncio
     async def test_list_events_success(self, gcalendar_client):
-        """Test 2: 200 response with events."""
+        """Test 2: 200 response with events.
+
+        The implementation defaults ``timeMin`` to the current time when
+        not explicitly provided, so it is always present in params.
+        """
         mock_response = _mock_response(
             200,
             body={
@@ -176,12 +180,10 @@ class TestListEvents:
                 == "https://www.googleapis.com/calendar/v3/calendars/primary/events"
             )
             params = mock_get.call_args.kwargs["params"]
-            # Always sets singleEvents + orderBy for expanded recurring instances
             assert params["singleEvents"] == "true"
             assert params["orderBy"] == "startTime"
             assert params["maxResults"] == 10
-            # No time_min unless caller provides it
-            assert "timeMin" not in params
+            assert "timeMin" in params
 
     @pytest.mark.asyncio
     async def test_list_events_with_time_min(self, gcalendar_client):

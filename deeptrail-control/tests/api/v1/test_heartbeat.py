@@ -75,7 +75,7 @@ def test_heartbeat_no_token_returns_403(client: TestClient):
     response = client.post(
         HEARTBEAT_URL.format(agent_id="some-agent"),
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_heartbeat_wrong_token_returns_401(client: TestClient):

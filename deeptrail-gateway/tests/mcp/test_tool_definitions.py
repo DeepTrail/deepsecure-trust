@@ -67,8 +67,8 @@ class TestNotionToolDefinitions:
     
     def test_notion_tool_count(self):
         """Test expected number of Notion tools."""
-        assert len(NOTION_TOOLS) == 7, \
-            f"Expected 7 Notion tools, got {len(NOTION_TOOLS)}"
+        assert len(NOTION_TOOLS) == 8, \
+            f"Expected 8 Notion tools, got {len(NOTION_TOOLS)}"
     
     def test_notion_tools_have_required_fields(self):
         """Test all Notion tools have required fields."""
@@ -96,8 +96,8 @@ class TestSlackToolDefinitions:
     
     def test_slack_tool_count(self):
         """Test expected number of Slack tools."""
-        assert len(SLACK_TOOLS) == 6, \
-            f"Expected 6 Slack tools, got {len(SLACK_TOOLS)}"
+        assert len(SLACK_TOOLS) == 7, \
+            f"Expected 7 Slack tools, got {len(SLACK_TOOLS)}"
     
     def test_slack_tools_have_required_fields(self):
         """Test all Slack tools have required fields."""

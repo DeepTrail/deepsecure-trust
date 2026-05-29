@@ -8,6 +8,8 @@ from .audit_event import AuditEvent, AuditEventType  # noqa
 from .connected_service import ConnectedService  # noqa
 from .credential import Credential  # noqa
 from .delegation import DelegationToken  # noqa
+from .delegation_template import DelegationTemplate  # noqa
+from .service_registry import ServiceRegistry, ServiceOAuthConfig  # noqa
 from .idp_session import IdPSession  # noqa
 from .nonce import Nonce  # noqa
 from .pending_oauth_state import PendingOAuthState  # noqa
@@ -36,6 +38,7 @@ __all__ = [
     "AuditEventType",
     "ConnectedService",
     "Credential",
+    "DelegationTemplate",
     "DelegationToken",
     "IdPSession",
     "Nonce",
@@ -45,6 +48,8 @@ __all__ = [
     "Policy",
     "ScopedPermission",
     "ScopedPermissionRequest",
+    "ServiceOAuthConfig",
+    "ServiceRegistry",
     "Task",
     "TaskCreate",
     "TaskResponse",

@@ -7,7 +7,7 @@ They are the foundation for connected services, delegations, and agent sessions.
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Column, DateTime, String, Text, func
+from sqlalchemy import Column, DateTime, String, Text, func, Index
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from app.db.base import Base
@@ -92,6 +92,13 @@ class UserSession(Base):
         DateTime(timezone=True),
         nullable=True,
         comment="Timestamp when the session was explicitly revoked (NULL if active)",
+    )
+
+    role = Column(
+        String(20),
+        nullable=False,
+        server_default="employee",
+        comment="User role: 'employee', 'admin', or 'security'",
     )
 
     # Optional metadata for extensibility

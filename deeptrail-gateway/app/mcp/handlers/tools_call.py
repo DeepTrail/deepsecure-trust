@@ -261,6 +261,21 @@ def get_session_manager() -> MCPSessionManager:
 # =============================================================================
 
 
+def _extract_user_id(params: dict[str, Any]) -> str | None:
+    """Extract per-call user_id from MCP _meta field.
+
+    MCP convention: params._meta contains per-call metadata.
+    When an agent serves multiple users, it specifies which user's
+    context to use via _meta.user_id.
+
+    Returns None if not present (falls back to JWT owner for backward compat).
+    """
+    meta = params.get("_meta", {})
+    if isinstance(meta, dict):
+        return meta.get("user_id")
+    return None
+
+
 async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     """
     Handle MCP tools/call request.
@@ -344,6 +359,23 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     
     tool_name = call_params.name
     arguments = call_params.arguments
+
+    # P5.2: Extract per-call user_id from _meta for multi-user delegation
+    meta_user_id = _extract_user_id(params)
+    if meta_user_id and agent_context:
+        logger.debug(
+            "Multi-user tools/call: user_id=%s agent=%s",
+            meta_user_id,
+            agent_context.agent_id,
+        )
+        agent_context = AgentContext(
+            agent_id=agent_context.agent_id,
+            owner=meta_user_id,
+            delegation_id=agent_context.delegation_id,
+            session_id=agent_context.session_id,
+            delegated_permissions=agent_context.delegated_permissions,
+            organization_id=agent_context.organization_id,
+        )
     
     logger.debug(f"tools/call request: tool={tool_name}, session={agent_session_id}")
     

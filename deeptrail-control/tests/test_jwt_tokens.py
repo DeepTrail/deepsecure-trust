@@ -1,6 +1,8 @@
 """
 Tests for Phase 1 Task 1.4: JWT Access Token Issuance
 Tests all aspects of JWT token creation, validation, and expiration
+
+These are end-to-end tests that require a live backend.
 """
 import os
 import pytest
@@ -21,6 +23,7 @@ from deepsecure._core.identity_manager import IdentityManager
 from deepsecure import Client
 
 
+@pytest.mark.e2e
 class TestJWTAccessToken:
     """Test suite for Phase 1 Task 1.4: JWT Access Token Issuance"""
     
