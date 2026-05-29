@@ -8,7 +8,7 @@
 | Phase | Status |
 |-------|--------|
 | PLAN | ✅ Complete |
-| EXECUTE | ⏳ Not Started |
+| EXECUTE | 🚧 In Progress (B1 done) |
 | REVIEW | ⏳ Not Started |
 | SHIP | ⏳ Not Started |
 
@@ -16,7 +16,7 @@
 
 | Batch | Tasks | Completed | Status |
 |-------|-------|-----------|--------|
-| P0-B1: Foundation | 5 | 0/5 | 🔲 Not Started |
+| P0-B1: Foundation | 5 | 5/5 | ✅ Complete |
 | P0-B2: Backend APIs | 15 | 0/15 | 🔲 Not Started |
 | P0-B3: Gateway + Frontend | 11 | 0/11 | 🔲 Not Started |
 | P0-B4: Integration | 4 | 0/4 | 🔲 Not Started |
@@ -25,11 +25,11 @@
 
 | Task ID | Description | Status | Report |
 |---------|-------------|--------|--------|
-| WS-A1 | Alembic migration | 🔲 Not Started | — |
-| WS-A2 | SQLAlchemy models | 🔲 Not Started | — |
-| WS-A3 | KMS client wrapper | 🔲 Not Started | — |
-| WS-A4 | Admin middleware | 🔲 Not Started | — |
-| WS-A5 | Seed script + role API | 🔲 Not Started | — |
+| WS-A1 | Alembic migration | ✅ Complete | 2026-05-29 |
+| WS-A2 | SQLAlchemy models | ✅ Complete | 2026-05-29 |
+| WS-A3 | KMS client wrapper | ✅ Complete | 2026-05-29 |
+| WS-A4 | Admin middleware | ✅ Complete | 2026-05-29 |
+| WS-A5 | Seed script + role API | ✅ Complete | 2026-05-29 |
 | WS-B1 | Service registry service | 🔲 Not Started | — |
 | WS-B2 | Service CRUD endpoints | 🔲 Not Started | — |
 | WS-B3 | OAuth config endpoints | 🔲 Not Started | — |
