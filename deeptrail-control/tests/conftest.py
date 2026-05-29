@@ -29,6 +29,7 @@ from app.models import attestation_policy, policy, nonce  # noqa: F401
 from app.models import audit_event, user, user_session  # noqa: F401
 from app.models import connected_service, pending_oauth_state, vault_token  # noqa: F401
 from app.models import task_token, idp_session  # noqa: F401
+from app.models import service_registry, delegation_template  # noqa: F401 - P5.2 tables
 
 # Create a new engine and session for testing
 # Add connect_args for SQLite

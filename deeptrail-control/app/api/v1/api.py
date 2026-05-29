@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    admin_roles,
     agent_auth,
     agents,
     attestation_policies,
@@ -40,3 +41,4 @@ api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(oauth.router, prefix="/oauth", tags=["oauth"])
 api_router.include_router(sso.router, prefix="/auth/sso", tags=["sso"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
+api_router.include_router(admin_roles.router, prefix="/admin", tags=["admin"])
