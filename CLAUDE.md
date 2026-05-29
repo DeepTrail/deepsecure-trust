@@ -1034,7 +1034,13 @@ git push origin "$FULL_TAG"
 | May 2026 | MERGE_POINTS.md verification checked only 6 of 18 required sections — p3-gcp file passed with 10 sections missing entirely | Expanded `/create-workstream` verification from 6 to 18+2 section checks; added N/A-block pattern for inapplicable sections | MERGE_POINTS.md Required Sections |
 | May 2026 | Deploy batch in BATCH_EXECUTION_PLAN.md used inline `docker build`/`docker push` instead of existing `infra/build-and-push.sh`; `migrate.sh` used wrong gcloud flag (`--add-cloudsql-instances` vs `--set-cloudsql-instances`) hidden by `2>/dev/null` | Added deploy-script prerequisite check to `/create-batch-execution-plan`; fixed `migrate.sh` flag and error handling; added verification check for inline docker commands | Deploy Commands |
 | May 2026 | Workstream fully deployed and verified on live site but all status files still showed "in progress" — closure was manual and forgotten | Added auto-closure to `/verify-batch-completion`: detects final batch, auto-updates STATUS.md, BATCH_EXECUTION_PLAN.md, MERGE_POINTS.md, and workstreams/README.md | Verify Batch Completion |
+<<<<<<< Updated upstream
 | May 2026 | Merge point tags like `mp1-foundation-complete` collided across workstreams — no way to tell which workstream a tag belonged to | Tags now include feature branch suffix: `{base-tag}-{feature-branch}` (e.g., `mp1-foundation-complete-feature/ui-improvements-audit-activity`). Updated `/run-batch`, `/create-batch-execution-plan`, `/create-workstream` | Merge Point Tag Naming Convention |
+=======
+| May 2026 | mp_config files were created manually per workstream/merge-point — easy to forget, inconsistent | Added Step 3.5 to `/run-plan`: auto-generates `scripts/mp_configs/[feature]-mp[N].conf` from MERGE_POINTS.md after batch plan is created | mp_config Auto-Generation |
+| May 2026 | `execute_merge_point.sh` Phase 4 had hardcoded agent-lifecycle API smoke tests; Phase 5 had hardcoded commit-message grep | Replaced with config-driven `SMOKE_ENDPOINTS[]` array and `COMMIT_PATTERN` variable; added single-branch mode support (empty `WORKTREE_PATH`) | Execute Merge Point Generalization |
+| May 2026 | `/run-batch` did not call `execute_merge_point.sh` or `validate_integration.sh`; no batch chaining | Added Steps 7e (execute_merge_point.sh), 7f (validate_integration.sh for backend batches), and 8a (`--continue` flag for auto-chaining batches) | Batch Automation Generalization |
+>>>>>>> Stashed changes
 
 ### How to Add New Lessons
 

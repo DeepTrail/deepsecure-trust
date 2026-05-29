@@ -18,13 +18,15 @@ Replaces the manual "Batch Execution Pattern" loop from DEVELOPER_WORKFLOW.md.
 ## Invocation
 
 ```
-/run-batch [batch-id] [feature-name]
+/run-batch [batch-id] [feature-name] [--continue] [--auto-heal]
 ```
 
 **Parameters:**
 - `[batch-id]`: The batch identifier from the **first column** of the Quick Reference table
   in `BATCH_EXECUTION_PLAN.md`. Format: `P{Phase}-B{Batch}` (e.g., `P0-B1`, `P1-B2`).
 - `[feature-name]`: The workstream/feature name (e.g., `agent-lifecycle`)
+- `[--continue]`: *(Optional)* Auto-proceed to the next batch after successful completion. Chains all remaining batches without manual checkpoints. Stops on any failure.
+- `[--auto-heal]`: *(Optional)* Enable self-healing retry loops. When a task or validation step fails, automatically investigate the error, fix it, and retest — up to a retry budget per failure class. Also enables skip-and-continue for non-blocking failures and fresh-context retries for stuck tasks. Composable with `--continue` for full AFK mode.
 
 **How to find the batch ID:**
 1. Open `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md`
@@ -37,6 +39,15 @@ Replaces the manual "Batch Execution Pattern" loop from DEVELOPER_WORKFLOW.md.
     /run-batch P0-B2 agent-lifecycle
     /run-batch P1-B1 agent-lifecycle
     /run-batch P0-B1 mvp-production-readiness
+
+    # Auto-chain all batches from P0-B1 onwards:
+    /run-batch P0-B1 ui-improvements-audit-activity --continue
+
+    # Self-healing within a single batch (stops between batches):
+    /run-batch P0-B1 ui-improvements-audit-activity --auto-heal
+
+    # Full AFK mode (self-healing + auto-chaining):
+    /run-batch P0-B1 ui-improvements-audit-activity --continue --auto-heal
 
 ---
 
@@ -90,10 +101,26 @@ cd /Users/imaxxs/repositories/deepsecure-mvp
 ```bash
 git branch --show-current
 # If not on feature branch and this is the first batch:
+git checkout dev && git pull origin dev
 git checkout -b feature/[feature-name] dev 2>/dev/null || git checkout feature/[feature-name]
 ```
 
-**b. Verify prior batch is complete (all batches after the first):**
+**b. Execute Branch Setup (first batch only):**
+
+**MANDATORY for the first batch of a workstream.** Read `BATCH_EXECUTION_PLAN.md` and check if there is a **"Branch Setup"** section. If yes, execute every command listed in its sub-steps (typically: verify pre-requisites, create feature branch, verify branch). This ensures dependencies are installed, services are running, and the branch is properly created before any task execution begins.
+
+```
+1. Read BATCH_EXECUTION_PLAN.md → find "## Branch Setup" section
+2. If it exists:
+   - Execute each sub-step's commands in order (npm install, docker compose up, etc.)
+   - Skip any git commands already handled by Step 2a (branch creation)
+   - Report each pre-requisite check result (pass/fail)
+3. If the section does not exist: skip (some workstreams may not need setup)
+```
+
+**Why this matters:** Without this step, `/run-batch` would attempt to execute tasks without frontend dependencies installed, backend services running, or tool versions verified — causing avoidable failures in the first wave.
+
+**c. Verify prior batch is complete (all batches after the first):**
 
 ```bash
 # Check STATUS.md for previous batch completion
@@ -108,7 +135,7 @@ If the prior batch is NOT complete, STOP and report:
     Run `/verify-batch-completion [prior-batch-id] [feature-name]` first,
     or run `/run-batch [prior-batch-id] [feature-name]` to complete it.
 
-**c. Verify PLAN phase was fully completed (all 7 required files):**
+**d. Verify PLAN phase was fully completed (all 7 required files):**
 
 > **WHY THIS CHECK EXISTS:** The mvp-foundation workstream was created manually without running
 > the full pipeline. `/run-batch` accepted it as valid because it only checked for 3 files.
@@ -156,13 +183,14 @@ If ANY of the four proof files are missing, STOP and report:
     **Do NOT manually create these files** to pass the check — they must be generated
     by the commands above to contain valid content.
 
-**d. Report pre-flight status:**
+**e. Report pre-flight status:**
 
     ## Pre-Flight: Batch [N] — [feature-name]
 
     | Check | Status |
     |-------|--------|
     | Feature branch | ✅ `feature/[name]` |
+    | Branch Setup executed | ✅ (or N/A if no Branch Setup section / not first batch) |
     | Prior batch complete | ✅ (or N/A for first batch) |
     | BATCH_EXECUTION_PLAN.md exists | ✅ |
     | WORKSTREAM.md exists | ✅ |
@@ -220,13 +248,48 @@ This is the core orchestration step. Execute each wave in order, parallelizing i
 
 #### 5a. Determine Parallelization Strategy
 
+**Step 1: Read the Execution Strategy** from `BATCH_EXECUTION_PLAN.md` for this batch. Look for:
+- The **"Execution Strategy"** prose section — it may override the default count-based heuristic
+- The **"Recommended execution order within session"** — it specifies the optimal task sequence
+- Warnings about **shared files** (e.g., "E1 and E2 modify the same file — do E1 first")
+- Explicit instructions like "execute sequentially" or "fully parallel"
+
+**Step 2: Apply the strategy.** The Execution Strategy from the batch plan takes precedence over the default count-based heuristic. Use this decision tree:
+
+```
+1. IF Execution Strategy says "execute sequentially" or recommends a specific order:
+   → Use Step 5b (sequential), in the recommended order
+
+2. IF Execution Strategy says "fully parallel" with no caveats:
+   → Use count-based heuristic (Step 5b for 1-3, Step 5c for 4+)
+
+3. IF Execution Strategy warns about shared files or merge conflicts:
+   → Split tasks into conflict-free groups:
+     - Tasks that touch DIFFERENT files → can be parallel
+     - Tasks that touch the SAME file → must be sequential within that group
+   → Execute groups in parallel, but tasks within a group sequentially
+
+4. IF no Execution Strategy section exists:
+   → Fall back to the default count-based heuristic below
+```
+
+**Default heuristic** (used only when no Execution Strategy exists or it says "fully parallel"):
+
 | Wave Task Count | Strategy | Rationale |
 |----------------|----------|-----------|
 | 1 task | Execute inline | No parallelization needed |
 | 2-3 tasks | Execute sequentially inline | Subagent overhead exceeds benefit for small batches |
 | 4+ tasks | Spawn parallel subagents | Significant time savings from parallelization |
 
-#### 5b. Sequential Execution (1-3 tasks in wave)
+**Example — P0-B1 of `ui-improvements-audit-activity`:**
+
+The Execution Strategy says: *"All 5 tasks are independent... Backend tasks (E1, E2) modify the same file (audit.py) — recommend doing E1 first, then E2."* And the recommended order is: A1 → A2 → D2 → E1 → E2.
+
+Decision: Even though 5 tasks ≥ 4 (parallel threshold), the Execution Strategy recommends a specific sequential order AND warns about merge conflicts on `audit.py`. **Follow the recommended order** — execute all 5 tasks sequentially in the order: A1, A2, D2, E1, E2.
+
+Alternatively, with the conflict-group approach: A1, A2, D2 can run in parallel (different files); E1 then E2 must be sequential (same file). But since the batch plan explicitly recommends a full sequence, prefer that.
+
+#### 5b. Sequential Execution (1-3 tasks in wave, or Execution Strategy requires it)
 
 Execute each task one by one, inline in the current agent:
 
@@ -234,9 +297,11 @@ Execute each task one by one, inline in the current agent:
 
 The `/execute-task` command handles: reading the ticket, updating STATUS.md, implementing code, running tests, generating the completion report, and updating all status files (Steps 1-8i in execute-task.md).
 
+**Task order:** If the Execution Strategy specifies a "Recommended execution order within session", follow that order exactly. Otherwise, execute tasks in the order they appear in the Dependencies table.
+
 Repeat for each task in the wave. After each task completes, verify it succeeded before starting the next.
 
-#### 5c. Parallel Execution (4+ tasks in wave)
+#### 5c. Parallel Execution (4+ tasks in wave, AND Execution Strategy allows full parallelism)
 
 Spawn background subagents for parallel execution. Use `best-of-n-runner` subagent type — each gets its own isolated git worktree.
 
@@ -303,11 +368,85 @@ After all tasks in a wave complete:
    ```
 
 2. If any task FAILED:
+
+   **Without `--auto-heal`:**
    - Report the failure to the user
    - Attempt to fix inline if the error is clear
    - If the fix requires user input, STOP and report
 
+   **With `--auto-heal`:**
+   - The task's `/execute-task` Step 5.5 has already attempted self-healing
+   - If the task returned BLOCKED, check the skip-and-continue logic (see Step 5d-heal below)
+   - If the task returned a structured failure summary, log it for the healing report
+
 3. If all tasks succeeded, proceed to the next wave
+
+#### 5d-heal. Skip-and-Continue for BLOCKED Tasks (`--auto-heal` only)
+
+**This step runs ONLY when `--auto-heal` is set and a task returned BLOCKED after exhausting retries.**
+
+When a task is BLOCKED, decide whether to skip it or stop the batch:
+
+1. **Check downstream dependencies** in `BATCH_EXECUTION_PLAN.md`:
+   - Read the wave analysis for this batch
+   - Identify which tasks in later waves depend on the BLOCKED task
+   - A task depends on the BLOCKED task if it references the same files, imports modules created by it, or is explicitly listed as a dependency
+
+2. **If NO downstream tasks depend on the BLOCKED task:**
+   - Mark as BLOCKED in STATUS.md with the error summary
+   - Log to the healing report: `"[WS-ID]: SKIPPED (no downstream deps)"`
+   - Continue to the next task/wave
+
+3. **If downstream tasks DO depend on the BLOCKED task:**
+   - Attempt to run the dependent tasks anyway — they may work with partial output
+   - If a dependent task also fails (and its failure trace references the BLOCKED task's output):
+     - Mark the dependent task as BLOCKED too
+     - If this cascades to the point where the majority of remaining tasks are blocked: STOP the batch
+   - If the dependent tasks succeed despite the upstream block: continue
+
+4. **Safety guardrails — always STOP (never skip) for:**
+   - Security-related task failures (auth, crypto, permissions, JWT)
+   - Database migration tasks
+   - Tasks in the **final batch** of a workstream (no room for partial success)
+   - Tasks where `verify_integration.py` CRITICAL count increased
+
+5. **After skip-and-continue decisions, update STATUS.md:**
+   ```
+   | [WS-ID] | [description] | BLOCKED | [date] | Skipped: [reason]. No downstream deps. |
+   ```
+
+#### 5d-fresh. Fresh-Context Retry for Stuck Tasks (`--auto-heal` only)
+
+**Before marking a task as permanently BLOCKED**, give it one final chance with clean context.
+
+When a task exhausts its MAX_RETRIES in `/execute-task` Step 5.5 and `--auto-heal` is set:
+
+1. **Spawn a fresh `best-of-n-runner` subagent** with ONLY this context:
+   - The task ticket (from `docs/workstreams/[feature-name]/tickets/`)
+   - The task spec (from `docs/workstreams/[feature-name]/specs/`)
+   - The current state of the implementation files it needs to modify
+   - The error output from the last failed attempt
+   - A one-line instruction: `"Fix the following error in this task's implementation. The previous agent tried [N] times and failed. You have ONE attempt."`
+
+2. **Why fresh context:** The original agent's context is polluted with failed fix attempts, stale assumptions, and potentially contradictory edits. A fresh agent approaches the problem without that baggage — it only sees the spec, the current code, and the error.
+
+3. **Execution:**
+   ```
+   Task tool with subagent_type="best-of-n-runner":
+     prompt: [task ticket + spec + current file contents + error output]
+     description: "Fresh retry: [WS-ID] [task name]"
+     run_in_background: false  (block — we need the result before continuing)
+   ```
+
+4. **Outcome:**
+   - If the fresh agent succeeds (returns completion report): accept its changes, mark task complete, continue
+   - If the fresh agent fails: mark the task as BLOCKED permanently, proceed to skip-and-continue logic
+
+5. **Do NOT use fresh-context retry for:**
+   - Security-sensitive tasks (auth, crypto, permissions)
+   - Database migration tasks
+   - Tasks in the final batch of a workstream
+   - Tasks that already had a fresh-context retry (no recursive retries)
 
 #### 5e. Sync Worktree Status (after parallel waves only)
 
@@ -437,7 +576,30 @@ Find the **"Commands"** section for this batch in `docs/workstreams/[feature-nam
 
 #### 6.5b. Run the "Validation" section
 
-Find the **"Validation"** section for this batch in `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md`. Execute every validation command listed. Report each result (expected vs actual). If any validation command fails, attempt to fix. If the fix is non-trivial, STOP and report to the user.
+Find the **"Validation"** section for this batch in `docs/workstreams/[feature-name]/BATCH_EXECUTION_PLAN.md`. Execute every validation command listed. Report each result (expected vs actual).
+
+**If any validation command fails:**
+
+- **Without `--auto-heal`:** Attempt a single fix. If the fix is non-trivial, STOP and report to the user.
+- **With `--auto-heal`:** Enter the validation heal loop (max 2 retries):
+
+```
+VALIDATION_RETRY = 0
+MAX_VALIDATION_RETRIES = 2
+
+WHILE any validation command is failing AND VALIDATION_RETRY < MAX_VALIDATION_RETRIES:
+  1. Read the failing validation command's output
+  2. Identify which task's code is causing the failure
+  3. Read the relevant source files
+  4. Apply the fix
+  5. Re-run ONLY the failing validation command(s)
+  6. VALIDATION_RETRY += 1
+
+IF still failing after MAX_VALIDATION_RETRIES:
+  Log the failure to the healing report
+  If the failure is in a non-blocking validation: continue to Step 7
+  If the failure is in a blocking validation (tests, type checks): STOP
+```
 
 **Example flow:**
 ```
@@ -445,7 +607,8 @@ Find the **"Validation"** section for this batch in `docs/workstreams/[feature-n
 2. Execute each command (tests, builds, curls)
 3. Read BATCH_EXECUTION_PLAN.md → find "### Validation" for this batch
 4. Execute each validation command
-5. Report: all pass → proceed to Step 7 | any fail → fix or report
+5. If fail + --auto-heal: enter heal loop (diagnose → fix → retest, up to 2x)
+6. Report: all pass → proceed to Step 7 | any fail → fix or report
 ```
 
 ### Step 7: Verify Batch Completion
@@ -458,23 +621,39 @@ After audit is complete and all gaps are fixed:
 
 **MANDATORY: Before moving to the next batch, always check if there is a merge point at the end of the batch in `BATCH_EXECUTION_PLAN.md`. If yes, go to `MERGE_POINTS.md` and execute the following in order:**
 
-#### 7a. Container Test Scenarios (from MERGE_POINTS.md)
+> **IMPORTANT — Execution Order:** Container Deployment (7a) must run BEFORE Container Test Scenarios (7b). You cannot test the new container behavior until the container is rebuilt with the batch's code changes.
 
-Open `docs/workstreams/[feature-name]/MERGE_POINTS.md`, find the merge point section for this batch, and execute every command listed under **"Container Test Scenarios"**. Report each result.
+#### 7a. Container Deployment (from MERGE_POINTS.md)
 
-#### 7b. Success Criteria (from MERGE_POINTS.md)
+Open `docs/workstreams/[feature-name]/MERGE_POINTS.md`, find the merge point section for this batch, and execute every command listed under **"Container Deployment"**. This builds and deploys the containers with the batch's code changes so that subsequent test scenarios run against the updated services.
+
+**With `--auto-heal`:** If a container deployment fails, enter a heal loop (max 2 retries). Read container/build logs to identify the error, fix the source code or configuration, and re-run the deployment. Container deployment failures after 2 retries should escalate to the human — they likely indicate an infrastructure issue.
+
+#### 7b. Container Test Scenarios (from MERGE_POINTS.md)
+
+Execute every command listed under **"Container Test Scenarios"** in the merge point section. Report each result.
+
+**With `--auto-heal`:** If a container test fails, enter a heal loop (max 2 retries). Diagnose the failure (read the curl output, check container logs with `docker compose logs`), fix the source code or configuration, rebuild if needed (`docker compose build && docker compose up -d`), then retest the failing scenario.
+
+#### 7c. Success Criteria (from MERGE_POINTS.md)
 
 Go through each checkbox under **"Success Criteria"** in the merge point section. Verify each one explicitly and report pass/fail for every criterion. If any criterion fails, STOP and report to user.
 
-#### 7c. Merge Actions (from MERGE_POINTS.md)
+#### 7d. Merge Actions (from MERGE_POINTS.md)
 
-Execute the **"Merge Actions"** from the merge point section. **IMPORTANT:**
+Execute the **"Merge Actions"** from the merge point section. This typically includes:
+1. Verifying all batch tasks are complete
+2. Running verification checks (type checks, tests)
+3. Committing and tagging
+4. Pushing to remote
+
+**IMPORTANT:**
 - **Commit locally:** Always commit the batch's code changes to the feature branch without asking.
 - **Push to remote:** Always push to the remote feature branch (`origin feature/[name]`) without asking.
 - **Pre-existing uncommitted changes (tracked files):** Include in the commit without asking — these are part of the feature work.
 - **Untracked files:** ASK the user which untracked files (if any) should be added before committing. List the untracked files and wait for confirmation.
 
-#### 7d. Merge Point Tag
+#### 7e. Merge Point Tag
 
 After merge actions are confirmed and executed:
 
@@ -504,7 +683,58 @@ Report merge point status:
     | **Converging Tasks** | [task list] |
     | **Enables** | [what gets unblocked] |
 
-#### 7g. Build Verify
+#### 7f. Belt-and-Suspenders: `execute_merge_point.sh` (if mp_config exists)
+
+After the inline merge point handling (7a–7e), check if a matching mp_config exists for automated verification:
+
+```bash
+MP_CONFIG="scripts/mp_configs/[feature-name]-mp[N].conf"
+# Example: scripts/mp_configs/ui-improvements-audit-activity-mp1.conf
+
+if [ -f "$MP_CONFIG" ]; then
+    echo "Running execute_merge_point.sh with $MP_CONFIG..."
+    ./scripts/execute_merge_point.sh "$MP_CONFIG" --skip-cleanup
+fi
+```
+
+**Why:** `execute_merge_point.sh` is a 7-phase automated engine that runs tests, smoke checks, success criteria, and status updates. Running it after the inline merge point steps provides an independent verification layer.
+
+**With `--auto-heal`:** If `execute_merge_point.sh` fails (non-zero exit), do NOT retry it — it is a secondary verification. Instead, read its output to identify which phase failed, log the failure to the healing report, and continue. The merge point is already validated by Steps 7a–7e; this is belt-and-suspenders.
+
+**Flags to use:**
+- `--skip-cleanup`: Always skip cleanup — `/run-batch` manages branch lifecycle
+- `--skip-tests`: Add if tests already passed in Step 6.5
+- `--skip-container`: Add if no container changes in this batch
+- `--dry-run`: Use for first-time validation of a new mp_config
+
+**If the config does not exist:** Skip this step silently — the inline 7a–7e steps are sufficient.
+
+**If `execute_merge_point.sh` reports failures:** Report to user but do NOT block — the inline steps (7a–7e) are the primary gate. Log the discrepancy for investigation.
+
+#### 7g. Live E2E Validation: `validate_integration.sh` (backend batches only)
+
+**Run ONLY if this batch modified backend services** (e.g., `deeptrail-control/` or `deeptrail-gateway/` files). Skip for frontend-only batches.
+
+```bash
+# Check if backend files were modified in this batch
+BACKEND_CHANGES=$(git diff --name-only HEAD~1 HEAD | grep -cE "^(deeptrail-control|deeptrail-gateway)/" || true)
+
+if [ "$BACKEND_CHANGES" -gt 0 ]; then
+    echo "Backend changes detected — running live E2E validation..."
+    ./scripts/validate_integration.sh --skip-setup
+fi
+```
+
+**What this runs:** 16 live E2E scenarios covering auth flow, agent lifecycle, vault operations, gateway proxy, and MCP protocol.
+
+**Flags:**
+- `--skip-setup`: Skip Docker Compose setup (services should already be running from 7a/7i)
+
+**If validation fails:** Report failures to user. These are live integration tests — failures may indicate real regressions that per-task tests missed.
+
+**With `--auto-heal`:** Do NOT auto-retry `validate_integration.sh` (max 1 attempt). If it fails, log the failure to the healing report and stop the batch — live E2E regressions are too risky to auto-fix. **Exception:** if the `verify_integration.py` CRITICAL count increased (regression detected), always escalate to human regardless of flags.
+
+#### 7h. Build Verify
 
 Run full lint and type checks on every file modified in this batch:
 
@@ -513,9 +743,9 @@ cd deeptrail-control && ruff check app/ tests/ && echo "✅ ruff clean"
 cd frontend && npx tsc --noEmit && echo "✅ tsc clean"
 ```
 
-If either fails, fix the errors before proceeding. Report to user if the fix is non-trivial.
+If either fails, fix the errors before proceeding. **With `--auto-heal`:** enter a heal loop (max 2 retries) — run `ruff check --fix` for lint errors, read and fix `tsc` errors, then re-run the check. Report to user only if the fix is non-trivial and retries are exhausted.
 
-#### 7h. Container Rebuild
+#### 7i. Container Rebuild
 
 Rebuild backend containers with the batch's changes and verify they start healthy:
 
@@ -529,9 +759,9 @@ curl -sf http://localhost:8000/health && echo "✅ Control healthy" || echo "❌
 curl -sf http://localhost:8002/health && echo "✅ Gateway healthy"  || echo "❌ Gateway unhealthy"
 ```
 
-If either service fails health check, inspect logs with `docker compose logs <service>` and fix before proceeding.
+If either service fails health check, inspect logs with `docker compose logs <service>` and fix before proceeding. **With `--auto-heal`:** enter a heal loop (max 2 retries). Read container logs to identify the startup error, fix the source code or configuration, rebuild, restart, and re-check health. Container failures after 2 retries should escalate to the human — they likely indicate an infrastructure issue.
 
-#### 7i. Browser Smoke Test
+#### 7j. Browser Smoke Test
 
 Quick frontend smoke test to confirm the dashboard still renders after backend changes:
 
@@ -590,6 +820,32 @@ Present the batch completion report:
     | [WS-ID] | ✅ Complete | 5/5 pass | 3 created | — |
     | [WS-ID] | ✅ Complete | 8/8 pass | 2 modified | — |
 
+    ### Healing Summary (if `--auto-heal` was used)
+
+    *Omit this section entirely if `--auto-heal` was not used or no healing occurred.*
+
+    | Task | Failure | Retries | Fresh Retry | Outcome |
+    |------|---------|---------|-------------|---------|
+    | [WS-ID] | tsc error in audit.ts | 1 | — | Healed (missing import) |
+    | [WS-ID] | pytest assertion error | 3 | ✅ Attempted | BLOCKED (test logic) |
+    | [WS-ID] | lint formatting | 1 | — | Healed (auto-format) |
+
+    **Healing Totals:**
+    - Auto-healed: [N] tasks
+    - Blocked: [N] tasks
+    - Skipped (no downstream deps): [N] tasks
+    - Fresh-context retries: [N] attempted, [M] succeeded
+
+    **Blocked Task Details** (if any):
+
+    For each BLOCKED task, include:
+    - Task ID and description
+    - Failure class (Auto-fixable / Diagnosable / Opaque / Security)
+    - Retries attempted (including fresh-context)
+    - Last error output (truncated to key lines)
+    - Impact: which downstream tasks were affected
+    - Suggestion: what the human should investigate
+
     ### Quality Summary
     - Lint: ✅ All files pass
     - Tests: ✅ [X] tests passing
@@ -606,7 +862,44 @@ Present the batch completion report:
     ---
     Proceed to Batch [N+1]? (yes / pause / review)
 
-**Wait for user confirmation before proceeding.**
+#### 8a. Auto-Continue Behavior (`--continue` flag)
+
+**If `--continue` was specified:**
+
+1. **Determine the next batch ID** from the Quick Reference table in `BATCH_EXECUTION_PLAN.md`.
+   Parse the table to find the row after the current batch. The next batch ID is in the first column.
+
+2. **Safety gate — all of these must be true to auto-proceed:**
+   - All tasks in the current batch completed successfully (no failures), OR `--auto-heal` is set and all failures were handled (healed or skipped with no downstream impact)
+   - `verify-batch-completion` passed
+   - All merge point success criteria passed (if applicable)
+   - `verify_integration.py` exit code is 0 (or `--warn-only` on non-final batches)
+   - `execute_merge_point.sh` did not report FAIL results (if it ran)
+   - No BLOCKED tasks have unresolved downstream dependencies in the next batch
+
+3. **If all checks pass and a next batch exists:**
+   - Still present the checkpoint report (for the user to see)
+   - Append to the report: `Auto-continuing to Batch [N+1]... (--continue flag)`
+   - Pass through `--auto-heal` if it was set: `/run-batch [next-batch-id] [feature-name] --continue --auto-heal`
+   - If `--auto-heal` was not set: `/run-batch [next-batch-id] [feature-name] --continue`
+
+4. **If any check fails:**
+   - **Without `--auto-heal`:** Present the checkpoint report with failure details.
+     Append: `Auto-continue STOPPED: [reason]. Fix the issue and re-run: /run-batch [next-batch-id] [feature-name] --continue`
+     STOP and wait for user.
+   - **With `--auto-heal`:** Check if the failures are skippable (non-blocking, non-security, non-final-batch).
+     If skippable: log to healing report, append `Auto-continuing with [N] BLOCKED tasks...`, and proceed.
+     If not skippable: STOP with the healing report attached so the user sees what was attempted.
+
+5. **If this is the final batch (no next batch in the table):**
+   - Present the final completion report
+   - Run `/verify-batch-completion` for the final batch (which auto-closes the workstream)
+   - Append: `Workstream complete. All batches executed successfully.`
+   - STOP — nothing more to chain
+
+**If `--continue` was NOT specified:**
+
+Wait for user confirmation before proceeding (existing behavior).
 
 ---
 
@@ -680,6 +973,14 @@ The base tag names are feature-specific — read them from `BATCH_EXECUTION_PLAN
 - Not creating the merge point tag when required
 - Proceeding past a failed task without user acknowledgment
 - Not presenting the checkpoint report to the user
+- Skipping Step 7f (`execute_merge_point.sh`) when an mp_config exists
+- Using `--continue` after a batch with failures (safety gate should have stopped this)
+- Not running `validate_integration.sh` for batches that modify backend services
+- Auto-healing security-related failures (auth, crypto, JWT, permissions) — always escalate these
+- Auto-healing database migration failures — always escalate these
+- Using `--auto-heal` on the final batch of a workstream — should not skip-and-continue
+- Retrying a fresh-context subagent recursively (max 1 fresh retry per task)
+- Not including the Healing Summary in the Step 8 report when `--auto-heal` was used
 
 ---
 
@@ -754,3 +1055,56 @@ The agent will:
 8. **Checkpoint** — report results, ask user to proceed
 
 Total time: ~1 session instead of manually running 13 commands.
+
+## Example: Auto-Chaining All Batches
+
+```
+/run-batch P0-B1 ui-improvements-audit-activity --continue
+```
+
+The agent will:
+
+1. Execute **P0-B1** (Foundation) — 5 tasks, MP1
+   - All Steps 1–7 as normal
+   - Step 7e: Run `execute_merge_point.sh` with mp_config (belt-and-suspenders)
+   - Step 7f: Run `validate_integration.sh` (backend changes detected)
+   - Step 8: All checks pass → auto-continue
+2. Execute **P0-B2** (Core Implementation) — 7 tasks
+   - All Steps 1–8 as normal
+   - Step 8: All checks pass → auto-continue
+3. Execute **P0-B3** (Tests + Polish) — 4 tasks
+   - All Steps 1–8 as normal
+   - Final batch → workstream closure
+   - STOP — all batches complete
+
+If any batch fails, auto-continue stops at that batch with a detailed failure report.
+
+## Example: Full AFK Mode (Auto-Heal + Auto-Chain)
+
+```
+/run-batch P0-B1 ui-improvements-audit-activity --continue --auto-heal
+```
+
+The agent will:
+
+1. Execute **P0-B1** (Foundation) — 5 tasks, MP1
+   - Task WS-A1: Implementation succeeds, all checks pass
+   - Task WS-A2: `tsc` error → **self-heal** (1 retry, fixes missing import) → passes
+   - Task WS-E1: Test assertion failure → **self-heal** (2 retries, fixes mapping logic) → passes
+   - Task WS-C1: Pytest failure → **self-heal** (3 retries exhausted) → **fresh-context retry** → passes
+   - Task WS-D1: All checks pass
+   - Step 6.5 validation: passes
+   - Step 7: MP1 merge point → container rebuild, smoke tests pass
+   - Step 8: Healing Summary shows 3 healed tasks, 0 blocked → auto-continue
+2. Execute **P0-B2** (Core Implementation) — 7 tasks
+   - Task WS-B3: Test failure → self-heal (3 retries) → fresh-context retry → **BLOCKED**
+   - No downstream tasks depend on WS-B3 → **skip-and-continue**
+   - Remaining 6 tasks: all pass
+   - Step 8: Healing Summary shows 1 blocked, 1 skipped → auto-continue (non-blocking)
+3. Execute **P0-B3** (Tests + Polish) — 4 tasks, FINAL BATCH
+   - All tasks pass (no skip-and-continue allowed on final batch)
+   - Workstream closure
+   - Final Healing Summary: 3 healed across all batches, 1 blocked (WS-B3)
+   - STOP — all batches complete
+
+If a security-related task fails, or `verify_integration.py` detects a regression, the auto-heal stops immediately and reports to the user.
