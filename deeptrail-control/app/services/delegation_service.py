@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.models.connected_service import ConnectedService
 from app.models.delegation import DelegationToken
+from app.models.delegation_template import DelegationTemplate
 from app.services.scope_mapper import ScopeMapper
 
 logger = logging.getLogger(__name__)
@@ -252,6 +253,39 @@ class DelegationService:
                 invalid_permissions=invalid_perms,
                 allowed_permissions=allowed_perms,
             )
+
+        # Enforce delegation template ceiling if one exists for this agent
+        template = (
+            self._db.query(DelegationTemplate)
+            .filter(DelegationTemplate.agent_id == agent_id)
+            .first()
+        )
+        if template:
+            max_perms = set(template.max_permissions or [])
+            blocked = set(template.blocked_permissions or [])
+
+            blocked_requested = set(permissions) & blocked
+            if blocked_requested:
+                raise PermissionValidationError(
+                    message=(
+                        f"Permissions blocked by admin template: "
+                        f"{sorted(blocked_requested)}"
+                    ),
+                    invalid_permissions=sorted(blocked_requested),
+                    allowed_permissions=sorted(max_perms - blocked),
+                )
+
+            if max_perms:
+                over_ceiling = set(permissions) - max_perms
+                if over_ceiling:
+                    raise PermissionValidationError(
+                        message=(
+                            f"Permissions exceed admin template ceiling: "
+                            f"{sorted(over_ceiling)}"
+                        ),
+                        invalid_permissions=sorted(over_ceiling),
+                        allowed_permissions=sorted(max_perms - blocked),
+                    )
 
         # Check for existing active delegation and revoke it
         existing = self.get_active_delegation(delegator, agent_id)

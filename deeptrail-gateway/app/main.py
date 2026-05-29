@@ -19,6 +19,7 @@ For Future - Enterprise Grade:
 - Rate limiting and throttling
 """
 
+import asyncio
 import logging
 import os
 import json
@@ -75,6 +76,7 @@ from .middleware.result_filter import configure_result_filter
 from .security.prompt_injection import configure_prompt_injection_detector
 from .security.token_exchange import configure_token_exchange_client, TokenExchangeConfig
 from .backends.adapter import create_backend_adapter
+from .backends.dynamic_registry import DynamicBackendLoader
 from .services.cache_subscriber import start_cache_subscriber, stop_cache_subscriber
 
 # Configure basic logging
@@ -87,6 +89,16 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _health_report_loop(loader: DynamicBackendLoader, interval: int) -> None:
+    """Periodically probe backends and report health to Control Plane."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await loader.report_health()
+        except Exception as e:
+            logger.error("Health report loop error: %s", e)
 
 
 @asynccontextmanager
@@ -116,10 +128,32 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("REDIS_URL not set, cache invalidation subscriber disabled")
 
+    # Dynamic backend registry loader — loads service catalog from Control Plane
+    from .backends.connection_manager import BackendConnectionManager
+    from .core.config import get_settings
+    gw_settings = get_settings()
+    mcp_connection_manager = BackendConnectionManager()
+    dynamic_loader = DynamicBackendLoader(
+        adapter=backend_client,
+        connection_manager=mcp_connection_manager,
+        tool_cache=mcp_tool_cache,
+        control_plane_url=gw_settings.control_plane_url,
+        internal_api_token=gw_settings.gateway_internal_api_token,
+        refresh_interval_seconds=gw_settings.registry_refresh_interval,
+    )
+    count = await dynamic_loader.initial_load()
+    logger.info("Dynamic registry: %d backends loaded from Control Plane", count)
+
+    refresh_task = asyncio.create_task(dynamic_loader.run_refresh_loop())
+    health_task = asyncio.create_task(_health_report_loop(dynamic_loader, gw_settings.registry_health_report_interval))
+
     yield
 
     # Shutdown
     logger.info("Shutting down DeepTrail Gateway...")
+    dynamic_loader.stop()
+    refresh_task.cancel()
+    health_task.cancel()
     await stop_cache_subscriber()
     await close_http_client()
     logger.info("DeepTrail Gateway stopped")

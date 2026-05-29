@@ -197,6 +197,9 @@ class GatewaySettings(BaseSettings):
     max_connections_per_backend: int = Field(default=10)
     health_check_interval_seconds: float = Field(default=30.0)
     health_check_timeout_seconds: float = Field(default=5.0)
+    gateway_internal_api_token: str = Field(default="gateway-internal-secret-token")
+    registry_refresh_interval: int = Field(default=60)
+    registry_health_report_interval: int = Field(default=30)
 
     model_config = {
         "env_prefix": "GATEWAY_",

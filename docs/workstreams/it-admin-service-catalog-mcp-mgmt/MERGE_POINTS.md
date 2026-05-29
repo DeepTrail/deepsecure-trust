@@ -383,12 +383,12 @@ docker compose logs deeptrail-gateway | grep registry
 |----|--------|------|-----|
 | MP1 | ✅ Reached | May 29, 2026 | `mp1-foundation-complete-feature/it-admin-service-catalog-mcp-mgmt` |
 | MP2 | ✅ Reached | May 29, 2026 | `mp2-backend-apis-complete-feature/it-admin-service-catalog-mcp-mgmt` |
-| MP3 | 🔲 Not Reached | — | — |
+| MP3 | ✅ Reached | May 29, 2026 | `mp3-full-feature-functional-feature/it-admin-service-catalog-mcp-mgmt` |
 
 ### Progress Summary
 
-- 2 of 3 merge points reached
-- 20 of 35 tasks complete (B1 5/5 + B2 15/15)
+- 3 of 3 merge points reached
+- 35 of 35 tasks complete (B1 5/5 + B2 15/15 + B3 11/11 + B4 4/4)
 
 ## History
 
@@ -397,3 +397,5 @@ docker compose logs deeptrail-gateway | grep registry
 | May 29, 2026 | MERGE_POINTS.md created by `/run-plan` |
 | May 29, 2026 | MP1 reached — P0-B1 foundation complete (migration verified on PostgreSQL) |
 | May 29, 2026 | MP2 reached — P0-B2 backend APIs complete (container tests passed) |
+| May 29, 2026 | MP3 reached — P0-B3 gateway dynamic loading + admin frontend complete |
+| May 29, 2026 | P0-B4 complete — all 35 tasks done, workstream execution complete |
