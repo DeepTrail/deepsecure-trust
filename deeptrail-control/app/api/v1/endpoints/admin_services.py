@@ -46,6 +46,8 @@ class ServiceCreateRequest(BaseModel):
     mcp_protocol_version: str = Field(default="2024-11-05")
     data_classification: str = Field(default="internal")
     available_to_roles: List[str] = Field(default=["all"])
+    available_to_groups: List[str] = Field(default=[])
+    available_to_users: List[str] = Field(default=[])
     requires_approval: bool = False
 
 
@@ -60,6 +62,8 @@ class ServiceUpdateRequest(BaseModel):
     data_classification: Optional[str] = None
     status: Optional[str] = None
     available_to_roles: Optional[List[str]] = None
+    available_to_groups: Optional[List[str]] = None
+    available_to_users: Optional[List[str]] = None
     requires_approval: Optional[bool] = None
 
 
@@ -78,6 +82,8 @@ class ServiceResponse(BaseModel):
     discovered_tools_count: int = 0
     permission_map: Optional[Dict[str, str]] = None
     available_to_roles: Optional[List[str]] = None
+    available_to_groups: Optional[List[str]] = None
+    available_to_users: Optional[List[str]] = None
     requires_approval: bool = False
 
     model_config = {"from_attributes": True}
@@ -106,6 +112,8 @@ class ConnectionTestResponse(BaseModel):
     backend_type: str
     endpoint_url: str
     message: str
+    latency_ms: Optional[int] = None
+    mcp_server_info: Optional[Dict[str, Any]] = None
 
 
 class HealthSummaryResponse(BaseModel):
@@ -149,6 +157,8 @@ def list_services(
             discovered_tools_count=len(s.discovered_tools) if s.discovered_tools else 0,
             permission_map=s.permission_map,
             available_to_roles=s.available_to_roles,
+            available_to_groups=s.available_to_groups or [],
+            available_to_users=s.available_to_users or [],
             requires_approval=s.requires_approval or False,
         )
         for s in services
@@ -179,6 +189,8 @@ def create_service(
         data_classification=service.data_classification or "internal",
         mcp_auth_configured=bool(service.mcp_auth_value_encrypted),
         available_to_roles=service.available_to_roles,
+        available_to_groups=service.available_to_groups or [],
+        available_to_users=service.available_to_users or [],
         requires_approval=service.requires_approval or False,
     )
 
@@ -210,6 +222,8 @@ def update_service(
         data_classification=service.data_classification or "internal",
         mcp_auth_configured=bool(service.mcp_auth_value_encrypted),
         available_to_roles=service.available_to_roles,
+        available_to_groups=service.available_to_groups or [],
+        available_to_users=service.available_to_users or [],
         requires_approval=service.requires_approval or False,
     )
 
@@ -301,6 +315,29 @@ def discover_tools(
         "discovered_tools": service.discovered_tools or [],
         "permission_map": service.permission_map or {},
     }
+
+
+@router.get("/directory")
+def list_directory(
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_admin),
+):
+    from app.services.directory_sync_service import DirectorySyncService
+
+    sync_svc = DirectorySyncService(db)
+    return sync_svc.get_all()
+
+
+@router.post("/directory/sync")
+def trigger_directory_sync(
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_admin),
+):
+    from app.services.directory_sync_service import DirectorySyncService
+
+    sync_svc = DirectorySyncService(db)
+    result = sync_svc.sync_from_google()
+    return {"status": "completed", **result}
 
 
 @router.get("/health", response_model=HealthSummaryResponse)

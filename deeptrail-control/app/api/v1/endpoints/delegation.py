@@ -65,6 +65,8 @@ def _parse_user_token(authorization: str) -> Dict[str, Any]:
             return {"sub": token.replace("mock_user_token_", "")}
 
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        if "sub" not in payload and "agent_id" in payload:
+            payload["sub"] = payload["agent_id"]
         if "sub" not in payload:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -307,6 +309,71 @@ def list_user_delegations(
             )
         )
     return result
+
+
+# =============================================================================
+# Public Delegation Templates (filtered by user role)
+# =============================================================================
+
+
+class PublicTemplateResponse(BaseModel):
+    """Template summary visible to employees."""
+    id: str
+    agent_id: str
+    max_permissions: List[str]
+    blocked_permissions: List[str]
+    default_ttl_days: int
+
+
+class PublicTemplateListResponse(BaseModel):
+    templates: List[PublicTemplateResponse]
+    total: int
+
+
+@router.get("/delegation-templates", response_model=PublicTemplateListResponse)
+def list_user_delegation_templates(
+    authorization: str = Header(...),
+    db: Session = Depends(deps.get_db),
+):
+    """List delegation templates available to the current user.
+
+    Visibility rules (any match = visible):
+    - "all" in available_to_roles → visible to everyone
+    - User's email is in available_to_users → visible
+    - Any of user's groups overlap with available_to_groups → visible
+    - All three lists empty → visible to nobody
+    """
+    from app.models.delegation_template import DelegationTemplate as DT
+
+    user_claims = _parse_user_token(authorization)
+    user_email = user_claims.get("sub", "")
+    user_groups = set(user_claims.get("groups", []))
+
+    all_templates = db.query(DT).all()
+
+    visible = []
+    for t in all_templates:
+        template_roles = t.available_to_roles or []
+        template_groups = getattr(t, "available_to_groups", None) or []
+        template_users = getattr(t, "available_to_users", None) or []
+
+        is_visible = (
+            "all" in template_roles
+            or user_email in template_users
+            or bool(user_groups & set(template_groups))
+        )
+        if is_visible:
+            visible.append(
+                PublicTemplateResponse(
+                    id=str(t.id),
+                    agent_id=t.agent_id,
+                    max_permissions=t.max_permissions or [],
+                    blocked_permissions=t.blocked_permissions or [],
+                    default_ttl_days=t.default_ttl_days or 7,
+                )
+            )
+
+    return PublicTemplateListResponse(templates=visible, total=len(visible))
 
 
 # =============================================================================

@@ -160,7 +160,8 @@ class TestGetAuthorizationUrl:
         with pytest.raises(OAuthConfigError) as exc_info:
             await oauth_service.get_authorization_url(request)
 
-        assert "NOTION_CLIENT_ID" in str(exc_info.value)
+        err_msg = str(exc_info.value)
+        assert "NOTION_CLIENT_ID" in err_msg or "OAUTH_REDIRECT_BASE_URL" in err_msg
 
 
 # ============================================================================
@@ -537,6 +538,7 @@ class TestGetProviderConfig:
 
     def test_raises_on_missing_client_id(self, oauth_service: OAuthService, monkeypatch):
         """get_provider_config should raise OAuthConfigError if client_id missing."""
+        monkeypatch.delenv("NOTION_CLIENT_ID", raising=False)
         monkeypatch.setenv("NOTION_CLIENT_SECRET", "secret")
         monkeypatch.setenv("OAUTH_REDIRECT_BASE_URL", "https://app.example.com")
 

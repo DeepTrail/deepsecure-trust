@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
+    ARRAY,
     Boolean,
     Column,
     DateTime,
@@ -101,6 +102,14 @@ class ServiceRegistry(Base):
         JSON().with_variant(postgresql.JSONB(), "postgresql"),
         server_default='["all"]',
     )
+    available_to_groups = Column(
+        JSON().with_variant(postgresql.JSONB(), "postgresql"),
+        server_default="[]",
+    )
+    available_to_users = Column(
+        JSON().with_variant(postgresql.JSONB(), "postgresql"),
+        server_default="[]",
+    )
     requires_approval = Column(Boolean, server_default="false")
     health_status = Column(String(20), server_default="unknown")
     health_last_checked_at = Column(DateTime(timezone=True), nullable=True)
@@ -166,9 +175,9 @@ class ServiceOAuthConfig(Base):
     auth_url = Column(String(500), nullable=True)
     token_url = Column(String(500), nullable=True)
     scopes = Column(
-        JSON().with_variant(postgresql.JSONB(), "postgresql"),
+        ARRAY(String),
         nullable=True,
-        comment="Available OAuth scopes (stored as JSON array for SQLite compat)",
+        comment="Available OAuth scopes",
     )
     organization_id = Column(String(36), nullable=True)
     created_at = Column(

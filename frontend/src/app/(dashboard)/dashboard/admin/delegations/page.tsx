@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
@@ -26,6 +26,10 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { AgentSelector } from "@/components/delegation/AgentSelector";
+import { PermissionPicker } from "@/components/delegation/PermissionPicker";
+import { TTLSelector } from "@/components/delegation/TTLSelector";
+import { AvailableToPicker } from "@/components/admin/AvailableToPicker";
 import type {
   AdminDelegation,
   AdminDelegationListResponse,
@@ -79,10 +83,12 @@ function CreateTemplateDialog({
   onCreated: () => void;
 }) {
   const [agentId, setAgentId] = useState("");
-  const [maxPermissions, setMaxPermissions] = useState("");
-  const [blockedPermissions, setBlockedPermissions] = useState("");
-  const [defaultTtlDays, setDefaultTtlDays] = useState("30");
-  const [availableToRoles, setAvailableToRoles] = useState("employee");
+  const [maxPermissions, setMaxPermissions] = useState<string[]>([]);
+  const [blockedPermissions, setBlockedPermissions] = useState<string[]>([]);
+  const [defaultTtlDays, setDefaultTtlDays] = useState(30);
+  const [availableToEveryone, setAvailableToEveryone] = useState(false);
+  const [availableToGroups, setAvailableToGroups] = useState<string[]>([]);
+  const [availableToUsers, setAvailableToUsers] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,21 +99,12 @@ function CreateTemplateDialog({
 
     const body: DelegationTemplateCreateRequest = {
       agent_id: agentId.trim(),
-      max_permissions: maxPermissions
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      blocked_permissions: blockedPermissions
-        ? blockedPermissions
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : [],
-      default_ttl_days: parseInt(defaultTtlDays, 10) || 30,
-      available_to_roles: availableToRoles
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      max_permissions: maxPermissions,
+      blocked_permissions: blockedPermissions,
+      default_ttl_days: defaultTtlDays,
+      available_to_roles: availableToEveryone ? ["all"] : [],
+      available_to_groups: availableToEveryone ? [] : availableToGroups,
+      available_to_users: availableToEveryone ? [] : availableToUsers,
     };
 
     try {
@@ -118,10 +115,12 @@ function CreateTemplateDialog({
       onOpenChange(false);
       onCreated();
       setAgentId("");
-      setMaxPermissions("");
-      setBlockedPermissions("");
-      setDefaultTtlDays("30");
-      setAvailableToRoles("employee");
+      setMaxPermissions([]);
+      setBlockedPermissions([]);
+      setDefaultTtlDays(30);
+      setAvailableToEveryone(false);
+      setAvailableToGroups([]);
+      setAvailableToUsers([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create template");
     } finally {
@@ -131,59 +130,71 @@ function CreateTemplateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create Delegation Template</DialogTitle>
           <DialogDescription>
             Define a reusable template for agent delegations.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Agent ID</label>
-            <Input
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              placeholder="e.g. code-review-agent"
-              required
+            <Label>Agent</Label>
+            <AgentSelector value={agentId} onChange={setAgentId} />
+          </div>
+
+          <div className="space-y-2">
+            <Label>
+              Max Permissions
+              {maxPermissions.length > 0 && (
+                <Badge variant="secondary" className="ml-2 text-xs">
+                  {maxPermissions.length} selected
+                </Badge>
+              )}
+            </Label>
+            <PermissionPicker
+              selected={maxPermissions}
+              onChange={setMaxPermissions}
             />
           </div>
+
           <div className="space-y-2">
-            <label className="text-sm font-medium">Max Permissions</label>
-            <Input
-              value={maxPermissions}
-              onChange={(e) => setMaxPermissions(e.target.value)}
-              placeholder="Comma-separated, e.g. github:read, slack:post"
-              required
+            <Label>
+              Blocked Permissions
+              {blockedPermissions.length > 0 && (
+                <Badge variant="destructive" className="ml-2 text-xs">
+                  {blockedPermissions.length} blocked
+                </Badge>
+              )}
+            </Label>
+            <PermissionPicker
+              selected={blockedPermissions}
+              onChange={setBlockedPermissions}
+              variant="block"
             />
           </div>
+
           <div className="space-y-2">
-            <label className="text-sm font-medium">Blocked Permissions</label>
-            <Input
-              value={blockedPermissions}
-              onChange={(e) => setBlockedPermissions(e.target.value)}
-              placeholder="Comma-separated (optional)"
+            <Label>Default TTL</Label>
+            <TTLSelector
+              value={defaultTtlDays}
+              onChange={setDefaultTtlDays}
+              unit="days"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Default TTL (days)</label>
-              <Input
-                type="number"
-                min={1}
-                value={defaultTtlDays}
-                onChange={(e) => setDefaultTtlDays(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Available to Roles</label>
-              <Input
-                value={availableToRoles}
-                onChange={(e) => setAvailableToRoles(e.target.value)}
-                placeholder="e.g. employee, admin"
-              />
-            </div>
+
+          <div className="space-y-2">
+            <Label>Available To</Label>
+            <AvailableToPicker
+              everyone={availableToEveryone}
+              onEveryoneChange={setAvailableToEveryone}
+              selectedGroups={availableToGroups}
+              selectedUsers={availableToUsers}
+              onGroupsChange={setAvailableToGroups}
+              onUsersChange={setAvailableToUsers}
+            />
           </div>
+
           {error && (
             <p className="text-sm text-destructive">{error}</p>
           )}
@@ -195,7 +206,7 @@ function CreateTemplateDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting || !agentId}>
               {submitting ? "Creating..." : "Create Template"}
             </Button>
           </DialogFooter>
@@ -315,7 +326,11 @@ export default function AdminDelegationsPage() {
                   </>
                 )}
                 <span className="text-muted-foreground/50">|</span>
-                <span>Roles: {tmpl.available_to_roles.join(", ")}</span>
+                <span>
+                  {tmpl.available_to_roles.includes("all")
+                    ? "Available to: Everyone"
+                    : `Available to: ${tmpl.available_to_roles.join(", ") || "Specific groups/users"}`}
+                </span>
               </div>
             </div>
             <Button

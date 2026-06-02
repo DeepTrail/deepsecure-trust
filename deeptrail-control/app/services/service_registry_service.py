@@ -9,9 +9,11 @@ Handles:
 """
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.core.kms import KMSClient
@@ -141,13 +143,154 @@ class ServiceRegistryService:
         if not service:
             raise ValueError(f"Service '{service_id}' not found")
 
+        url = service.endpoint_url
+        is_mcp = service.backend_type == "mcp"
+        start = time.monotonic()
+
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                if is_mcp:
+                    resp = client.post(
+                        url,
+                        json=self._mcp_initialize_payload(),
+                        headers=self._mcp_probe_headers(service),
+                    )
+                else:
+                    resp = client.get(url)
+
+            latency_ms = int((time.monotonic() - start) * 1000)
+            status_code = resp.status_code
+
+            mcp_info = self._extract_mcp_info(resp) if is_mcp and status_code == 200 else {}
+            message = self._connection_message(status_code, is_mcp, latency_ms, mcp_info)
+
+            reachable = status_code < 500
+            service.health_latency_ms = latency_ms
+            service.health_last_checked_at = datetime.now(timezone.utc)
+            service.health_status = "healthy" if reachable else "down"
+            self.db.commit()
+
+            result: Dict[str, Any] = {
+                "service_id": service_id,
+                "status": "success" if reachable else "error",
+                "backend_type": service.backend_type,
+                "endpoint_url": url,
+                "latency_ms": latency_ms,
+                "message": message,
+            }
+            if mcp_info:
+                result["mcp_server_info"] = mcp_info
+            return result
+
+        except httpx.ConnectError:
+            latency_ms = int((time.monotonic() - start) * 1000)
+            service.health_status = "down"
+            service.health_last_checked_at = datetime.now(timezone.utc)
+            self.db.commit()
+            return {
+                "service_id": service_id,
+                "status": "error",
+                "backend_type": service.backend_type,
+                "endpoint_url": url,
+                "message": "Connection refused — server may be down or URL incorrect",
+            }
+        except httpx.TimeoutException:
+            service.health_status = "slow"
+            service.health_last_checked_at = datetime.now(timezone.utc)
+            self.db.commit()
+            return {
+                "service_id": service_id,
+                "status": "error",
+                "backend_type": service.backend_type,
+                "endpoint_url": url,
+                "message": "Timed out after 10s — check network/firewall",
+            }
+        except Exception as exc:
+            logger.warning("Connection test failed for %s: %s", service_id, exc)
+            return {
+                "service_id": service_id,
+                "status": "error",
+                "backend_type": service.backend_type,
+                "endpoint_url": url,
+                "message": f"Connection test failed — {exc}",
+            }
+
+    @staticmethod
+    def _mcp_initialize_payload() -> Dict[str, Any]:
         return {
-            "service_id": service_id,
-            "status": "ok",
-            "backend_type": service.backend_type,
-            "endpoint_url": service.endpoint_url,
-            "message": "Connection test placeholder — implement HTTP probe in production",
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": 1,
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "deepsecure-test", "version": "1.0.0"},
+            },
         }
+
+    def _mcp_probe_headers(self, service: "ServiceRegistry") -> Dict[str, str]:
+        headers: Dict[str, str] = {"Content-Type": "application/json"}
+        if (
+            service.mcp_auth_method
+            and service.mcp_auth_method != "none"
+            and service.mcp_auth_header
+            and service.mcp_auth_value_encrypted
+        ):
+            try:
+                if self.kms.backend != "none":
+                    decrypted = self.kms.decrypt(service.mcp_auth_value_encrypted)
+                    headers[service.mcp_auth_header] = decrypted
+            except Exception:
+                logger.debug("Skipping MCP auth header for test — decryption unavailable")
+        return headers
+
+    @staticmethod
+    def _extract_mcp_info(resp: httpx.Response) -> Dict[str, Any]:
+        """Pull protocol version, capabilities, and serverInfo from a JSON-RPC response."""
+        try:
+            body = resp.json()
+        except Exception:
+            return {}
+        result = body.get("result", {})
+        if not isinstance(result, dict):
+            return {}
+        info: Dict[str, Any] = {}
+        if "protocolVersion" in result:
+            info["protocol_version"] = result["protocolVersion"]
+        if "capabilities" in result:
+            info["capabilities"] = result["capabilities"]
+        if "serverInfo" in result:
+            info["server_info"] = result["serverInfo"]
+        return info
+
+    @staticmethod
+    def _connection_message(
+        status_code: int,
+        is_mcp: bool,
+        latency_ms: int,
+        mcp_info: Dict[str, Any],
+    ) -> str:
+        if status_code == 200:
+            if is_mcp:
+                version = mcp_info.get("protocol_version", "unknown")
+                return f"Healthy — MCP server responding, protocol version: {version}"
+            return "Healthy — API responding"
+        if status_code in (401, 403):
+            if is_mcp:
+                return "Auth required — check MCP credentials in service config"
+            return (
+                "Reachable — authentication required "
+                "(expected for OAuth services, employees authorize individually)"
+            )
+        if status_code == 404:
+            if is_mcp:
+                return "Endpoint not found — verify MCP server URL"
+            return "Endpoint not found — verify URL"
+        if 500 <= status_code < 600:
+            if is_mcp:
+                return "Server error — MCP server may be down"
+            return "Server error — backend may be down"
+        return f"Unexpected response — HTTP {status_code} in {latency_ms}ms"
 
     # --- Internal API (for Gateway) ---
 
@@ -207,16 +350,20 @@ class ServiceRegistryService:
             ServiceRegistry.status.in_(["active", "sandbox"])
         ).all()
 
-        summary = {"total": len(services), "up": 0, "down": 0, "slow": 0, "unknown": 0, "services": []}
+        summary: Dict[str, Any] = {
+            "total": len(services), "up": 0, "healthy": 0,
+            "down": 0, "slow": 0, "unknown": 0, "services": [],
+        }
         for s in services:
             status = s.health_status or "unknown"
             summary[status] = summary.get(status, 0) + 1
             summary["services"].append({
                 "service_id": s.service_id,
                 "display_name": s.display_name,
+                "backend_type": s.backend_type or "rest",
                 "health_status": status,
                 "latency_ms": s.health_latency_ms,
-                "error_count_24h": s.health_error_count_24h,
+                "error_count_24h": s.health_error_count_24h or 0,
                 "last_checked": s.health_last_checked_at.isoformat() if s.health_last_checked_at else None,
             })
         return summary

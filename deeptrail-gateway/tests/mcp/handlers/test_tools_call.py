@@ -24,6 +24,8 @@ from app.mcp.handlers.tools_call import (
     ToolsCallErrorCode,
     _generate_mock_response,
     _summarize_result,
+    increment_error_count,
+    drain_error_counts,
 )
 from app.mcp.protocol import MCPError, JsonRpcErrorCode
 from app.mcp.session_manager import MCPSessionManager
@@ -1002,3 +1004,26 @@ class TestTaskTokenOwnerResolution:
             task_id="task-abc123",
         )
         assert _resolve_owner(ctx, sm) == ""
+
+
+class TestErrorCounting:
+    """Tests for per-service error counting used by health reporter."""
+
+    def test_increment_and_drain(self):
+        drain_error_counts()
+        increment_error_count("notion")
+        increment_error_count("notion")
+        increment_error_count("slack")
+        counts = drain_error_counts()
+        assert counts == {"notion": 2, "slack": 1}
+
+    def test_drain_resets_counts(self):
+        drain_error_counts()
+        increment_error_count("notion")
+        drain_error_counts()
+        counts = drain_error_counts()
+        assert counts == {}
+
+    def test_drain_empty_returns_empty(self):
+        drain_error_counts()
+        assert drain_error_counts() == {}

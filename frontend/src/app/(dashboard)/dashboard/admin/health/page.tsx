@@ -80,6 +80,7 @@ const EMERGENCY_ACTIONS: Record<
 
 const HEALTH_DOT: Record<string, string> = {
   up: "bg-green-500",
+  healthy: "bg-green-500",
   down: "bg-red-500",
   slow: "bg-yellow-500",
   unknown: "bg-gray-400",
@@ -87,6 +88,7 @@ const HEALTH_DOT: Record<string, string> = {
 
 const HEALTH_LABEL: Record<string, string> = {
   up: "Healthy",
+  healthy: "Healthy",
   down: "Down",
   slow: "Slow",
   unknown: "Unknown",
@@ -106,8 +108,30 @@ export default function AdminHealthPage() {
 
   const fetchHealth = useCallback(async () => {
     try {
-      const data = await apiClient<HealthAggregation>("admin/health");
-      setState({ kind: "data", health: data });
+      const raw = await apiClient<Record<string, unknown>>("admin/health");
+      const services = (raw.services ?? []) as Record<string, unknown>[];
+      const backends: BackendHealthEntry[] = services.map((s) => ({
+        service_id: s.service_id as string,
+        display_name: s.display_name as string,
+        backend_type: (s.backend_type as string ?? "rest") as BackendHealthEntry["backend_type"],
+        health_status: (s.health_status as string ?? "unknown") as BackendHealthEntry["health_status"],
+        latency_ms: (s.latency_ms as number) ?? null,
+        error_count_24h: (s.error_count_24h as number) ?? 0,
+        last_checked_at: (s.last_checked as string) ?? null,
+      }));
+      const latencies = backends.map((b) => b.latency_ms).filter((v): v is number => v != null);
+      const health: HealthAggregation = {
+        total_services: (raw.total as number) ?? 0,
+        services_up: ((raw.up as number) ?? 0) + ((raw.healthy as number) ?? 0),
+        services_down: (raw.down as number) ?? 0,
+        services_slow: (raw.slow as number) ?? 0,
+        services_unknown: (raw.unknown as number) ?? 0,
+        total_requests_24h: 0,
+        success_rate_24h: 0,
+        avg_latency_ms: latencies.length ? latencies.reduce((a, b) => a + b, 0) / latencies.length : 0,
+        backends,
+      };
+      setState({ kind: "data", health });
     } catch (err) {
       setState({
         kind: "error",
@@ -397,20 +421,20 @@ export default function AdminHealthPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Agents Affected</span>
-                  <span className="font-medium">{dialog.result.agents_affected}</span>
+                  <span className="font-medium">{dialog.result.agents_affected ?? dialog.result.affected_count ?? 0}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Delegations Revoked</span>
-                  <span className="font-medium">{dialog.result.delegations_revoked}</span>
+                  <span className="font-medium">{dialog.result.delegations_revoked ?? 0}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Executed By</span>
-                  <span className="font-medium">{dialog.result.executed_by}</span>
+                  <span className="font-medium">{dialog.result.executed_by || "admin"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Timestamp</span>
                   <span className="font-medium">
-                    {new Date(dialog.result.timestamp).toLocaleString()}
+                    {new Date(dialog.result.timestamp || new Date().toISOString()).toLocaleString()}
                   </span>
                 </div>
               </div>

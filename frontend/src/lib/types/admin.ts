@@ -10,35 +10,39 @@
 
 export type BackendType = "rest" | "mcp";
 export type ServiceStatus = "active" | "sandbox" | "review" | "disabled";
-export type HealthStatus = "up" | "down" | "slow" | "unknown";
+export type HealthStatus = "up" | "healthy" | "down" | "slow" | "unknown";
 export type McpAuthMethod = "none" | "api-key" | "bearer-token" | "oauth";
 export type McpTransport = "rest" | "streamable-http" | "sse";
 export type DataClassification = "internal" | "confidential" | "restricted";
 
 export interface ServiceRegistryEntry {
-  id: string;
+  id?: string;
   service_id: string;
   display_name: string;
   description: string | null;
   backend_type: BackendType;
   endpoint_url: string;
-  transport: McpTransport;
-  mcp_auth_method: McpAuthMethod;
-  mcp_auth_header: string | null;
-  mcp_protocol_version: string;
-  discovered_tools: DiscoveredTool[] | null;
-  tools_last_discovered_at: string | null;
-  permission_map: Record<string, string> | null;
-  data_classification: DataClassification;
+  transport: string;
+  mcp_auth_method?: string | null;
+  mcp_auth_header?: string | null;
+  mcp_auth_configured?: boolean;
+  mcp_protocol_version?: string;
+  discovered_tools?: DiscoveredTool[] | null;
+  discovered_tools_count?: number;
+  tools_last_discovered_at?: string | null;
+  permission_map?: Record<string, string> | null;
+  data_classification: string;
   status: ServiceStatus;
-  available_to_roles: string[];
+  available_to_roles?: string[];
+  available_to_groups?: string[];
+  available_to_users?: string[];
   requires_approval: boolean;
   health_status: HealthStatus;
-  health_last_checked_at: string | null;
-  health_latency_ms: number | null;
-  health_error_count_24h: number;
-  created_at: string;
-  updated_at: string;
+  health_last_checked_at?: string | null;
+  health_latency_ms?: number | null;
+  health_error_count_24h?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface DiscoveredTool {
@@ -61,6 +65,8 @@ export interface ServiceCreateRequest {
   data_classification?: DataClassification;
   status?: ServiceStatus;
   available_to_roles?: string[];
+  available_to_groups?: string[];
+  available_to_users?: string[];
   requires_approval?: boolean;
 }
 
@@ -71,6 +77,8 @@ export interface ServiceUpdateRequest {
   status?: ServiceStatus;
   data_classification?: DataClassification;
   available_to_roles?: string[];
+  available_to_groups?: string[];
+  available_to_users?: string[];
   requires_approval?: boolean;
 }
 
@@ -197,6 +205,8 @@ export interface DelegationTemplateCreateRequest {
   blocked_permissions?: string[];
   default_ttl_days?: number;
   available_to_roles?: string[];
+  available_to_groups?: string[];
+  available_to_users?: string[];
   max_actions_per_day?: number | null;
   working_hours_start?: string | null;
   working_hours_end?: string | null;
@@ -251,9 +261,11 @@ export interface EmergencyActionResponse {
   action: string;
   agents_affected: number;
   delegations_revoked: number;
+  affected_count?: number;
   reason: string;
   executed_by: string;
   timestamp: string;
+  message?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,4 +284,34 @@ export interface UserProfile {
 
 export interface SetUserRoleRequest {
   role: UserRole;
+}
+
+// ---------------------------------------------------------------------------
+// Organization Directory (Google Workspace sync)
+// ---------------------------------------------------------------------------
+
+export interface OrgDirectoryEntry {
+  email: string;
+  display_name: string;
+  member_count?: number;
+  members?: string[];
+}
+
+export interface OrgDirectoryResponse {
+  groups: OrgDirectoryEntry[];
+  users: OrgDirectoryEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Public Service Catalog (employee-facing)
+// ---------------------------------------------------------------------------
+
+export interface CatalogEntry {
+  service_id: string;
+  display_name: string;
+  description: string | null;
+  backend_type: BackendType;
+  connected: boolean;
+  scopes_granted: string[];
+  connected_at: string | null;
 }

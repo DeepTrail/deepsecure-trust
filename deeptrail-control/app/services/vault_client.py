@@ -183,10 +183,25 @@ class VaultClient:
             return
         self.__class__._initialized = True
 
+        self._kms_client = None
+        self._encryption_backend = "fernet"
+
+        # Try KMS first (production)
+        gcp_project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        if gcp_project:
+            try:
+                from app.core.kms import get_vault_kms_client
+                kms = get_vault_kms_client()
+                if kms.backend == "gcp-kms":
+                    self._kms_client = kms
+                    self._encryption_backend = "kms"
+                    logger.info("VaultClient using KMS envelope encryption")
+            except Exception as e:
+                logger.warning("KMS init failed, falling back to Fernet: %s", e)
+
         key = encryption_key or os.environ.get(self.ENV_KEY_NAME)
 
         if not key:
-            # Development only - generate ephemeral key
             logger.warning(
                 "No encryption key provided. Generating ephemeral key. "
                 "Set %s environment variable for production.",
@@ -194,7 +209,6 @@ class VaultClient:
             )
             key = Fernet.generate_key().decode()
 
-        # Handle string vs bytes key
         key_bytes = key.encode() if isinstance(key, str) else key
         self._fernet = Fernet(key_bytes)
 
@@ -203,6 +217,28 @@ class VaultClient:
 
         # In-memory fallback for testing (when no db provided)
         self._storage: Dict[str, bytes] = {}
+
+    @property
+    def encryption_backend(self) -> str:
+        """Return the active encryption backend name ('fernet' or 'kms')."""
+        return self._encryption_backend
+
+    def _encrypt(self, plaintext: bytes) -> bytes:
+        """Encrypt bytes using the active backend (KMS or Fernet)."""
+        if self._kms_client is not None:
+            return self._kms_client.encrypt_bytes(plaintext)
+        return self._fernet.encrypt(plaintext)
+
+    def _decrypt(self, ciphertext: bytes) -> bytes:
+        """Decrypt bytes using the active backend (KMS or Fernet).
+
+        Supports mixed-format reads: KMS-encrypted blobs are auto-detected
+        by their version prefix, so tokens encrypted with Fernet before
+        migration still decrypt correctly.
+        """
+        if self._kms_client is not None:
+            return self._kms_client.decrypt_bytes(ciphertext)
+        return self._fernet.decrypt(ciphertext)
 
     @staticmethod
     def generate_encryption_key() -> str:
@@ -273,7 +309,7 @@ class VaultClient:
 
         stored = StoredTokenData(token_data=token_data, metadata=metadata)
         plaintext = json.dumps(stored.to_dict()).encode("utf-8")
-        encrypted = self._fernet.encrypt(plaintext)
+        encrypted = self._encrypt(plaintext)
 
         if self._use_database(db):
             from app.models.vault_token import VaultToken
@@ -301,6 +337,21 @@ class VaultClient:
 
         # Publish cache invalidation event
         publish_token_stored(user_id, service_id, token_ref)
+
+        # Schedule proactive refresh if token expires and has a refresh_token
+        if expires_in and token_data.get("refresh_token"):
+            try:
+                from app.services.token_refresh_scheduler import (
+                    get_scheduler,
+                    compute_refresh_at,
+                )
+
+                refresh_at = compute_refresh_at(expires_in)
+                get_scheduler().schedule_refresh(
+                    token_ref, service_id, user_id, refresh_at
+                )
+            except Exception as e:
+                logger.debug("Could not schedule refresh: %s", e)
 
         return token_ref
 
@@ -348,7 +399,7 @@ class VaultClient:
                 return None
 
         try:
-            plaintext = self._fernet.decrypt(encrypted)
+            plaintext = self._decrypt(encrypted)
             raw_data = json.loads(plaintext.decode("utf-8"))
             stored = StoredTokenData.from_dict(raw_data)
 
@@ -356,14 +407,14 @@ class VaultClient:
             if not self._use_database(db) and update_usage:
                 stored.metadata.last_used_at = datetime.now(timezone.utc)
                 updated_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
-                self._storage[token_ref] = self._fernet.encrypt(updated_plaintext)
+                self._storage[token_ref] = self._encrypt(updated_plaintext)
 
             result = dict(stored.token_data)
             result["metadata"] = stored.metadata.to_dict()
 
             logger.debug("Retrieved token: ref=%s", token_ref)
             return result
-        except InvalidToken as e:
+        except (InvalidToken, ValueError) as e:
             logger.error("Failed to decrypt token: ref=%s error=%s", token_ref, e)
             raise DecryptionError(f"Failed to decrypt token: {token_ref}") from e
 
@@ -392,6 +443,11 @@ class VaultClient:
             if result > 0:
                 logger.debug("Deleted token from database: ref=%s", token_ref)
                 publish_token_deleted(token_ref)
+                try:
+                    from app.services.token_refresh_scheduler import get_scheduler
+                    get_scheduler().cancel_refresh(token_ref)
+                except Exception:
+                    pass
                 return True
             logger.debug("Token not found for deletion in database: ref=%s", token_ref)
             return False
@@ -400,6 +456,11 @@ class VaultClient:
             del self._storage[token_ref]
             logger.debug("Deleted token: ref=%s", token_ref)
             publish_token_deleted(token_ref)
+            try:
+                from app.services.token_refresh_scheduler import get_scheduler
+                get_scheduler().cancel_refresh(token_ref)
+            except Exception:
+                pass
             return True
 
         logger.debug("Token not found for deletion: ref=%s", token_ref)
@@ -459,19 +520,19 @@ class VaultClient:
                 return False
 
             try:
-                plaintext = self._fernet.decrypt(vault_token.encrypted_data)
+                plaintext = self._decrypt(vault_token.encrypted_data)
                 raw_data = json.loads(plaintext.decode("utf-8"))
                 stored = StoredTokenData.from_dict(raw_data)
                 stored.token_data = token_data
 
                 new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
-                vault_token.encrypted_data = self._fernet.encrypt(new_plaintext)
+                vault_token.encrypted_data = self._encrypt(new_plaintext)
                 db.commit()
 
                 logger.debug("Updated token in database: ref=%s", token_ref)
                 publish_token_updated(token_ref)
                 return True
-            except InvalidToken as e:
+            except (InvalidToken, ValueError) as e:
                 logger.error("Failed to decrypt token for update: ref=%s error=%s", token_ref, e)
                 return False
 
@@ -482,18 +543,18 @@ class VaultClient:
 
         try:
             encrypted = self._storage[token_ref]
-            plaintext = self._fernet.decrypt(encrypted)
+            plaintext = self._decrypt(encrypted)
             raw_data = json.loads(plaintext.decode("utf-8"))
             stored = StoredTokenData.from_dict(raw_data)
             stored.token_data = token_data
 
             new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
-            self._storage[token_ref] = self._fernet.encrypt(new_plaintext)
+            self._storage[token_ref] = self._encrypt(new_plaintext)
 
             logger.debug("Updated token: ref=%s", token_ref)
             publish_token_updated(token_ref)
             return True
-        except InvalidToken as e:
+        except (InvalidToken, ValueError) as e:
             logger.error("Failed to decrypt token for update: ref=%s error=%s", token_ref, e)
             return False
 
@@ -504,6 +565,7 @@ class VaultClient:
         new_expires_in: Optional[int] = None,
         new_refresh_token: Optional[str] = None,
         db: Optional[Session] = None,
+        latency_ms: Optional[float] = None,
     ) -> bool:
         """Update token after OAuth refresh flow.
 
@@ -516,6 +578,7 @@ class VaultClient:
             new_expires_in: Seconds until new token expires.
             new_refresh_token: New refresh token, if rotated.
             db: Database session.
+            latency_ms: Time taken for the OAuth provider call (for refresh_log).
 
         Returns:
             True if token was refreshed, False if not found.
@@ -532,7 +595,7 @@ class VaultClient:
                 return False
 
             try:
-                plaintext = self._fernet.decrypt(vault_token.encrypted_data)
+                plaintext = self._decrypt(vault_token.encrypted_data)
                 raw_data = json.loads(plaintext.decode("utf-8"))
                 stored = StoredTokenData.from_dict(raw_data)
 
@@ -547,9 +610,21 @@ class VaultClient:
 
                 stored.metadata.refresh_count += 1
                 vault_token.refresh_count = stored.metadata.refresh_count
+                vault_token.last_refreshed_at = now
+
+                # Append to refresh_log (keep last 20 entries)
+                log_entry: Dict[str, Any] = {
+                    "timestamp": now.isoformat(),
+                    "status": "success",
+                    "latency_ms": round(latency_ms, 1) if latency_ms is not None else None,
+                    "new_expires_in": new_expires_in,
+                }
+                log = list(vault_token.refresh_log or [])
+                log.append(log_entry)
+                vault_token.refresh_log = log[-20:]
 
                 new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
-                vault_token.encrypted_data = self._fernet.encrypt(new_plaintext)
+                vault_token.encrypted_data = self._encrypt(new_plaintext)
                 db.commit()
 
                 logger.debug(
@@ -557,8 +632,27 @@ class VaultClient:
                     token_ref,
                     stored.metadata.refresh_count,
                 )
+
+                # Re-schedule next proactive refresh (self-chaining)
+                if new_expires_in and stored.token_data.get("refresh_token"):
+                    try:
+                        from app.services.token_refresh_scheduler import (
+                            get_scheduler,
+                            compute_refresh_at,
+                        )
+
+                        refresh_at = compute_refresh_at(new_expires_in)
+                        get_scheduler().schedule_refresh(
+                            token_ref,
+                            vault_token.service_id,
+                            vault_token.user_id,
+                            refresh_at,
+                        )
+                    except Exception as e:
+                        logger.debug("Could not re-schedule refresh: %s", e)
+
                 return True
-            except InvalidToken as e:
+            except (InvalidToken, ValueError) as e:
                 logger.error("Failed to decrypt token for refresh: ref=%s error=%s", token_ref, e)
                 return False
 
@@ -569,7 +663,7 @@ class VaultClient:
 
         try:
             encrypted = self._storage[token_ref]
-            plaintext = self._fernet.decrypt(encrypted)
+            plaintext = self._decrypt(encrypted)
             raw_data = json.loads(plaintext.decode("utf-8"))
             stored = StoredTokenData.from_dict(raw_data)
 
@@ -585,7 +679,7 @@ class VaultClient:
             stored.metadata.refresh_count += 1
 
             new_plaintext = json.dumps(stored.to_dict()).encode("utf-8")
-            self._storage[token_ref] = self._fernet.encrypt(new_plaintext)
+            self._storage[token_ref] = self._encrypt(new_plaintext)
 
             logger.debug(
                 "Refreshed token: ref=%s refresh_count=%d",
@@ -593,7 +687,7 @@ class VaultClient:
                 stored.metadata.refresh_count,
             )
             return True
-        except InvalidToken as e:
+        except (InvalidToken, ValueError) as e:
             logger.error("Failed to decrypt token for refresh: ref=%s error=%s", token_ref, e)
             return False
 
@@ -635,14 +729,14 @@ class VaultClient:
         expiring = []
         for token_ref, encrypted in self._storage.items():
             try:
-                plaintext = self._fernet.decrypt(encrypted)
+                plaintext = self._decrypt(encrypted)
                 raw_data = json.loads(plaintext.decode("utf-8"))
                 stored = StoredTokenData.from_dict(raw_data)
 
                 if stored.metadata.expires_at is not None:
                     if stored.metadata.expires_at <= threshold:
                         expiring.append(token_ref)
-            except (InvalidToken, json.JSONDecodeError, KeyError) as e:
+            except (InvalidToken, ValueError, json.JSONDecodeError, KeyError) as e:
                 logger.warning("Failed to check expiration for ref=%s: %s", token_ref, e)
                 continue
 
@@ -652,6 +746,55 @@ class VaultClient:
             threshold_minutes,
         )
         return expiring
+
+    def get_tokens_needing_refresh(
+        self,
+        threshold_minutes: int = 120,
+        db: Optional[Session] = None,
+    ) -> List[Tuple[str, str, str, datetime]]:
+        """Find tokens expiring within threshold that have a refresh_token.
+
+        Returns tuples of (token_ref, service_id, user_id, expires_at)
+        for tokens that can and should be proactively refreshed.
+        """
+        threshold = datetime.now(timezone.utc) + timedelta(minutes=threshold_minutes)
+
+        if self._use_database(db):
+            from app.models.vault_token import VaultToken
+
+            rows = db.query(
+                VaultToken.token_ref,
+                VaultToken.service_id,
+                VaultToken.user_id,
+                VaultToken.expires_at,
+            ).filter(
+                VaultToken.expires_at.isnot(None),
+                VaultToken.expires_at <= threshold,
+                VaultToken.expires_at > datetime.now(timezone.utc),
+            ).all()
+
+            results = []
+            for token_ref, service_id, user_id, expires_at in rows:
+                try:
+                    plaintext = self._decrypt(
+                        db.query(VaultToken.encrypted_data)
+                        .filter(VaultToken.token_ref == token_ref)
+                        .scalar()
+                    )
+                    raw = json.loads(plaintext.decode("utf-8"))
+                    if raw.get("token_data", {}).get("refresh_token"):
+                        results.append((token_ref, service_id, user_id, expires_at))
+                except Exception:
+                    continue
+
+            logger.debug(
+                "Found %d tokens needing refresh within %d minutes",
+                len(results),
+                threshold_minutes,
+            )
+            return results
+
+        return []
 
     def is_token_expired(
         self,
@@ -702,7 +845,7 @@ class VaultClient:
 
         try:
             encrypted = self._storage[token_ref]
-            plaintext = self._fernet.decrypt(encrypted)
+            plaintext = self._decrypt(encrypted)
             raw_data = json.loads(plaintext.decode("utf-8"))
             stored = StoredTokenData.from_dict(raw_data)
 
@@ -717,7 +860,7 @@ class VaultClient:
                     stored.metadata.expires_at.isoformat(),
                 )
             return is_expired
-        except InvalidToken as e:
+        except (InvalidToken, ValueError) as e:
             logger.error("Failed to decrypt token for expiration check: ref=%s error=%s", token_ref, e)
             return False
 

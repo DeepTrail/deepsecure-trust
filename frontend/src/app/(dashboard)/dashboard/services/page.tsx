@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 
 import { Plug } from "lucide-react";
-import type { ServiceRegistryEntry } from "@/lib/types/admin";
 
 interface ServiceCatalogEntry {
   service_id: string;
@@ -39,51 +38,31 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   gdrive: <HardDrive className="h-6 w-6" />,
 };
 
-const FALLBACK_CATALOG: ServiceCatalogEntry[] = [
-  {
-    service_id: "notion",
-    name: "Notion",
-    description: "Access workspace pages, databases, and documents",
-    icon: <FileText className="h-6 w-6" />,
-    backend_type: "rest",
-  },
-  {
-    service_id: "slack",
-    name: "Slack",
-    description: "Search messages and send notifications",
-    icon: <MessageSquare className="h-6 w-6" />,
-    backend_type: "rest",
-  },
-  {
-    service_id: "gmail",
-    name: "Gmail",
-    description: "Read and send emails on your behalf",
-    icon: <Mail className="h-6 w-6" />,
-    backend_type: "rest",
-  },
-  {
-    service_id: "gcalendar",
-    name: "Google Calendar",
-    description: "View and manage calendar events",
-    icon: <Calendar className="h-6 w-6" />,
-    backend_type: "rest",
-  },
-  {
-    service_id: "gdrive",
-    name: "Google Drive",
-    description: "Access files and folders in Drive",
-    icon: <HardDrive className="h-6 w-6" />,
-    backend_type: "rest",
-  },
-];
+interface CatalogApiEntry {
+  service_id: string;
+  display_name: string;
+  description: string | null;
+  backend_type: string;
+  endpoint_url: string;
+  status: string;
+  health_status: string;
+  connected: boolean;
+  scopes_granted: string[];
+  connected_at: string | null;
+}
 
-function registryToEntry(r: ServiceRegistryEntry): ServiceCatalogEntry {
+interface CatalogApiResponse {
+  services: CatalogApiEntry[];
+  total: number;
+}
+
+function catalogApiToEntry(entry: CatalogApiEntry): ServiceCatalogEntry {
   return {
-    service_id: r.service_id,
-    name: r.display_name,
-    description: r.description ?? "",
-    icon: ICON_MAP[r.service_id] ?? <Plug className="h-6 w-6" />,
-    backend_type: r.backend_type,
+    service_id: entry.service_id,
+    name: entry.display_name,
+    description: entry.description ?? "",
+    icon: ICON_MAP[entry.service_id] ?? <Plug className="h-6 w-6" />,
+    backend_type: entry.backend_type as "rest" | "mcp",
   };
 }
 
@@ -115,42 +94,21 @@ function ServicesPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const fetchConnectedServices = useCallback(async () => {
+  const fetchServices = useCallback(async () => {
     try {
-      const [permData, registryData] = await Promise.allSettled([
-        apiClient<{ services?: Record<string, ConnectedServiceInfo> }>(
-          "users/me/available-permissions"
-        ),
-        apiClient<{ services: ServiceRegistryEntry[] }>("admin/services").catch(
-          () => null
-        ),
-      ]);
+      const data = await apiClient<CatalogApiResponse>("services/catalog");
+
+      const catalog: ServiceCatalogEntry[] = data.services.map(catalogApiToEntry);
 
       const connected: ConnectedMap = {};
-      if (permData.status === "fulfilled" && permData.value?.services) {
-        for (const [id, svc] of Object.entries(permData.value.services)) {
-          connected[id] = svc;
+      for (const entry of data.services) {
+        if (entry.connected) {
+          connected[entry.service_id] = {
+            connected: true,
+            scopes_granted: entry.scopes_granted,
+            connected_at: entry.connected_at ?? undefined,
+          };
         }
-      }
-
-      let catalog: ServiceCatalogEntry[];
-      if (
-        registryData.status === "fulfilled" &&
-        registryData.value &&
-        typeof registryData.value === "object" &&
-        "services" in (registryData.value as Record<string, unknown>)
-      ) {
-        const reg = registryData.value as { services: ServiceRegistryEntry[] };
-        const fromDB = reg.services
-          .filter((s: ServiceRegistryEntry) => s.status === "active")
-          .map(registryToEntry);
-        const dbIds = new Set(fromDB.map((e: ServiceCatalogEntry) => e.service_id));
-        const fallbackOnly = FALLBACK_CATALOG.filter(
-          (f) => !dbIds.has(f.service_id)
-        );
-        catalog = [...fromDB, ...fallbackOnly];
-      } else {
-        catalog = FALLBACK_CATALOG;
       }
 
       setState({ kind: "ready", catalog, connected });
@@ -176,8 +134,8 @@ function ServicesPageInner() {
   }, [searchParams, router]);
 
   useEffect(() => {
-    fetchConnectedServices();
-  }, [fetchConnectedServices]);
+    fetchServices();
+  }, [fetchServices]);
 
   const handleConnect = async (serviceId: string) => {
     setConnecting(serviceId);
@@ -205,7 +163,7 @@ function ServicesPageInner() {
     if (!window.confirm(`Disconnect from ${serviceName}? This will revoke access.`)) return;
     try {
       await apiClient(`users/me/services/${serviceId}`, { method: "DELETE" });
-      await fetchConnectedServices();
+      await fetchServices();
     } catch {
       alert("Failed to disconnect service. Please try again.");
     }
@@ -217,7 +175,7 @@ function ServicesPageInner() {
       <ErrorCard
         title="Services"
         message={state.message}
-        retry={fetchConnectedServices}
+        retry={fetchServices}
       />
     );
 

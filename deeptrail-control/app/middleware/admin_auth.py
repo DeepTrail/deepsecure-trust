@@ -46,6 +46,8 @@ def get_current_user_claims(
             return {"sub": user_id, "roles": []}
 
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        if "sub" not in payload and "agent_id" in payload:
+            payload["sub"] = payload["agent_id"]
         if "sub" not in payload:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

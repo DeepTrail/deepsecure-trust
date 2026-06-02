@@ -28,6 +28,7 @@ from typing import Any
 
 import httpx
 
+from app.mcp.handlers.tools_call import drain_error_counts
 from app.mcp.tool_cache import CachedTool, ToolCache
 
 from .adapter import BackendClientAdapter
@@ -109,8 +110,10 @@ class DynamicBackendLoader:
         self.control_plane_url = control_plane_url.rstrip("/")
         self.internal_api_token = internal_api_token
         self.refresh_interval = refresh_interval_seconds
-        self._known_services: dict[str, str] = {}  # service_id -> backend_type
+        self._known_services: dict[str, ServiceConfig] = {}
         self._running = False
+        self._error_counts: dict[str, int] = {}
+        self._slow_threshold_ms = 3000
 
     # ------------------------------------------------------------------
     # Public API
@@ -179,22 +182,16 @@ class DynamicBackendLoader:
 
     async def report_health(self) -> None:
         """Probe all known backends and report health to Control Plane."""
-        for service_id, backend_type in list(self._known_services.items()):
-            status = "unknown"
-            latency_ms: int | None = None
-            try:
-                start = time.monotonic()
-                if backend_type == "mcp":
-                    await self.connection_manager.check_backend_health(service_id)
-                else:
-                    await self._probe_rest_health(service_id)
-                latency_ms = int((time.monotonic() - start) * 1000)
-                status = "up"
-            except Exception:
-                latency_ms = None
-                status = "down"
+        tool_call_errors = drain_error_counts()
+        for service_id, count in tool_call_errors.items():
+            self._error_counts[service_id] = self._error_counts.get(service_id, 0) + count
 
-            await self._post_health(service_id, status, latency_ms)
+        for service_id, svc in list(self._known_services.items()):
+            health_status, latency_ms = await self._probe_backend_health(
+                service_id, svc.endpoint_url, svc.backend_type,
+            )
+            error_count = self._error_counts.pop(service_id, 0)
+            await self._post_health(service_id, health_status, latency_ms, error_count)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -216,20 +213,18 @@ class DynamicBackendLoader:
             logger.warning("Unknown backend_type '%s' for service '%s'", service.backend_type, service.service_id)
             return False
 
-        self._known_services[service.service_id] = service.backend_type
+        self._known_services[service.service_id] = service
         return True
 
     def _unregister_service(self, service_id: str) -> None:
         """Remove a backend from the adapter and connection manager."""
-        backend_type = self._known_services.pop(service_id, None)
-        if backend_type is None:
+        svc = self._known_services.pop(service_id, None)
+        if svc is None:
             return
 
-        if backend_type == "mcp":
+        if svc.backend_type == "mcp":
             self.connection_manager.unregister_backend(service_id)
-        # For REST backends the adapter doesn't have an unregister, but the
-        # service will simply stop being referenced once removed from the
-        # tool cache and known_services map.
+        self._error_counts.pop(service_id, None)
         self.tool_cache.invalidate(service_id)
 
     def _instantiate_rest_backend(self, service: ServiceConfig) -> None:
@@ -285,14 +280,66 @@ class DynamicBackendLoader:
             services_raw = data.get("services", data if isinstance(data, list) else [])
             return [ServiceConfig.from_dict(s) for s in services_raw]
 
-    async def _probe_rest_health(self, service_id: str) -> None:
-        """Simple HTTP GET health check for a REST backend."""
-        if service_id in self.adapter.registered_backends:
-            # The adapter doesn't expose health directly — rely on the
-            # connection manager if registered there, otherwise skip.
-            pass
+    async def _probe_backend_health(
+        self,
+        service_id: str,
+        endpoint_url: str,
+        backend_type: str,
+    ) -> tuple[str, int | None]:
+        """Probe a single backend and return (health_status, latency_ms).
 
-    async def _post_health(self, service_id: str, status: str, latency_ms: int | None) -> None:
+        REST backends get an HTTP GET; MCP backends get a JSON-RPC
+        ``initialize`` POST.  A 5-second timeout is used for probes.
+        """
+        start = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                if backend_type == "mcp":
+                    payload = {
+                        "jsonrpc": "2.0",
+                        "method": "initialize",
+                        "id": 1,
+                        "params": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {"name": "deepsecure-gateway", "version": "1.0.0"},
+                        },
+                    }
+                    resp = await client.post(
+                        endpoint_url,
+                        json=payload,
+                        headers={"Content-Type": "application/json"},
+                    )
+                else:
+                    resp = await client.get(endpoint_url)
+
+            latency_ms = int((time.monotonic() - start) * 1000)
+
+            if resp.status_code >= 500:
+                self._error_counts[service_id] = self._error_counts.get(service_id, 0) + 1
+                return "down", latency_ms
+
+            self._error_counts.pop(service_id, None)
+            if latency_ms > self._slow_threshold_ms:
+                return "slow", latency_ms
+            return "healthy", latency_ms
+
+        except httpx.TimeoutException:
+            latency_ms = int((time.monotonic() - start) * 1000)
+            self._error_counts[service_id] = self._error_counts.get(service_id, 0) + 1
+            return "slow", latency_ms
+        except Exception as exc:
+            logger.debug("Health probe failed for '%s': %s", service_id, exc)
+            self._error_counts[service_id] = self._error_counts.get(service_id, 0) + 1
+            return "down", None
+
+    async def _post_health(
+        self,
+        service_id: str,
+        health_status: str,
+        latency_ms: int | None,
+        error_count: int = 0,
+    ) -> None:
         """POST health data to Control Plane."""
         url = f"{self.control_plane_url}/api/v1/internal/services/{service_id}/health"
         try:
@@ -300,7 +347,11 @@ class DynamicBackendLoader:
                 await client.post(
                     url,
                     headers={"X-Internal-API-Token": self.internal_api_token},
-                    json={"status": status, "latency_ms": latency_ms},
+                    json={
+                        "health_status": health_status,
+                        "latency_ms": latency_ms,
+                        "error_count_24h": error_count,
+                    },
                 )
         except Exception as e:
             logger.debug("Failed to post health for '%s': %s", service_id, e)
