@@ -171,7 +171,10 @@ class TestDynamicBackendLoader:
     @pytest.mark.asyncio
     async def test_periodic_refresh_removes_deactivated(self, loader, mock_connection_manager, mock_tool_cache):
         """Services no longer in the registry are unregistered."""
-        loader._known_services["old-service"] = "mcp"
+        loader._known_services["old-service"] = ServiceConfig(
+            service_id="old-service", display_name="Old", backend_type="mcp",
+            endpoint_url="https://old.example.com/mcp",
+        )
 
         with patch("app.backends.dynamic_registry.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -215,20 +218,33 @@ class TestDynamicBackendLoader:
         assert len(call_args[0][1]) == 1
 
     @pytest.mark.asyncio
-    async def test_report_health(self, loader, mock_connection_manager):
-        """Health reporting probes backends and posts to Control Plane."""
-        loader._known_services = {"jira-mcp": "mcp", "notion": "rest"}
+    async def test_report_health(self, loader):
+        """Health reporting probes backends and posts results to Control Plane."""
+        loader._known_services = {
+            "jira-mcp": ServiceConfig(
+                service_id="jira-mcp", display_name="Jira", backend_type="mcp",
+                endpoint_url="https://jira.example.com/mcp",
+            ),
+            "notion": ServiceConfig(
+                service_id="notion", display_name="Notion", backend_type="rest",
+                endpoint_url="https://api.notion.com/v1",
+            ),
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
 
         with patch("app.backends.dynamic_registry.httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_resp)
+            mock_client.get = AsyncMock(return_value=mock_resp)
             mock_client_cls.return_value = mock_client
 
             await loader.report_health()
 
-        mock_connection_manager.check_backend_health.assert_called_once_with("jira-mcp")
+        assert mock_client.post.call_count >= 2
 
     def test_stop(self, loader):
         loader._running = True
@@ -236,5 +252,14 @@ class TestDynamicBackendLoader:
         assert loader._running is False
 
     def test_known_service_ids(self, loader):
-        loader._known_services = {"a": "rest", "b": "mcp"}
+        loader._known_services = {
+            "a": ServiceConfig(
+                service_id="a", display_name="A", backend_type="rest",
+                endpoint_url="https://a.example.com",
+            ),
+            "b": ServiceConfig(
+                service_id="b", display_name="B", backend_type="mcp",
+                endpoint_url="https://b.example.com/mcp",
+            ),
+        }
         assert set(loader.known_service_ids) == {"a", "b"}

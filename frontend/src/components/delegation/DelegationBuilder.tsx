@@ -17,9 +17,18 @@ interface Agent {
   name: string;
 }
 
+interface PublicTemplate {
+  id: string;
+  agent_id: string;
+  max_permissions: string[];
+  blocked_permissions: string[];
+  default_ttl_days: number;
+}
+
 interface DelegationBuilderProps {
   agents: Agent[];
   permissions: Permission[];
+  templates?: PublicTemplate[];
   onCreated?: () => void;
 }
 
@@ -38,6 +47,7 @@ const TTL_OPTIONS = [
 export function DelegationBuilder({
   agents,
   permissions,
+  templates = [],
   onCreated,
 }: DelegationBuilderProps) {
   const [selectedAgent, setSelectedAgent] = useState<string>("");
@@ -46,8 +56,27 @@ export function DelegationBuilder({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DelegationResult | null>(null);
+  const [activeTemplate, setActiveTemplate] = useState<PublicTemplate | null>(null);
+
+  function applyTemplate(template: PublicTemplate) {
+    setActiveTemplate(template);
+    setSelectedAgent(template.agent_id);
+    const allowed = new Set(template.max_permissions);
+    const blocked = new Set(template.blocked_permissions);
+    const preSelected = permissions
+      .filter((p) => allowed.has(p.id) && !blocked.has(p.id))
+      .map((p) => p.id);
+    setSelectedPermissions(preSelected);
+    setTtl(template.default_ttl_days * 86400);
+  }
 
   const handleTogglePermission = (permissionId: string) => {
+    if (activeTemplate) {
+      const blocked = new Set(activeTemplate.blocked_permissions);
+      if (blocked.has(permissionId)) return;
+      const allowed = new Set(activeTemplate.max_permissions);
+      if (!selectedPermissions.includes(permissionId) && !allowed.has(permissionId)) return;
+    }
     setSelectedPermissions((prev) =>
       prev.includes(permissionId)
         ? prev.filter((id) => id !== permissionId)
@@ -95,6 +124,7 @@ export function DelegationBuilder({
     setSelectedPermissions([]);
     setTtl(3600);
     setError(null);
+    setActiveTemplate(null);
   };
 
   if (result) {
@@ -117,8 +147,76 @@ export function DelegationBuilder({
     );
   }
 
+  const effectivePermissions = activeTemplate
+    ? (() => {
+        const blocked = new Set(activeTemplate.blocked_permissions);
+        return permissions.map((p) => ({
+          ...p,
+          locked: blocked.has(p.id) ? ("role" as const) : p.locked,
+          lockReason: blocked.has(p.id) ? "Blocked by admin template" : p.lockReason,
+        }));
+      })()
+    : permissions;
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {templates.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Templates
+              <Badge variant="secondary" className="ml-2 text-xs">
+                {templates.length} available
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-3">
+              Start from an admin-approved template to pre-fill agent, permissions, and TTL.
+            </p>
+            <div className="grid gap-2">
+              {templates.map((tmpl) => {
+                const isActive = activeTemplate?.id === tmpl.id;
+                return (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => {
+                      if (isActive) {
+                        setActiveTemplate(null);
+                        setSelectedAgent("");
+                        setSelectedPermissions([]);
+                        setTtl(3600);
+                      } else {
+                        applyTemplate(tmpl);
+                      }
+                    }}
+                    className={`flex items-center justify-between rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
+                      isActive
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium">{tmpl.agent_id}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        {tmpl.max_permissions.length} permissions
+                        {tmpl.blocked_permissions.length > 0 &&
+                          ` · ${tmpl.blocked_permissions.length} blocked`}
+                        {` · TTL: ${tmpl.default_ttl_days}d`}
+                      </span>
+                    </div>
+                    {isActive && (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Select Agent</CardTitle>
@@ -126,7 +224,12 @@ export function DelegationBuilder({
         <CardContent>
           <select
             value={selectedAgent}
-            onChange={(e) => setSelectedAgent(e.target.value)}
+            onChange={(e) => {
+              setSelectedAgent(e.target.value);
+              if (activeTemplate && e.target.value !== activeTemplate.agent_id) {
+                setActiveTemplate(null);
+              }
+            }}
             className="w-full rounded-md border px-3 py-2 text-sm"
             aria-label="Select agent"
             required
@@ -154,7 +257,7 @@ export function DelegationBuilder({
         </CardHeader>
         <CardContent>
           <PermissionChecklist
-            permissions={permissions}
+            permissions={effectivePermissions}
             selected={selectedPermissions}
             onToggle={handleTogglePermission}
           />

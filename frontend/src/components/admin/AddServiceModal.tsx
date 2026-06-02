@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,12 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AvailableToPicker } from "@/components/admin/AvailableToPicker";
 import type {
   BackendType,
   McpAuthMethod,
   McpTransport,
   DataClassification,
-  ConnectionTestResult,
 } from "@/lib/types/admin";
 
 interface AddServiceModalProps {
@@ -46,12 +46,36 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
   const [authHeader, setAuthHeader] = useState("Authorization");
   const [authValue, setAuthValue] = useState("");
   const [dataClassification, setDataClassification] = useState<DataClassification>("internal");
+  const [availableToEveryone, setAvailableToEveryone] = useState(true);
+  const [availableToGroups, setAvailableToGroups] = useState<string[]>([]);
+  const [availableToUsers, setAvailableToUsers] = useState<string[]>([]);
+  const [oauthOpen, setOauthOpen] = useState(false);
+  const [oauthClientId, setOauthClientId] = useState("");
+  const [oauthClientSecret, setOauthClientSecret] = useState("");
+  const [oauthAuthUrl, setOauthAuthUrl] = useState("");
+  const [oauthTokenUrl, setOauthTokenUrl] = useState("");
+  const [oauthScopes, setOauthScopes] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isMcp = backendType === "mcp";
+
+  function detectAndPrefillOAuth(url: string) {
+    if (isMcp || !url) return;
+    const lc = url.toLowerCase();
+    if (lc.includes("notion.com") || lc.includes("notion.so")) {
+      if (!oauthAuthUrl) setOauthAuthUrl("https://api.notion.com/v1/oauth/authorize");
+      if (!oauthTokenUrl) setOauthTokenUrl("https://api.notion.com/v1/oauth/token");
+    } else if (lc.includes("slack.com")) {
+      if (!oauthAuthUrl) setOauthAuthUrl("https://slack.com/oauth/v2/authorize");
+      if (!oauthTokenUrl) setOauthTokenUrl("https://slack.com/api/oauth.v2.access");
+      if (!oauthScopes) setOauthScopes("channels:read,chat:write,users:read");
+    } else if (lc.includes("github.com") || lc.includes("api.github.com")) {
+      if (!oauthAuthUrl) setOauthAuthUrl("https://github.com/login/oauth/authorize");
+      if (!oauthTokenUrl) setOauthTokenUrl("https://github.com/login/oauth/access_token");
+      if (!oauthScopes) setOauthScopes("repo,read:org,read:user");
+    }
+  }
 
   function resetForm() {
     setServiceId("");
@@ -63,29 +87,16 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
     setAuthHeader("Authorization");
     setAuthValue("");
     setDataClassification("internal");
-    setTestResult(null);
+    setAvailableToEveryone(true);
+    setAvailableToGroups([]);
+    setAvailableToUsers([]);
+    setOauthOpen(false);
+    setOauthClientId("");
+    setOauthClientSecret("");
+    setOauthAuthUrl("");
+    setOauthTokenUrl("");
+    setOauthScopes("");
     setError(null);
-  }
-
-  async function handleTestConnection() {
-    if (!serviceId) return;
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const result = await apiClient<ConnectionTestResult>(
-        `admin/services/${encodeURIComponent(serviceId)}/test`,
-        { method: "POST" }
-      );
-      setTestResult(result);
-    } catch (err) {
-      setTestResult({
-        status: "error",
-        message: err instanceof Error ? err.message : "Connection test failed",
-        latency_ms: null,
-      });
-    } finally {
-      setTesting(false);
-    }
   }
 
   async function handleSubmit() {
@@ -99,6 +110,9 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
         backend_type: backendType,
         endpoint_url: endpointUrl,
         data_classification: dataClassification,
+        available_to_roles: availableToEveryone ? ["all"] : [],
+        available_to_groups: availableToEveryone ? [] : (availableToGroups.length ? availableToGroups : undefined),
+        available_to_users: availableToEveryone ? [] : (availableToUsers.length ? availableToUsers : undefined),
       };
       if (isMcp) {
         body.transport = transport;
@@ -113,6 +127,25 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+
+      if (!isMcp && oauthClientId && oauthClientSecret) {
+        const oauthBody: Record<string, unknown> = {
+          client_id: oauthClientId,
+          client_secret: oauthClientSecret,
+        };
+        if (oauthAuthUrl) oauthBody.auth_url = oauthAuthUrl;
+        if (oauthTokenUrl) oauthBody.token_url = oauthTokenUrl;
+        if (oauthScopes) oauthBody.scopes = oauthScopes.split(",").map((s) => s.trim()).filter(Boolean);
+        await apiClient(
+          `admin/services/${encodeURIComponent(serviceId)}/oauth`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(oauthBody),
+          }
+        );
+      }
+
       resetForm();
       onOpenChange(false);
       onCreated();
@@ -138,7 +171,7 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
         onOpenChange(v);
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg flex flex-col max-h-[90vh]">
         <DialogHeader>
           <DialogTitle>Add Service</DialogTitle>
           <DialogDescription>
@@ -146,7 +179,7 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-2">
+        <div className="grid gap-4 py-2 overflow-y-auto pr-1">
           {/* Backend Type Selector */}
           <div className="grid gap-2">
             <Label>Backend Type</Label>
@@ -196,7 +229,10 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
               id="endpoint"
               placeholder={isMcp ? "https://jira.example.com/mcp" : "https://api.jira.com/v3"}
               value={endpointUrl}
-              onChange={(e) => setEndpointUrl(e.target.value)}
+              onChange={(e) => {
+                setEndpointUrl(e.target.value);
+                detectAndPrefillOAuth(e.target.value);
+              }}
             />
           </div>
 
@@ -226,6 +262,97 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
               </SelectContent>
             </Select>
           </div>
+
+          {/* Available To */}
+          <div className="grid gap-1.5">
+            <Label>Available To</Label>
+            <AvailableToPicker
+              everyone={availableToEveryone}
+              onEveryoneChange={setAvailableToEveryone}
+              selectedGroups={availableToGroups}
+              selectedUsers={availableToUsers}
+              onGroupsChange={setAvailableToGroups}
+              onUsersChange={setAvailableToUsers}
+            />
+            <p className="text-xs text-muted-foreground">
+              Select which groups or users can see and connect to this service
+            </p>
+          </div>
+
+          {/* REST OAuth Credentials — collapsible */}
+          {!isMcp && (
+            <div className="rounded-md border">
+              <button
+                type="button"
+                onClick={() => setOauthOpen(!oauthOpen)}
+                className="flex w-full items-center gap-2 p-3 text-left hover:bg-muted/30 transition-colors"
+              >
+                {oauthOpen ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                )}
+                <span className="text-sm font-semibold">OAuth Credentials</span>
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {oauthClientId ? "Configured" : "Optional — configure now or later"}
+                </span>
+              </button>
+              {oauthOpen && (
+                <div className="grid gap-3 border-t px-3 pb-3 pt-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="oauth-client-id">Client ID</Label>
+                      <Input
+                        id="oauth-client-id"
+                        placeholder="OAuth Client ID"
+                        value={oauthClientId}
+                        onChange={(e) => setOauthClientId(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="oauth-client-secret">Client Secret</Label>
+                      <Input
+                        id="oauth-client-secret"
+                        type="password"
+                        placeholder="OAuth Client Secret"
+                        value={oauthClientSecret}
+                        onChange={(e) => setOauthClientSecret(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="oauth-auth-url">Authorization URL</Label>
+                      <Input
+                        id="oauth-auth-url"
+                        placeholder="https://provider.com/oauth/authorize"
+                        value={oauthAuthUrl}
+                        onChange={(e) => setOauthAuthUrl(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="oauth-token-url">Token URL</Label>
+                      <Input
+                        id="oauth-token-url"
+                        placeholder="https://provider.com/oauth/token"
+                        value={oauthTokenUrl}
+                        onChange={(e) => setOauthTokenUrl(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="oauth-scopes">Scopes (comma-separated)</Label>
+                    <Input
+                      id="oauth-scopes"
+                      placeholder="e.g. repo, read:org, read:user"
+                      value={oauthScopes}
+                      onChange={(e) => setOauthScopes(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* MCP-specific fields */}
           {isMcp && (
@@ -266,6 +393,12 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
                 </div>
               </div>
 
+              {authMethod === "none" && endpointUrl && (
+                <p className="text-xs text-amber-600 -mt-1">
+                  Most MCP servers require authentication. Consider selecting an auth method above.
+                </p>
+              )}
+
               {authMethod !== "none" && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="grid gap-1.5">
@@ -291,39 +424,12 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
             </>
           )}
 
-          {/* Test Result */}
-          {testResult && (
-            <div
-              className={`rounded-md border p-3 text-sm ${
-                testResult.status === "success"
-                  ? "border-green-200 bg-green-50 text-green-800"
-                  : "border-red-200 bg-red-50 text-red-800"
-              }`}
-            >
-              <p className="font-medium">
-                {testResult.status === "success" ? "Connection successful" : "Connection failed"}
-              </p>
-              <p className="text-xs">{testResult.message}</p>
-              {testResult.latency_ms != null && (
-                <p className="text-xs">Latency: {testResult.latency_ms}ms</p>
-              )}
-            </div>
-          )}
-
           {error && (
             <p className="text-sm text-red-600">{error}</p>
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            variant="outline"
-            onClick={handleTestConnection}
-            disabled={!serviceId || !endpointUrl || testing}
-          >
-            {testing && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-            Test Connection
-          </Button>
+        <DialogFooter>
           <Button onClick={handleSubmit} disabled={!canSubmit}>
             {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
             Add Service

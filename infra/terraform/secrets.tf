@@ -8,6 +8,7 @@ locals {
     gateway-internal-token  = "Internal token for gateway-to-control communication"
     backend-api-token       = "Backend API token"
     gateway-encryption-key  = "Encryption key for gateway payload encryption"
+    fernet-key              = "Fernet key for encrypting OAuth credentials in DB"
     session-secret          = "Frontend session cookie secret"
     csrf-secret             = "Frontend CSRF protection secret"
     keycloak-admin-password = "Keycloak admin console password"

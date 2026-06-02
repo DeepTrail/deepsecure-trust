@@ -29,6 +29,8 @@ class OAuthProvider(str, Enum):
     SLACK = "slack"
     HUBSPOT = "hubspot"
     GOOGLE = "google"
+    GITHUB = "github"
+    CUSTOM = "custom"
 
 
 @dataclass

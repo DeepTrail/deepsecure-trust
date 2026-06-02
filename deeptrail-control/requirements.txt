@@ -20,3 +20,5 @@ pymacaroons
 PyJWT[crypto]
 docker
 PyNaCl
+google-cloud-kms>=2.21.0
+google-cloud-tasks>=2.14.0

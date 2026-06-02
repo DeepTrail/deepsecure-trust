@@ -469,12 +469,18 @@ class TestCallbackGroups:
         sso_module._group_mapper = None
 
     def _google_callback(self, client, mock_provider, db, *, fetch_groups=True, extra_patches=None):
-        """Helper: run a Google SSO callback with given mocks."""
+        """Helper: run a Google SSO callback with given mocks.
+
+        Patches ``fetch_workspace_user_info`` to return None so the SSO
+        callback falls through to ``provider.fetch_user_groups`` (which is
+        mocked on ``mock_provider``).
+        """
         _inject_state(db, idp="google", redirect_uri="http://localhost:8000/api/v1/auth/sso/google/callback")
         env_val = "true" if fetch_groups else "false"
         patches = [
             patch.object(sso_module, "create_oidc_provider", return_value=mock_provider),
             patch.dict(os.environ, {"IDP_FETCH_GROUPS": env_val}),
+            patch("app.services.providers.google.fetch_workspace_user_info", new_callable=AsyncMock, return_value=None),
         ]
         if extra_patches:
             patches.extend(extra_patches)

@@ -608,15 +608,16 @@ class TestFetchUserGroups:
             json={"groups": []},
             request=httpx.Request("GET", _DIRECTORY_API_URL),
         )
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+        with patch("app.services.providers.google.fetch_workspace_user_info", new_callable=AsyncMock, return_value=None), \
+             patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
             await provider.fetch_user_groups("my-access-token", "alice@acme.com")
 
-        mock_get.assert_called_once()
-        call_kwargs = mock_get.call_args
-        assert call_kwargs.kwargs["params"] == {"userKey": "alice@acme.com"}
-        assert call_kwargs.kwargs["headers"] == {"Authorization": "Bearer my-access-token"}
-        assert call_kwargs.kwargs["timeout"] == 10.0
-        assert "admin.googleapis.com/admin/directory/v1/groups" in str(call_kwargs.args[0])
+        assert mock_get.call_count >= 1
+        groups_call = mock_get.call_args_list[0]
+        assert groups_call.kwargs["params"] == {"userKey": "alice@acme.com"}
+        assert groups_call.kwargs["headers"] == {"Authorization": "Bearer my-access-token"}
+        assert groups_call.kwargs["timeout"] == 10.0
+        assert "admin.googleapis.com/admin/directory/v1/groups" in str(groups_call.args[0])
 
     @pytest.mark.asyncio
     async def test_missing_email_key_in_group_entry(self, provider: GoogleProvider):

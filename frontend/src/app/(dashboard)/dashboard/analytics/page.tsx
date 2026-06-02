@@ -30,6 +30,7 @@ import {
   ChevronRight,
   CheckCircle2,
   MinusCircle,
+  Network,
 } from "lucide-react";
 
 interface Delegation {
@@ -37,6 +38,8 @@ interface Delegation {
   agent_id: string;
   permissions: string[];
 }
+
+type Tab = "tool-calls" | "agents" | "delegations";
 
 type PageState =
   | { kind: "loading" }
@@ -52,6 +55,7 @@ type PageState =
 
 export default function AnalyticsPage() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
+  const [tab, setTab] = useState<Tab>("tool-calls");
   const { resolve } = useAgentNames();
 
   const fetchData = useCallback(async () => {
@@ -114,37 +118,63 @@ export default function AnalyticsPage() {
 
   const { summary, denials, delegations, connectedServices, userEmail } = state;
 
+  const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
+    { id: "tool-calls", label: "Tool Calls", icon: Activity },
+    { id: "agents", label: "Agents", icon: Link2 },
+    { id: "delegations", label: "Delegations", icon: Network },
+  ];
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Tool Call Analytics</h1>
+      <h1 className="text-2xl font-bold">Analytics</h1>
 
-      {/* Section 1: Metrics Cards */}
-      <MetricsCards summary={summary} denialCount={denials.length} />
+      <div className="flex gap-1 border-b">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              tab === t.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+            }`}
+          >
+            <t.icon className="h-4 w-4" />
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      {/* Section 2: Volume by Backend */}
-      <VolumeByBackend summary={summary} />
+      {tab === "tool-calls" && (
+        <div className="space-y-6">
+          <MetricsCards summary={summary} denialCount={denials.length} />
+          <VolumeByBackend summary={summary} />
+          <TopToolsTable summary={summary} />
+          <DenialAnalysis denials={denials} summary={summary} resolve={resolve} />
+        </div>
+      )}
 
-      {/* Section 3: Top Tools */}
-      <TopToolsTable summary={summary} />
+      {tab === "agents" && (
+        <div className="space-y-6">
+          <AgentPermissionUtilization
+            delegations={delegations}
+            summary={summary}
+            resolve={resolve}
+          />
+        </div>
+      )}
 
-      {/* Section 4: Denial Analysis */}
-      <DenialAnalysis denials={denials} summary={summary} resolve={resolve} />
-
-      {/* Section 5: Agent Permission Utilization */}
-      <DelegationChainViz
-        delegations={delegations}
-        summary={summary}
-        resolve={resolve}
-      />
-
-      {/* Section 6: Delegation Chain Visualization */}
-      <DelegationChainFlow
-        userEmail={userEmail}
-        connectedServices={connectedServices}
-        delegations={delegations}
-        summary={summary}
-        resolve={resolve}
-      />
+      {tab === "delegations" && (
+        <div className="space-y-6">
+          <DelegationChainFlow
+            userEmail={userEmail}
+            connectedServices={connectedServices}
+            delegations={delegations}
+            summary={summary}
+            resolve={resolve}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -414,7 +444,7 @@ function DenialAnalysis({
   );
 }
 
-function DelegationChainViz({
+function AgentPermissionUtilization({
   delegations,
   summary,
   resolve,

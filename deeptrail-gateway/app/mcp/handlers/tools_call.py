@@ -87,6 +87,29 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Error Counting (B10: Errors 24h tracking)
+# =============================================================================
+
+_error_counts: dict[str, int] = {}
+
+
+def increment_error_count(service_id: str) -> None:
+    """Record a backend call failure for the given service."""
+    _error_counts[service_id] = _error_counts.get(service_id, 0) + 1
+
+
+def drain_error_counts() -> dict[str, int]:
+    """Return accumulated error counts and reset to zero.
+
+    Called by the health report loop so each reporting interval starts fresh.
+    """
+    global _error_counts
+    counts = _error_counts.copy()
+    _error_counts = {}
+    return counts
+
+
+# =============================================================================
 # MCP Error Codes (extensions for tools/call)
 # =============================================================================
 
@@ -599,9 +622,10 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             agent_jwt_token=agent_jwt_token,  # H1: Raw JWT for vault API calls
         )
     except MCPError:
-        # Re-raise MCP errors (already logged by _forward_to_backend if credential error)
+        increment_error_count(backend_id)
         raise
     except Exception as e:
+        increment_error_count(backend_id)
         logger.error(f"Backend call failed: {e}", exc_info=True)
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         if agent_context:

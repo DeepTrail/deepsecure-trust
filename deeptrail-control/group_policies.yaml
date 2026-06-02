@@ -1,8 +1,9 @@
 policies:
-  # Domain-level fallback: any user from deeptrail.com gets admin role
-  # when Directory API groups aren't available (hd claim used as synthetic group)
+  # Domain-level fallback: any user from deeptrail.com gets employee role
+  # when Directory API groups aren't available (hd claim used as synthetic group).
+  # Admin role must be set explicitly via seed_admin or the admin API.
   - group: "deeptrail.com"
-    role: "admin"
+    role: "employee"
     default_permissions:
       - "notion:pages:search"
       - "notion:pages:read"

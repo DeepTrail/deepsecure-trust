@@ -61,7 +61,17 @@ class DelegationTemplate(Base):
     available_to_roles = Column(
         JSON().with_variant(postgresql.JSONB(), "postgresql"),
         server_default='["all"]',
-        comment='Which roles can use this template: ["all"] or ["sales"]',
+        comment='Which roles can use this template: ["all"] or []',
+    )
+    available_to_groups = Column(
+        JSON().with_variant(postgresql.JSONB(), "postgresql"),
+        server_default="[]",
+        comment='Group emails that can use this template (e.g., ["engineering@deeptrail.com"])',
+    )
+    available_to_users = Column(
+        JSON().with_variant(postgresql.JSONB(), "postgresql"),
+        server_default="[]",
+        comment='User emails that can use this template (e.g., ["sarah@deeptrail.com"])',
     )
     max_actions_per_day = Column(
         Integer,

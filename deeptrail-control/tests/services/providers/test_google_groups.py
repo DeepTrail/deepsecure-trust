@@ -214,11 +214,12 @@ class TestFetchGroupsRequestParams:
             200, json={"groups": []},
             request=httpx.Request("GET", DIRECTORY_API_URL),
         )
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=resp) as mock_get:
+        with patch("app.services.providers.google.fetch_workspace_user_info", new_callable=AsyncMock, return_value=None), \
+             patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=resp) as mock_get:
             await provider.fetch_user_groups("my-access-token", "alice@acme.com")
 
-        mock_get.assert_called_once()
-        kwargs = mock_get.call_args.kwargs
+        assert mock_get.call_count >= 1
+        kwargs = mock_get.call_args_list[0].kwargs
         assert kwargs["params"] == {"userKey": "alice@acme.com"}
         assert kwargs["headers"] == {"Authorization": "Bearer my-access-token"}
         assert kwargs["timeout"] == 10.0

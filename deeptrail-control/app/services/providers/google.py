@@ -7,11 +7,17 @@ token validation.
 Google uses fixed, well-known OIDC endpoints rather than deriving them
 from the issuer URL. Supports the optional ``hd`` parameter to restrict
 login to a specific Google Workspace domain.
+
+Directory API integration uses a service account with domain-wide
+delegation to fetch groups and admin status for any user — no
+user-level admin privileges required.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+from dataclasses import dataclass
 from urllib.parse import urlencode
 
 import httpx
@@ -34,7 +40,149 @@ _GOOGLE_JWKS_URI = "https://www.googleapis.com/oauth2/v3/certs"
 _GOOGLE_USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo"
 _GOOGLE_ACCOUNT_URL = "https://myaccount.google.com"
 _GOOGLE_DIRECTORY_API = "https://admin.googleapis.com/admin/directory/v1"
-_DIRECTORY_SCOPE = "https://www.googleapis.com/auth/admin.directory.group.readonly"
+_DIRECTORY_GROUP_SCOPE = "https://www.googleapis.com/auth/admin.directory.group.readonly"
+_DIRECTORY_USER_SCOPE = "https://www.googleapis.com/auth/admin.directory.user.readonly"
+_DIRECTORY_SCOPE = _DIRECTORY_GROUP_SCOPE
+
+
+@dataclass
+class WorkspaceUserInfo:
+    """Information about a user from Google Workspace Directory API."""
+    groups: list[str]
+    is_admin: bool
+
+
+def _get_delegated_credentials(admin_email: str):
+    """Build delegated credentials using the service account with domain-wide delegation.
+
+    Works transparently in both environments:
+      - Local dev: uses ADC from ~/.config/gcloud/application_default_credentials.json
+        and impersonates the service account
+      - Production (Cloud Run): the service IS the service account, no impersonation needed
+    """
+    try:
+        import google.auth
+        from google.auth import impersonated_credentials
+        from google.oauth2 import service_account
+    except ImportError:
+        logger.error("google-auth library not installed — cannot use Directory API")
+        return None
+
+    scopes = [_DIRECTORY_GROUP_SCOPE, _DIRECTORY_USER_SCOPE]
+    sa_email = os.environ.get(
+        "GOOGLE_SERVICE_ACCOUNT_EMAIL",
+        "deepsecure-admin@gen-lang-client-0227820266.iam.gserviceaccount.com",
+    )
+
+    try:
+        source_credentials, project = google.auth.default()
+
+        if hasattr(source_credentials, "service_account_email") and \
+                source_credentials.service_account_email == sa_email:
+            # Running AS the service account (Cloud Run) — delegate directly
+            delegated = service_account.Credentials(
+                signer=source_credentials.signer,
+                service_account_email=sa_email,
+                token_uri="https://oauth2.googleapis.com/token",
+                scopes=scopes,
+                subject=admin_email,
+            )
+        else:
+            # Running with user ADC (local dev) — impersonate, then delegate
+            target_credentials = impersonated_credentials.Credentials(
+                source_credentials=source_credentials,
+                target_principal=sa_email,
+                target_scopes=scopes,
+                delegates=[],
+            )
+            delegated = impersonated_credentials.Credentials(
+                source_credentials=source_credentials,
+                target_principal=sa_email,
+                target_scopes=scopes,
+                delegates=[],
+                subject=admin_email,
+            )
+
+        return delegated
+    except Exception:
+        logger.warning(
+            "Failed to build delegated credentials for Directory API",
+            exc_info=True,
+        )
+        return None
+
+
+async def fetch_workspace_user_info(email: str, admin_email: str | None = None) -> WorkspaceUserInfo | None:
+    """Fetch a user's groups and admin status from Google Workspace Directory API.
+
+    Uses the service account with domain-wide delegation — works for ANY user,
+    not just Workspace admins.
+
+    Args:
+        email: User's email address to query.
+        admin_email: Workspace admin email to impersonate for API calls.
+                     Defaults to GOOGLE_ADMIN_EMAIL env var.
+
+    Returns:
+        WorkspaceUserInfo with groups and admin status, or None on failure.
+    """
+    admin_email = admin_email or os.environ.get("GOOGLE_ADMIN_EMAIL", "mahendra@deeptrail.com")
+
+    creds = _get_delegated_credentials(admin_email)
+    if creds is None:
+        return None
+
+    try:
+        from google.auth.transport.requests import Request
+        creds.refresh(Request())
+        access_token = creds.token
+    except Exception:
+        logger.warning("Failed to obtain delegated access token for Directory API", exc_info=True)
+        return None
+
+    groups: list[str] = []
+    is_admin = False
+
+    async with httpx.AsyncClient() as client:
+        # Fetch groups
+        try:
+            resp = await client.get(
+                f"{_GOOGLE_DIRECTORY_API}/groups",
+                params={"userKey": email},
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                groups = [g["email"] for g in data.get("groups", [])]
+            else:
+                logger.warning(
+                    "Directory API groups returned %d for %s: %s",
+                    resp.status_code, email, resp.text[:200],
+                )
+        except Exception:
+            logger.warning("Failed to fetch groups for %s", email, exc_info=True)
+
+        # Fetch admin status
+        try:
+            resp = await client.get(
+                f"{_GOOGLE_DIRECTORY_API}/users/{email}",
+                params={"projection": "basic", "viewType": "admin_view"},
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10.0,
+            )
+            if resp.status_code == 200:
+                user_data = resp.json()
+                is_admin = user_data.get("isAdmin", False)
+            else:
+                logger.warning(
+                    "Directory API users returned %d for %s: %s",
+                    resp.status_code, email, resp.text[:200],
+                )
+        except Exception:
+            logger.warning("Failed to fetch admin status for %s", email, exc_info=True)
+
+    return WorkspaceUserInfo(groups=groups, is_admin=is_admin)
 
 
 class GoogleProvider:
@@ -96,14 +244,14 @@ class GoogleProvider:
     async def fetch_user_groups(self, access_token: str, email: str) -> list[str]:
         """Fetch user's group memberships from Google Admin Directory API.
 
-        Args:
-            access_token: OAuth access token with admin.directory.group.readonly scope.
-            email: User's email address to query groups for.
-
-        Returns:
-            List of group email addresses the user belongs to.
-            Returns empty list on any error (fail-open for availability).
+        Prefers service-account-based delegation (works for all users).
+        Falls back to user's access token only if service account is not configured.
         """
+        workspace_info = await fetch_workspace_user_info(email)
+        if workspace_info is not None:
+            return workspace_info.groups
+
+        logger.info("Service account delegation unavailable — falling back to user access token for %s", email)
         url = f"{_GOOGLE_DIRECTORY_API}/groups"
         try:
             async with httpx.AsyncClient() as client:
@@ -120,9 +268,7 @@ class GoogleProvider:
         if response.status_code != 200:
             logger.warning(
                 "Directory API returned %d for %s: %s",
-                response.status_code,
-                email,
-                response.text[:200],
+                response.status_code, email, response.text[:200],
             )
             return []
 

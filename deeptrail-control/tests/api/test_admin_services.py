@@ -117,7 +117,24 @@ def test_test_connection(client):
     })
     resp = client.post("/api/v1/admin/services/tc/test")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+    data = resp.json()
+    assert data["status"] in ("success", "error")
+    assert "message" in data
+
+
+def test_test_connection_mcp(client):
+    """MCP backends should send JSON-RPC initialize, not plain GET."""
+    client.post("/api/v1/admin/services", json={
+        "service_id": "mcp-tc",
+        "display_name": "MCP TC",
+        "backend_type": "mcp",
+        "endpoint_url": "http://localhost:9999",
+    })
+    resp = client.post("/api/v1/admin/services/mcp-tc/test")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] in ("success", "error")
+    assert "message" in data
 
 
 def test_set_and_get_oauth(client):

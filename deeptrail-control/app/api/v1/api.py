@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     internal,
     oauth,
     policies,
+    services_catalog,
     sso,
     tasks,
     users,
@@ -43,6 +44,7 @@ api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(oauth.router, prefix="/oauth", tags=["oauth"])
 api_router.include_router(sso.router, prefix="/auth/sso", tags=["sso"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
+api_router.include_router(services_catalog.router, prefix="/services", tags=["services"])
 api_router.include_router(admin_roles.router, prefix="/admin", tags=["admin"])
 api_router.include_router(admin_services.router, prefix="/admin", tags=["admin"])
 api_router.include_router(admin_fleet.router, prefix="/admin", tags=["admin"])

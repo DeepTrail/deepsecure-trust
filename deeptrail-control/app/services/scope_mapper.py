@@ -197,6 +197,36 @@ class ScopeMapper:
                 "gmail:labels:list",
             ],
         },
+        "github": {
+            # GitHub OAuth scopes
+            "repo": [
+                "github:repos:read",
+                "github:repos:list",
+                "github:issues:read",
+                "github:issues:create",
+                "github:pulls:read",
+                "github:pulls:create",
+                "github:commits:read",
+            ],
+            "read:org": [
+                "github:orgs:read",
+                "github:teams:list",
+            ],
+            "read:user": [
+                "github:users:read",
+            ],
+            "admin:org": [
+                "github:orgs:read",
+                "github:orgs:manage",
+                "github:teams:list",
+                "github:teams:manage",
+            ],
+            "write:org": [
+                "github:orgs:read",
+                "github:teams:list",
+                "github:teams:manage",
+            ],
+        },
     }
     
     @classmethod

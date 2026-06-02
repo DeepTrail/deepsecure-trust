@@ -13,6 +13,8 @@ Environment variables (primary / Keycloak):
     IDP_HD: Google Workspace hosted domain for login restriction (optional)
     IDP_FETCH_GROUPS: When true and provider is Google, fetch user groups from
         Directory API during SSO callback. Default: false
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: Service account email for domain-wide delegation
+    GOOGLE_ADMIN_EMAIL: Workspace admin email to impersonate for Directory API calls
 
 Per-provider overrides (used when IdP differs from IDP_PROVIDER):
     GOOGLE_CLIENT_ID: Google OAuth client ID

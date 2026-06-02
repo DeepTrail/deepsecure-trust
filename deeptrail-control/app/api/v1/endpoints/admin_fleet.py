@@ -40,12 +40,21 @@ router = APIRouter()
 
 # --- Request / Response Models ---
 
-class AgentFleetResponse(BaseModel):
+class AgentFleetEntry(BaseModel):
     agent_id: str
-    name: Optional[str] = None
-    delegator_count: int = 0
-    active_sessions: int = 0
+    name: str = ""
     status: str = "active"
+    public_key: Optional[str] = None
+    created_at: Optional[str] = None
+    last_active_at: Optional[str] = None
+    delegation_count: int = 0
+    delegating_users: List[str] = Field(default_factory=list)
+    active_sessions: int = 0
+
+
+class AgentFleetResponse(BaseModel):
+    agents: List[AgentFleetEntry]
+    total: int
 
 
 class DelegationListResponse(BaseModel):
@@ -57,6 +66,8 @@ class DelegationListResponse(BaseModel):
     status: str
     created_at: Optional[str] = None
     expires_at: Optional[str] = None
+    revoked_at: Optional[str] = None
+    template_id: Optional[str] = None
 
 
 class CreateDelegationRequest(BaseModel):
@@ -73,6 +84,8 @@ class TemplateCreateRequest(BaseModel):
     blocked_permissions: List[str] = Field(default_factory=list)
     default_ttl_days: int = 7
     available_to_roles: List[str] = Field(default=["all"])
+    available_to_groups: List[str] = Field(default_factory=list)
+    available_to_users: List[str] = Field(default_factory=list)
     max_actions_per_day: Optional[int] = None
     working_hours_start: Optional[str] = None
     working_hours_end: Optional[str] = None
@@ -83,6 +96,8 @@ class TemplateUpdateRequest(BaseModel):
     blocked_permissions: Optional[List[str]] = None
     default_ttl_days: Optional[int] = None
     available_to_roles: Optional[List[str]] = None
+    available_to_groups: Optional[List[str]] = None
+    available_to_users: Optional[List[str]] = None
     max_actions_per_day: Optional[int] = None
     working_hours_start: Optional[str] = None
     working_hours_end: Optional[str] = None
@@ -95,36 +110,56 @@ class TemplateResponse(BaseModel):
     blocked_permissions: Any
     default_ttl_days: int
     available_to_roles: Any
+    available_to_groups: Any = Field(default_factory=list)
+    available_to_users: Any = Field(default_factory=list)
     max_actions_per_day: Optional[int] = None
     working_hours_start: Optional[str] = None
     working_hours_end: Optional[str] = None
     created_by: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class DelegationListWrapper(BaseModel):
+    delegations: List[DelegationListResponse]
+    total: int
+
+
+class TemplateListWrapper(BaseModel):
+    templates: List[TemplateResponse]
+    total: int
 
 
 class EmergencyResponse(BaseModel):
     action: str
+    agents_affected: int = 0
+    delegations_revoked: int = 0
     affected_count: int
+    executed_by: str = ""
+    timestamp: str = ""
     message: str
 
 
 # --- Fleet Endpoints (D1, D2) ---
 
-@router.get("/agents", response_model=List[AgentFleetResponse])
+@router.get("/agents", response_model=AgentFleetResponse)
 def list_agents_fleet(
     db: Session = Depends(get_db),
     _admin: dict = Depends(require_admin),
 ):
     """List all agents cross-user with delegation and session counts."""
+    import base64
+
     agents = db.query(Agent).all()
-    result = []
+    entries: List[AgentFleetEntry] = []
     for agent in agents:
-        del_count = (
+        delegations = (
             db.query(DelegationToken)
             .filter(
                 DelegationToken.agent_id == agent.agent_id,
                 DelegationToken.revoked_at.is_(None),
             )
-            .count()
+            .all()
         )
         session_count = (
             db.query(AgentSession)
@@ -134,13 +169,27 @@ def list_agents_fleet(
             )
             .count()
         )
-        result.append(AgentFleetResponse(
+        delegating_users = list({d.delegator for d in delegations if d.delegator})
+
+        pub_key_str = None
+        if agent.public_key:
+            try:
+                pub_key_str = base64.b64encode(agent.public_key).decode()
+            except Exception:
+                pub_key_str = None
+
+        entries.append(AgentFleetEntry(
             agent_id=agent.agent_id,
-            name=getattr(agent, "name", None),
-            delegator_count=del_count,
+            name=agent.name or agent.agent_id,
+            status="active" if session_count > 0 else ("inactive" if not delegations else "active"),
+            public_key=pub_key_str,
+            created_at=agent.created_at.isoformat() if agent.created_at else None,
+            last_active_at=agent.last_seen_at.isoformat() if agent.last_seen_at else None,
+            delegation_count=len(delegations),
+            delegating_users=delegating_users,
             active_sessions=session_count,
         ))
-    return result
+    return AgentFleetResponse(agents=entries, total=len(entries))
 
 
 @router.post("/agents/{agent_id}/suspend", response_model=EmergencyResponse)
@@ -174,14 +223,18 @@ def suspend_agent(
 
     return EmergencyResponse(
         action="suspend_agent",
+        agents_affected=1,
+        delegations_revoked=delegations_revoked,
         affected_count=sessions_revoked + delegations_revoked,
+        executed_by=admin_claims.get("sub", "admin"),
+        timestamp=now.isoformat(),
         message=f"Agent '{agent_id}' suspended. {sessions_revoked} sessions, {delegations_revoked} delegations revoked.",
     )
 
 
 # --- Delegation Endpoints (D3, D4) ---
 
-@router.get("/delegations", response_model=List[DelegationListResponse])
+@router.get("/delegations", response_model=DelegationListWrapper)
 def list_delegations(
     agent_id: Optional[str] = None,
     delegator: Optional[str] = None,
@@ -196,7 +249,7 @@ def list_delegations(
         q = q.filter(DelegationToken.delegator == delegator)
     delegations = q.order_by(DelegationToken.created_at.desc()).all()
 
-    return [
+    items = [
         DelegationListResponse(
             id=d.id,
             agent_id=d.agent_id,
@@ -206,9 +259,12 @@ def list_delegations(
             status="revoked" if d.revoked_at else ("expired" if d.is_expired else "active"),
             created_at=d.created_at.isoformat() if d.created_at else None,
             expires_at=d.expires_at.isoformat() if d.expires_at else None,
+            revoked_at=d.revoked_at.isoformat() if d.revoked_at else None,
+            template_id=getattr(d, "template_id", None),
         )
         for d in delegations
     ]
+    return DelegationListWrapper(delegations=items, total=len(items))
 
 
 @router.post("/delegations", response_model=DelegationListResponse, status_code=201)
@@ -259,13 +315,13 @@ def revoke_delegation_admin(
 
 # --- Delegation Template Endpoints (D3) ---
 
-@router.get("/delegation-templates", response_model=List[TemplateResponse])
+@router.get("/delegation-templates", response_model=TemplateListWrapper)
 def list_templates(
     db: Session = Depends(get_db),
     _admin: dict = Depends(require_admin),
 ):
     templates = db.query(DelegationTemplate).all()
-    return [
+    items = [
         TemplateResponse(
             id=str(t.id),
             agent_id=t.agent_id,
@@ -273,13 +329,18 @@ def list_templates(
             blocked_permissions=t.blocked_permissions,
             default_ttl_days=t.default_ttl_days or 7,
             available_to_roles=t.available_to_roles,
+            available_to_groups=t.available_to_groups or [],
+            available_to_users=t.available_to_users or [],
             max_actions_per_day=t.max_actions_per_day,
             working_hours_start=str(t.working_hours_start) if t.working_hours_start else None,
             working_hours_end=str(t.working_hours_end) if t.working_hours_end else None,
             created_by=t.created_by,
+            created_at=t.created_at.isoformat() if t.created_at else None,
+            updated_at=t.updated_at.isoformat() if t.updated_at else None,
         )
         for t in templates
     ]
+    return TemplateListWrapper(templates=items, total=len(items))
 
 
 @router.post("/delegation-templates", response_model=TemplateResponse, status_code=201)
@@ -297,6 +358,8 @@ def create_template(
         blocked_permissions=body.blocked_permissions,
         default_ttl_days=body.default_ttl_days,
         available_to_roles=body.available_to_roles,
+        available_to_groups=body.available_to_groups,
+        available_to_users=body.available_to_users,
         max_actions_per_day=body.max_actions_per_day,
         working_hours_start=wh_start,
         working_hours_end=wh_end,
@@ -313,6 +376,8 @@ def create_template(
         blocked_permissions=template.blocked_permissions,
         default_ttl_days=template.default_ttl_days or 7,
         available_to_roles=template.available_to_roles,
+        available_to_groups=template.available_to_groups or [],
+        available_to_users=template.available_to_users or [],
         max_actions_per_day=template.max_actions_per_day,
         working_hours_start=str(template.working_hours_start) if template.working_hours_start else None,
         working_hours_end=str(template.working_hours_end) if template.working_hours_end else None,
@@ -351,6 +416,8 @@ def update_template(
         blocked_permissions=template.blocked_permissions,
         default_ttl_days=template.default_ttl_days or 7,
         available_to_roles=template.available_to_roles,
+        available_to_groups=template.available_to_groups or [],
+        available_to_users=template.available_to_users or [],
         max_actions_per_day=template.max_actions_per_day,
         working_hours_start=str(template.working_hours_start) if template.working_hours_start else None,
         working_hours_end=str(template.working_hours_end) if template.working_hours_end else None,
@@ -392,7 +459,11 @@ def emergency_suspend_all(
 
     return EmergencyResponse(
         action="suspend_all",
+        agents_affected=count,
+        delegations_revoked=0,
         affected_count=count,
+        executed_by=admin_claims.get("sub", "admin"),
+        timestamp=now.isoformat(),
         message=f"All agents suspended. {count} sessions revoked.",
     )
 
@@ -416,7 +487,11 @@ def emergency_disable_delegations(
 
     return EmergencyResponse(
         action="disable_delegations",
+        agents_affected=0,
+        delegations_revoked=count,
         affected_count=count,
+        executed_by=admin_claims.get("sub", "admin"),
+        timestamp=now.isoformat(),
         message=f"All delegations disabled. {count} revoked.",
     )
 
@@ -441,6 +516,10 @@ def emergency_lockdown(
 
     return EmergencyResponse(
         action="lockdown",
+        agents_affected=sessions,
+        delegations_revoked=delegations,
         affected_count=sessions + delegations,
+        executed_by=admin_claims.get("sub", "admin"),
+        timestamp=now.isoformat(),
         message=f"Lockdown active. {sessions} sessions + {delegations} delegations revoked.",
     )

@@ -10,7 +10,7 @@ import time
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.api.v1.api import api_router
 from app.core.config import settings
-from app.api.deps import DbDep
+from app.api.deps import DbDep, get_db
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
 
@@ -37,10 +37,43 @@ async def lifespan(app: FastAPI):
         publish_control_plane_restart()
         logger.info("Published control_plane_restart event to clear Gateway caches")
 
+    # Initialize token refresh scheduler and run recovery sweep
+    scheduler = None
+    try:
+        from app.services.token_refresh_scheduler import get_scheduler, REFRESH_BUFFER_SECONDS
+        from app.services.vault_client import VaultClient
+        from datetime import datetime as dt_cls, timedelta, timezone as tz
+
+        scheduler = get_scheduler()
+
+        db = next(get_db())
+        try:
+            vc = VaultClient()
+            expiring = vc.get_tokens_needing_refresh(threshold_minutes=120, db=db)
+            for token_ref, service_id, user_id, expires_at in expiring:
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=tz.utc)
+                buffer = timedelta(seconds=REFRESH_BUFFER_SECONDS)
+                refresh_at = max(
+                    expires_at - buffer,
+                    dt_cls.now(tz.utc) + timedelta(seconds=60),
+                )
+                scheduler.schedule_refresh(token_ref, service_id, user_id, refresh_at)
+            if expiring:
+                logger.info(
+                    "Recovery sweep: re-scheduled %d token refreshes", len(expiring)
+                )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("Token refresh scheduler init skipped: %s", e)
+
     yield
 
     # Shutdown
     logger.info("Shutting down DeepSecure Control Plane...")
+    if scheduler is not None:
+        scheduler.shutdown()
     close_publisher()
     logger.info("DeepSecure Control Plane stopped")
 
@@ -103,13 +136,26 @@ async def health_check(db: DbDep):
         logger.error(f"Database health check failed: {e}")
         db_status = "disconnected"
 
+    token_refresh = {}
+    try:
+        from app.services.token_refresh_scheduler import get_scheduler
+        sched = get_scheduler()
+        token_refresh = {
+            **sched.metrics.to_dict(),
+            "pending_count": sched.pending_count,
+            "backend": os.getenv("TOKEN_REFRESH_BACKEND", "local"),
+        }
+    except Exception:
+        pass
+
     return {
         "service": "DeepSecure Control Plane",
         "version": app.version,
         "status": "ok",
         "dependencies": {
-            "database": db_status
-        }
+            "database": db_status,
+        },
+        "token_refresh": token_refresh,
     }
 
 # TODO: Add routers for vault endpoints

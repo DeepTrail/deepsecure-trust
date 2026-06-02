@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import Column, DateTime, Index, Integer, LargeBinary, String, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import JSON
 
 from app.db.base import Base
 
@@ -97,6 +99,19 @@ class VaultToken(Base):
         nullable=False,
         default=0,
         comment="Number of times token was refreshed",
+    )
+
+    last_refreshed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Timestamp of last successful proactive refresh",
+    )
+
+    refresh_log = Column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+        default=list,
+        comment="Last N refresh events [{timestamp, status, latency_ms, error}]",
     )
 
     # Indexes for common queries

@@ -19,6 +19,7 @@ class UserResponse(BaseModel):
 
     user_id: str
     email: Optional[str] = None
+    role: str = "employee"
     onboarding_completed: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

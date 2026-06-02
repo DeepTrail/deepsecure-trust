@@ -44,10 +44,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Supported OAuth services
-SUPPORTED_SERVICES = {"notion", "slack", "hubspot", "gdrive", "gcalendar", "gmail"}
-
-# Service ID to OAuthProvider mapping
+# Service ID to OAuthProvider mapping for well-known providers
 SERVICE_TO_PROVIDER = {
     "notion": OAuthProvider.NOTION,
     "slack": OAuthProvider.SLACK,
@@ -55,7 +52,42 @@ SERVICE_TO_PROVIDER = {
     "gdrive": OAuthProvider.GOOGLE,
     "gcalendar": OAuthProvider.GOOGLE,
     "gmail": OAuthProvider.GOOGLE,
+    "github": OAuthProvider.GITHUB,
 }
+
+
+# =============================================================================
+# Dynamic Provider Resolution
+# =============================================================================
+
+
+def resolve_provider(service_id: str, db: Session) -> OAuthProvider:
+    """Resolve a service_id to an OAuthProvider.
+
+    1. Check well-known SERVICE_TO_PROVIDER mapping
+    2. Query service_registry + service_oauth_config for admin-added services
+    3. Raise 400 if not found
+    """
+    sid = service_id.lower()
+    if sid in SERVICE_TO_PROVIDER:
+        return SERVICE_TO_PROVIDER[sid]
+
+    from app.models.service_registry import ServiceOAuthConfig, ServiceRegistry
+
+    svc = db.query(ServiceRegistry).filter(ServiceRegistry.service_id == sid).first()
+    if svc and svc.backend_type == "rest":
+        oauth_cfg = (
+            db.query(ServiceOAuthConfig)
+            .filter(ServiceOAuthConfig.service_id == sid)
+            .first()
+        )
+        if oauth_cfg:
+            return OAuthProvider.CUSTOM
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={"error": "invalid_service", "message": f"Unknown service: {service_id}"},
+    )
 
 
 # =============================================================================
@@ -153,6 +185,7 @@ async def oauth_authorize(
     ),
     authorization: str = Header(...),
     oauth_service: OAuthService = Depends(get_oauth_service_dep),
+    db: Session = Depends(get_db),
 ):
     """Initiate OAuth authorization flow.
 
@@ -167,23 +200,11 @@ async def oauth_authorize(
     Returns:
         AuthorizeApiResponse with authorization_url and state, or 302 redirect
     """
-    # Validate service
-    if service_id.lower() not in SUPPORTED_SERVICES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_service", "message": f"Unknown service: {service_id}"},
-        )
-
-    # Get current user
     current_user = get_current_user_from_token(authorization)
+    provider = resolve_provider(service_id, db)
 
-    # Map to OAuthProvider enum
-    provider = SERVICE_TO_PROVIDER[service_id.lower()]
-
-    # Parse scopes
     scope_list = scopes.split(",") if scopes else None
 
-    # Build authorization request
     auth_request = AuthorizationRequest(
         provider=provider,
         user_id=current_user,
@@ -192,9 +213,8 @@ async def oauth_authorize(
     )
 
     try:
-        # Generate authorization URL (pass service_id for multi-service providers)
         auth_response = await oauth_service.get_authorization_url(
-            auth_request, service_id=service_id.lower()
+            auth_request, service_id=service_id.lower(), db=db
         )
     except Exception as e:
         logger.error(f"Failed to generate authorization URL: {e}")
@@ -281,16 +301,8 @@ async def oauth_callback(
             detail={"error": "missing_params", "message": "Missing code or state parameter"},
         )
 
-    # Validate service
     sid = service_id.lower()
-    if sid not in SUPPORTED_SERVICES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_service", "message": f"Unknown service: {service_id}"},
-        )
-
-    # Map to OAuthProvider enum
-    provider = SERVICE_TO_PROVIDER[sid]
+    provider = resolve_provider(sid, db)
 
     # Validate state and get associated data
     oauth_state = oauth_service.get_pending_state(state)
@@ -315,7 +327,7 @@ async def oauth_callback(
     # Exchange code for tokens
     try:
         tokens = await oauth_service.exchange_code_for_tokens(
-            exchange_request, service_id=sid
+            exchange_request, service_id=sid, db=db
         )
     except OAuthStateError as e:
         logger.warning(f"OAuth state validation failed: {e}")
@@ -329,6 +341,22 @@ async def oauth_callback(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"error": "token_exchange_failed", "message": str(e)},
         )
+
+    # Clean up old token before storing new one (deduplication on reconnect)
+    existing_conn = db.query(ConnectedService).filter(
+        ConnectedService.user_id == user_id,
+        ConnectedService.service_id == sid,
+    ).first()
+
+    if existing_conn and existing_conn.oauth_token_ref:
+        old_ref = existing_conn.oauth_token_ref
+        vault_client.delete_token(old_ref, db=db)
+        try:
+            from app.services.token_refresh_scheduler import get_scheduler
+            get_scheduler().cancel_refresh(old_ref)
+        except Exception:
+            pass
+        logger.debug("Cleaned up old token on reconnect: ref=%s", old_ref)
 
     # Store tokens in vault — with DB persistence
     token_data = {
@@ -353,18 +381,13 @@ async def oauth_callback(
     scopes_granted = tokens.scope.split() if tokens.scope else []
     connected_at = datetime.now(timezone.utc)
 
-    existing = db.query(ConnectedService).filter(
-        ConnectedService.user_id == user_id,
-        ConnectedService.service_id == sid,
-    ).first()
-
-    if existing:
-        existing.oauth_token_ref = token_ref
-        existing.scopes_granted = scopes_granted
-        existing.disconnected_at = None
-        existing.connected_at = connected_at
+    if existing_conn:
+        existing_conn.oauth_token_ref = token_ref
+        existing_conn.scopes_granted = scopes_granted
+        existing_conn.disconnected_at = None
+        existing_conn.connected_at = connected_at
         db.commit()
-        db.refresh(existing)
+        db.refresh(existing_conn)
         logger.info("OAuth reconnected: service=%s user=%s", sid, user_id)
     else:
         connection = ConnectedService(
@@ -428,30 +451,11 @@ async def oauth_refresh(
     authorization: str = Header(...),
     oauth_service: OAuthService = Depends(get_oauth_service_dep),
     vault_client: VaultClient = Depends(get_vault_client),
+    db: Session = Depends(get_db),
 ):
-    """Refresh OAuth token for a connected service.
-
-    Args:
-        service_id: Service to refresh token for
-        authorization: Bearer token for user authentication
-        oauth_service: OAuthService instance
-        vault_client: VaultClient for token storage
-
-    Returns:
-        RefreshApiResponse indicating success and new expiration
-    """
-    # Validate service
-    if service_id.lower() not in SUPPORTED_SERVICES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_service", "message": f"Unknown service: {service_id}"},
-        )
-
-    # Get current user
+    """Refresh OAuth token for a connected service."""
     current_user = get_current_user_from_token(authorization)
-
-    # Map to OAuthProvider enum
-    provider = SERVICE_TO_PROVIDER[service_id.lower()]
+    provider = resolve_provider(service_id, db)
 
     # Get existing token from vault
     token_ref = vault_client._generate_ref(current_user, service_id.lower())
@@ -486,7 +490,7 @@ async def oauth_refresh(
     # Refresh the token
     try:
         new_tokens = await oauth_service.refresh_tokens(
-            refresh_request, service_id=service_id.lower()
+            refresh_request, service_id=service_id.lower(), db=db
         )
     except OAuthRefreshError as e:
         logger.error(f"OAuth token refresh failed: {e}")

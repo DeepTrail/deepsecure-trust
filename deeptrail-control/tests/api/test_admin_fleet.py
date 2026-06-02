@@ -56,9 +56,11 @@ def test_list_agents(client, db):
     _create_agent(db, "fleet-a2", "Agent 2")
     resp = client.get("/api/v1/admin/agents")
     assert resp.status_code == 200
-    agent_ids = [a["agent_id"] for a in resp.json()]
+    data = resp.json()
+    agent_ids = [a["agent_id"] for a in data["agents"]]
     assert "fleet-a1" in agent_ids
     assert "fleet-a2" in agent_ids
+    assert data["total"] == len(data["agents"])
 
 
 # --- D2: Suspend Agent ---
@@ -100,7 +102,8 @@ def test_list_templates(client):
     })
     resp = client.get("/api/v1/admin/delegation-templates")
     assert resp.status_code == 200
-    assert len(resp.json()) >= 1
+    data = resp.json()
+    assert len(data["templates"]) >= 1
 
 
 def test_update_template(client):
@@ -133,7 +136,8 @@ def test_list_delegations(client, db):
     _create_delegation(db, "del-agent", "bob@test.com")
     resp = client.get("/api/v1/admin/delegations")
     assert resp.status_code == 200
-    assert len(resp.json()) >= 2
+    data = resp.json()
+    assert len(data["delegations"]) >= 2
 
 
 def test_create_delegation_admin(client, db):

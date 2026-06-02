@@ -407,6 +407,9 @@ async def refresh_token(
         )
 
     # 5. Call OAuth provider to refresh
+    import time as _time
+
+    _refresh_start = _time.monotonic()
     try:
         oauth_request = OAuthTokenRefreshRequest(
             provider=provider,
@@ -415,17 +418,20 @@ async def refresh_token(
         )
         new_tokens = await oauth_service.refresh_tokens(oauth_request)
     except OAuthRefreshError as e:
+        _latency = (_time.monotonic() - _refresh_start) * 1000
         logger.error(
             "OAuth refresh failed: service=%s user=%s error=%s",
             service_id,
             x_user_id,
             str(e),
         )
+        _append_refresh_log(db, token_ref, "failure", error=str(e), latency_ms=_latency)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"error": "provider_error", "message": f"Failed to refresh: {str(e)}"},
         )
     except Exception as e:
+        _latency = (_time.monotonic() - _refresh_start) * 1000
         logger.error(
             "Unexpected error during OAuth refresh: service=%s user=%s error=%s",
             service_id,
@@ -433,10 +439,13 @@ async def refresh_token(
             str(e),
             exc_info=True,
         )
+        _append_refresh_log(db, token_ref, "failure", error=str(e), latency_ms=_latency)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"error": "provider_error", "message": f"Failed to refresh: {str(e)}"},
         )
+
+    _refresh_latency_ms = (_time.monotonic() - _refresh_start) * 1000
 
     # 6. Update vault with new tokens
     success = vault_client.refresh_token(
@@ -444,6 +453,8 @@ async def refresh_token(
         new_access_token=new_tokens.access_token,
         new_expires_in=new_tokens.expires_in,
         new_refresh_token=new_tokens.refresh_token,
+        db=db,
+        latency_ms=_refresh_latency_ms,
     )
 
     if not success:
@@ -470,6 +481,152 @@ async def refresh_token(
         refreshed=True,
         message="Token refreshed",
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal Scheduled Refresh Endpoint (Cloud Tasks / EventBridge target)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+from pydantic import BaseModel
+
+
+class ScheduledRefreshRequest(BaseModel):
+    """Payload sent by Cloud Tasks / EventBridge when a scheduled refresh fires."""
+    token_ref: str
+    service_id: str
+    user_id: str
+
+
+class ScheduledRefreshResponse(BaseModel):
+    refreshed: bool
+    message: str
+
+
+@router.post(
+    "/internal/tokens/refresh-due",
+    response_model=ScheduledRefreshResponse,
+    responses={
+        401: {"description": "Invalid internal token"},
+    },
+    summary="Trigger a scheduled token refresh (internal)",
+    description="""
+    Called by Cloud Tasks / EventBridge at the scheduled time to refresh
+    an OAuth token proactively. Delegates to the existing refresh logic.
+    
+    Idempotent: if the token is not expired, returns refreshed=false.
+    If the token was deleted, returns refreshed=false with a message.
+    """,
+)
+async def scheduled_refresh(
+    request: ScheduledRefreshRequest,
+    db: deps.DbDep,
+    internal_token: str = Depends(deps.verify_internal_token),
+    vault_client: VaultClient = Depends(get_vault_client),
+    oauth_service: OAuthService = Depends(get_oauth_service_dep),
+) -> ScheduledRefreshResponse:
+    """Handle a scheduled token refresh triggered by the scheduler backend."""
+    logger.info(
+        "Scheduled refresh triggered: service=%s user=%s token_ref=%s",
+        request.service_id,
+        request.user_id,
+        request.token_ref[:30],
+    )
+
+    # Check if token still exists
+    connection = db.query(ConnectedService).filter(
+        ConnectedService.user_id == request.user_id,
+        ConnectedService.service_id == request.service_id,
+        ConnectedService.disconnected_at.is_(None),
+    ).first()
+
+    if not connection or not connection.oauth_token_ref:
+        return ScheduledRefreshResponse(
+            refreshed=False,
+            message="Service not connected (may have been disconnected)",
+        )
+
+    if connection.oauth_token_ref != request.token_ref:
+        return ScheduledRefreshResponse(
+            refreshed=False,
+            message="Token ref mismatch (token was replaced by reconnect)",
+        )
+
+    # Retrieve token data
+    try:
+        token_data = vault_client.retrieve_token(
+            request.token_ref, update_usage=False, db=db
+        )
+    except Exception:
+        return ScheduledRefreshResponse(
+            refreshed=False, message="Token not found in vault"
+        )
+
+    if not token_data:
+        return ScheduledRefreshResponse(
+            refreshed=False, message="Token not found in vault"
+        )
+
+    refresh_token_value = token_data.get("refresh_token")
+    if not refresh_token_value:
+        return ScheduledRefreshResponse(
+            refreshed=False, message="No refresh token available"
+        )
+
+    # Map service to OAuth provider
+    provider = SERVICE_TO_PROVIDER.get(request.service_id.lower())
+    if not provider:
+        return ScheduledRefreshResponse(
+            refreshed=False, message=f"Unsupported service: {request.service_id}"
+        )
+
+    # Perform the refresh
+    import time as _time
+
+    _sched_start = _time.monotonic()
+    try:
+        oauth_request = OAuthTokenRefreshRequest(
+            provider=provider,
+            refresh_token=refresh_token_value,
+            user_id=request.user_id,
+        )
+        new_tokens = await oauth_service.refresh_tokens(oauth_request)
+    except Exception as e:
+        _latency = (_time.monotonic() - _sched_start) * 1000
+        logger.error(
+            "Scheduled refresh failed: service=%s user=%s error=%s",
+            request.service_id,
+            request.user_id,
+            str(e),
+        )
+        _append_refresh_log(db, request.token_ref, "failure", error=str(e), latency_ms=_latency)
+        return ScheduledRefreshResponse(
+            refreshed=False, message=f"Provider refresh failed: {type(e).__name__}"
+        )
+
+    _sched_latency_ms = (_time.monotonic() - _sched_start) * 1000
+
+    # Update vault (this also re-schedules the next refresh via hook)
+    success = vault_client.refresh_token(
+        token_ref=request.token_ref,
+        new_access_token=new_tokens.access_token,
+        new_expires_in=new_tokens.expires_in,
+        new_refresh_token=new_tokens.refresh_token,
+        db=db,
+        latency_ms=_sched_latency_ms,
+    )
+
+    if not success:
+        return ScheduledRefreshResponse(
+            refreshed=False, message="Failed to update vault with refreshed token"
+        )
+
+    logger.info(
+        "Scheduled refresh succeeded: service=%s user=%s",
+        request.service_id,
+        request.user_id,
+    )
+    return ScheduledRefreshResponse(refreshed=True, message="Token refreshed")
 
 
 @router.get("/secrets", status_code=status.HTTP_200_OK)
@@ -949,4 +1106,210 @@ def verify_credential(
         expires_at=expires_at_aware,
         ephemeral_public_key=eph_pub_key_b64,
         verified_at=now 
-    ) 
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vault Browser Endpoints (user-facing metadata views)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _append_refresh_log(
+    db,
+    token_ref: str,
+    status_val: str,
+    error: Optional[str] = None,
+    latency_ms: Optional[float] = None,
+) -> None:
+    """Append a refresh event to the token's refresh_log (last 20 entries)."""
+    try:
+        from app.models.vault_token import VaultToken
+
+        vault_token = db.query(VaultToken).filter(
+            VaultToken.token_ref == token_ref
+        ).first()
+        if vault_token is not None:
+            entry: dict = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "status": status_val,
+                "latency_ms": round(latency_ms, 1) if latency_ms is not None else None,
+            }
+            if error:
+                entry["error"] = error[:200]
+            log = list(vault_token.refresh_log or [])
+            log.append(entry)
+            vault_token.refresh_log = log[-20:]
+            db.commit()
+    except Exception:
+        pass
+
+
+def _extract_user_id_from_auth(auth_result: dict) -> Optional[str]:
+    """Extract user_id (email) from flexible auth result."""
+    if auth_result.get("auth_type") == "jwt":
+        claims = auth_result.get("claims", {})
+        return claims.get("sub")
+    return None
+
+
+@router.get("/user-tokens", status_code=status.HTTP_200_OK)
+def list_user_vault_tokens(
+    db: deps.DbDep,
+    auth: Any = deps.FlexibleAuthDep,
+):
+    """List OAuth tokens stored in the vault for the current user.
+
+    Returns metadata only -- access/refresh token values are never exposed.
+    """
+    from app.models.vault_token import VaultToken
+
+    user_id = _extract_user_id_from_auth(auth)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not determine user identity",
+        )
+
+    now = datetime.now(timezone.utc)
+
+    tokens = (
+        db.query(VaultToken)
+        .filter(VaultToken.user_id == user_id)
+        .order_by(VaultToken.created_at.desc())
+        .all()
+    )
+
+    items = []
+    for t in tokens:
+        expires_at = t.expires_at
+        if expires_at and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        if expires_at is None:
+            token_status = "active"
+        elif expires_at <= now:
+            token_status = "expired"
+        elif expires_at <= now + timedelta(hours=1):
+            token_status = "expiring_soon"
+        else:
+            token_status = "active"
+
+        scopes = None
+        try:
+            vault = VaultClient()
+            data = vault.retrieve_token(t.token_ref, update_usage=False, db=db)
+            if data:
+                scope_val = data.get("scope")
+                if isinstance(scope_val, list):
+                    scopes = scope_val
+                elif isinstance(scope_val, str):
+                    scopes = scope_val.split()
+        except Exception:
+            pass
+
+        last_refreshed = getattr(t, "last_refreshed_at", None)
+        if last_refreshed and last_refreshed.tzinfo is None:
+            last_refreshed = last_refreshed.replace(tzinfo=timezone.utc)
+
+        items.append({
+            "service_id": t.service_id,
+            "token_ref": t.token_ref,
+            "status": token_status,
+            "scopes_granted": scopes,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "expires_at": expires_at.isoformat() if expires_at else None,
+            "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None,
+            "last_refreshed_at": last_refreshed.isoformat() if last_refreshed else None,
+            "refresh_count": t.refresh_count or 0,
+            "refresh_log": getattr(t, "refresh_log", None) or [],
+        })
+
+    return {"tokens": items, "count": len(items)}
+
+
+@router.get("/user-credentials", status_code=status.HTTP_200_OK)
+def list_user_credentials(
+    db: deps.DbDep,
+    auth: Any = deps.FlexibleAuthDep,
+):
+    """List ephemeral credentials issued for agents delegated by the current user.
+
+    Returns metadata only -- key material is never exposed.
+    """
+    from app.models.credential import Credential
+    from app.models.delegation import DelegationToken
+
+    user_id = _extract_user_id_from_auth(auth)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not determine user identity",
+        )
+
+    now = datetime.now(timezone.utc)
+
+    delegated_agent_ids = (
+        db.query(DelegationToken.agent_id)
+        .filter(DelegationToken.delegator == user_id)
+        .distinct()
+        .all()
+    )
+    agent_ids = [row[0] for row in delegated_agent_ids]
+
+    if not agent_ids:
+        return {"credentials": [], "count": 0}
+
+    credentials = (
+        db.query(Credential)
+        .filter(Credential.agent_id.in_(agent_ids))
+        .order_by(Credential.issued_at.desc())
+        .limit(100)
+        .all()
+    )
+
+    items = []
+    for c in credentials:
+        expires_at = c.expires_at
+        if expires_at and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        revoked_at = c.revoked_at
+        if revoked_at and revoked_at.tzinfo is None:
+            revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+
+        if revoked_at is not None:
+            cred_status = "revoked"
+        elif expires_at and expires_at <= now:
+            cred_status = "expired"
+        else:
+            cred_status = "valid"
+
+        items.append({
+            "credential_id": c.credential_id,
+            "agent_id": c.agent_id,
+            "scope": c.scope,
+            "status": cred_status,
+            "issued_at": c.issued_at.isoformat() if c.issued_at else None,
+            "expires_at": expires_at.isoformat() if expires_at else None,
+        })
+
+    return {"credentials": items, "count": len(items)}
+
+
+@router.get("/encryption-status", status_code=status.HTTP_200_OK)
+def get_encryption_status(
+    _: Any = deps.FlexibleAuthDep,
+):
+    """Return the encryption backend in use for each secret category.
+
+    Helps admins verify that production is using KMS.
+    """
+    from app.core.kms import get_kms_client
+
+    kms_client = get_kms_client()
+    vault = VaultClient()
+
+    return {
+        "service_credentials": kms_client.backend,
+        "vault_tokens": vault.encryption_backend,
+        "secrets": "shamir_split_key",
+    }
