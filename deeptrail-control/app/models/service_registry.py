@@ -38,7 +38,7 @@ class ServiceRegistry(Base):
         - "mcp":  Remote MCP server (Jira MCP, GitHub MCP, etc.)
                   Uses GenericMCPClient adapter in the gateway.
 
-    Lifecycle: sandbox -> active -> disabled
+    Lifecycle: sandbox -> active -> disable
     """
 
     __tablename__ = "service_registry"
@@ -96,7 +96,7 @@ class ServiceRegistry(Base):
     status = Column(
         String(20),
         server_default="sandbox",
-        comment="'active', 'sandbox', 'review', 'disabled'",
+        comment="'active', 'sandbox', 'disable'",
     )
     available_to_roles = Column(
         JSON().with_variant(postgresql.JSONB(), "postgresql"),

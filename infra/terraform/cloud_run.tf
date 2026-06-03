@@ -355,7 +355,7 @@ resource "google_cloud_run_v2_service" "control" {
         value = google_service_account.runner.email
       }
       env {
-        name  = "GOOGLE_ADMIN_SUBJECT"
+        name  = "GOOGLE_ADMIN_EMAIL"
         value = "mahendra@deeptrail.com"
       }
 

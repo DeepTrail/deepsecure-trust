@@ -9,6 +9,7 @@ locals {
     "roles/secretmanager.secretAccessor",
     "roles/cloudsql.client",
     "roles/logging.logWriter",
+    "roles/iam.serviceAccountTokenCreator",
   ]
 }
 

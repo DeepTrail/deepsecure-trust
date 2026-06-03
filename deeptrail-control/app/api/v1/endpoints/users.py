@@ -325,6 +325,12 @@ def connect_service(
         ).first()
 
         if existing:
+            # Clean up old vault row before storing new ref (prevent orphans)
+            if existing.oauth_token_ref and existing.oauth_token_ref != token_ref:
+                try:
+                    vault.delete_token(existing.oauth_token_ref, db=db)
+                except Exception:
+                    logger.warning("Failed to delete old vault token: ref=%s", existing.oauth_token_ref)
             # Update existing connection (reconnect)
             existing.oauth_token_ref = token_ref
             existing.scopes_granted = scopes

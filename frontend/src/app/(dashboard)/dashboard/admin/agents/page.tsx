@@ -47,7 +47,7 @@ function formatDate(iso: string | null): string {
 }
 
 function truncateKey(key: string | null): string {
-  if (!key) return "—";
+  if (!key) return "Workload Identity";
   if (key.length <= 20) return key;
   return `${key.slice(0, 10)}...${key.slice(-6)}`;
 }
@@ -245,14 +245,14 @@ export default function AdminAgentFleetPage() {
                 </div>
 
                 {isExpanded && (
-                  <div className="border-t bg-muted/20 px-6 py-4">
+                  <div className="border-t bg-muted/20 px-6 py-4 space-y-5">
                     <div className="grid gap-6 md:grid-cols-2">
                       <div className="space-y-3">
                         <h4 className="text-sm font-semibold">Details</h4>
                         <dl className="space-y-1 text-sm">
                           <div className="flex justify-between">
-                            <dt className="text-muted-foreground">Public Key</dt>
-                            <dd className="font-mono text-xs">
+                            <dt className="text-muted-foreground">Auth</dt>
+                            <dd className={agent.public_key ? "font-mono text-xs" : "text-xs"}>
                               {truncateKey(agent.public_key)}
                             </dd>
                           </div>
@@ -289,6 +289,89 @@ export default function AdminAgentFleetPage() {
                           </p>
                         )}
                       </div>
+                    </div>
+
+                    {/* Delegations */}
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold">
+                        Delegations ({agent.delegation_count})
+                      </h4>
+                      {agent.delegations.length > 0 ? (
+                        <div className="overflow-x-auto rounded border">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted/50 border-b">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium">Delegator</th>
+                                <th className="px-3 py-2 text-left font-medium">Permissions</th>
+                                <th className="px-3 py-2 text-left font-medium">Created</th>
+                                <th className="px-3 py-2 text-left font-medium">Expires</th>
+                                <th className="px-3 py-2 text-left font-medium">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {agent.delegations.map((d) => (
+                                <tr key={d.id}>
+                                  <td className="px-3 py-2 text-muted-foreground">{d.delegator}</td>
+                                  <td className="px-3 py-2">
+                                    <span className="text-muted-foreground">{d.permissions.length} permissions</span>
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {d.expires_at ? new Date(d.expires_at).toLocaleDateString() : "—"}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <Badge
+                                      variant={d.is_expired ? "destructive" : "outline"}
+                                      className={cn("text-xs", !d.is_expired && "text-green-700 border-green-200")}
+                                    >
+                                      {d.is_expired ? "Expired" : "Active"}
+                                    </Badge>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No active delegations</p>
+                      )}
+                    </div>
+
+                    {/* Sessions */}
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold">
+                        Sessions ({agent.active_sessions})
+                      </h4>
+                      {agent.sessions.length > 0 ? (
+                        <div className="overflow-x-auto rounded border">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted/50 border-b">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium">Session ID</th>
+                                <th className="px-3 py-2 text-left font-medium">Created</th>
+                                <th className="px-3 py-2 text-left font-medium">Last Activity</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {agent.sessions.map((s) => (
+                                <tr key={s.session_id}>
+                                  <td className="px-3 py-2 font-mono text-muted-foreground">{s.session_id}</td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {s.created_at ? new Date(s.created_at).toLocaleString() : "—"}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {s.last_activity_at ? new Date(s.last_activity_at).toLocaleString() : "—"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No active sessions</p>
+                      )}
                     </div>
                   </div>
                 )}

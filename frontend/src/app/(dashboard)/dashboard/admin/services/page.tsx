@@ -45,8 +45,7 @@ type PageState =
 const STATUS_COLORS: Record<ServiceStatus, string> = {
   active: "bg-green-500/10 text-green-700 border-green-200",
   sandbox: "bg-yellow-500/10 text-yellow-700 border-yellow-200",
-  review: "bg-blue-500/10 text-blue-700 border-blue-200",
-  disabled: "bg-gray-500/10 text-gray-500 border-gray-200",
+  disable: "bg-gray-500/10 text-gray-500 border-gray-200",
 };
 
 const HEALTH_COLORS: Record<HealthStatus, string> = {
@@ -91,7 +90,7 @@ function TypeBadge({ type }: { type: BackendType }) {
   );
 }
 
-const STATUS_OPTIONS = ["active", "sandbox", "review", "disabled"] as const;
+const STATUS_OPTIONS = ["active", "sandbox", "disable"] as const;
 
 function ExpandedPanel({
   service,
@@ -368,7 +367,14 @@ function ExpandedPanel({
                     variant="ghost"
                     size="sm"
                     className="h-6 px-2 text-xs"
-                    onClick={() => setOauthEditing(true)}
+                    onClick={() => {
+                      if (oauthConfig?.source === "env") {
+                        if (!confirm("This service uses centralized credentials from environment configuration. Saving per-service credentials will override them. Continue?")) {
+                          return;
+                        }
+                      }
+                      setOauthEditing(true);
+                    }}
                   >
                     <Pencil className="mr-1 h-3 w-3" />
                     {oauthConfig ? "Edit" : "Configure"}
@@ -467,6 +473,13 @@ function ExpandedPanel({
                 </div>
               ) : oauthConfig ? (
                 <dl className="space-y-1 text-sm">
+                  {oauthConfig.source === "env" && (
+                    <div className="mb-2 rounded bg-blue-50 px-2 py-1">
+                      <p className="text-xs text-blue-700">
+                        Managed centrally via environment configuration
+                      </p>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <dt className="text-muted-foreground">Client ID</dt>
                     <dd className="font-mono text-xs">

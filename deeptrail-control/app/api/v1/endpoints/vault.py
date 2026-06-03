@@ -1172,6 +1172,25 @@ def list_user_vault_tokens(
 
     now = datetime.now(timezone.utc)
 
+    # Build a map of active connections: service_id -> (token_ref, scopes_granted)
+    # Used for deduplication (only show the current active token per service)
+    # and scope fallback (when vault blob doesn't contain scope).
+    connections = (
+        db.query(ConnectedService)
+        .filter(
+            ConnectedService.user_id == user_id,
+            ConnectedService.disconnected_at.is_(None),
+        )
+        .all()
+    )
+    active_refs: dict[str, str] = {}
+    connection_scopes: dict[str, list] = {}
+    for conn in connections:
+        if conn.oauth_token_ref:
+            active_refs[conn.service_id] = conn.oauth_token_ref
+        if conn.scopes_granted:
+            connection_scopes[conn.service_id] = conn.scopes_granted
+
     tokens = (
         db.query(VaultToken)
         .filter(VaultToken.user_id == user_id)
@@ -1180,7 +1199,18 @@ def list_user_vault_tokens(
     )
 
     items = []
+    seen_services: set[str] = set()
     for t in tokens:
+        # Deduplicate: if this service has an active connection, only keep
+        # the vault row that matches the current oauth_token_ref.
+        # Orphan rows (from pre-fix reconnects) are skipped.
+        if t.service_id in active_refs:
+            if t.token_ref != active_refs[t.service_id]:
+                continue
+        elif t.service_id in seen_services:
+            continue
+        seen_services.add(t.service_id)
+
         expires_at = t.expires_at
         if expires_at and expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -1206,6 +1236,10 @@ def list_user_vault_tokens(
                     scopes = scope_val.split()
         except Exception:
             pass
+
+        # Fallback: if vault blob had no scope, use connected_services.scopes_granted
+        if not scopes and t.service_id in connection_scopes:
+            scopes = connection_scopes[t.service_id]
 
         last_refreshed = getattr(t, "last_refreshed_at", None)
         if last_refreshed and last_refreshed.tzinfo is None:

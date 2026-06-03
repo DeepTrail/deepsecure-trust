@@ -32,6 +32,7 @@ from app.models.agent_session import AgentSession
 from app.models.delegation import DelegationToken
 from app.models.delegation_template import DelegationTemplate
 from app.models.audit_event import AuditEvent
+from app.services.lifecycle_service import LifecycleService
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,21 @@ router = APIRouter()
 
 
 # --- Request / Response Models ---
+
+class DelegationSummary(BaseModel):
+    id: str
+    delegator: str
+    permissions: List[str]
+    created_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    is_expired: bool = False
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    created_at: Optional[str] = None
+    last_activity_at: Optional[str] = None
+
 
 class AgentFleetEntry(BaseModel):
     agent_id: str
@@ -50,6 +66,8 @@ class AgentFleetEntry(BaseModel):
     delegation_count: int = 0
     delegating_users: List[str] = Field(default_factory=list)
     active_sessions: int = 0
+    delegations: List[DelegationSummary] = Field(default_factory=list)
+    sessions: List[SessionSummary] = Field(default_factory=list)
 
 
 class AgentFleetResponse(BaseModel):
@@ -151,6 +169,10 @@ def list_agents_fleet(
     import base64
 
     agents = db.query(Agent).all()
+    lifecycle_svc = LifecycleService(db)
+    agent_ids = [a.agent_id for a in agents]
+    lifecycle_states = lifecycle_svc.compute_state_bulk(agent_ids) if agent_ids else {}
+
     entries: List[AgentFleetEntry] = []
     for agent in agents:
         delegations = (
@@ -178,16 +200,55 @@ def list_agents_fleet(
             except Exception:
                 pub_key_str = None
 
+        last_active = lifecycle_svc.get_last_active_at(agent.agent_id)
+        state = lifecycle_states.get(agent.agent_id, "registered")
+
+        now = datetime.now(timezone.utc)
+        delegation_summaries = []
+        for d in delegations:
+            exp = d.expires_at
+            is_exp = bool(exp and now > exp)
+            perms = d.delegated_permissions if isinstance(d.delegated_permissions, list) else []
+            delegation_summaries.append(DelegationSummary(
+                id=d.id,
+                delegator=d.delegator or "",
+                permissions=perms,
+                created_at=d.created_at.isoformat() if d.created_at else None,
+                expires_at=exp.isoformat() if exp else None,
+                is_expired=is_exp,
+            ))
+
+        sessions = (
+            db.query(AgentSession)
+            .filter(
+                AgentSession.agent_id == agent.agent_id,
+                AgentSession.revoked_at.is_(None),
+            )
+            .order_by(AgentSession.last_activity_at.desc().nullslast())
+            .limit(10)
+            .all()
+        )
+        session_summaries = [
+            SessionSummary(
+                session_id=s.id,
+                created_at=s.created_at.isoformat() if s.created_at else None,
+                last_activity_at=s.last_activity_at.isoformat() if s.last_activity_at else None,
+            )
+            for s in sessions
+        ]
+
         entries.append(AgentFleetEntry(
             agent_id=agent.agent_id,
             name=agent.name or agent.agent_id,
-            status="active" if session_count > 0 else ("inactive" if not delegations else "active"),
+            status=state,
             public_key=pub_key_str,
             created_at=agent.created_at.isoformat() if agent.created_at else None,
-            last_active_at=agent.last_seen_at.isoformat() if agent.last_seen_at else None,
+            last_active_at=last_active.isoformat() if last_active else None,
             delegation_count=len(delegations),
             delegating_users=delegating_users,
             active_sessions=session_count,
+            delegations=delegation_summaries,
+            sessions=session_summaries,
         ))
     return AgentFleetResponse(agents=entries, total=len(entries))
 
@@ -276,13 +337,14 @@ def create_delegation_admin(
     """Create a delegation on behalf of a user (admin action)."""
     from datetime import timedelta
 
+    ttl_hours = body.constraints.get("expires_in_hours", 168)  # default 7 days
     delegation = DelegationToken(
         agent_id=body.agent_id,
         delegator=body.delegator,
         delegated_permissions=body.delegated_permissions,
         constraints=body.constraints,
         source="admin",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=ttl_hours),
     )
     db.add(delegation)
     db.commit()

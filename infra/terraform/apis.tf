@@ -12,6 +12,10 @@ locals {
     "servicenetworking.googleapis.com",
     "cloudkms.googleapis.com",
     "cloudtasks.googleapis.com",
+    "admin.googleapis.com",
+    "gmail.googleapis.com",
+    "calendar-json.googleapis.com",
+    "drive.googleapis.com",
   ]
 }
 

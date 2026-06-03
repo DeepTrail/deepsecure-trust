@@ -4,6 +4,7 @@ from app.api.v1.endpoints import (
     admin_fleet,
     admin_roles,
     admin_services,
+    admin_settings,
     agent_auth,
     agents,
     attestation_policies,
@@ -48,3 +49,5 @@ api_router.include_router(services_catalog.router, prefix="/services", tags=["se
 api_router.include_router(admin_roles.router, prefix="/admin", tags=["admin"])
 api_router.include_router(admin_services.router, prefix="/admin", tags=["admin"])
 api_router.include_router(admin_fleet.router, prefix="/admin", tags=["admin"])
+api_router.include_router(admin_settings.router, prefix="/admin", tags=["admin"])
+api_router.include_router(admin_settings.public_router, tags=["settings"])

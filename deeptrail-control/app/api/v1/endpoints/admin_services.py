@@ -39,6 +39,7 @@ class ServiceCreateRequest(BaseModel):
     description: Optional[str] = None
     backend_type: str = Field(default="rest", pattern="^(rest|mcp)$")
     endpoint_url: str = Field(..., max_length=500)
+    status: str = Field(default="active", pattern="^(active|sandbox|disable)$")
     transport: str = Field(default="rest")
     mcp_auth_method: str = Field(default="none")
     mcp_auth_header: Optional[str] = None
@@ -104,6 +105,7 @@ class OAuthConfigResponse(BaseModel):
     auth_url: Optional[str] = None
     token_url: Optional[str] = None
     scopes: Optional[List[str]] = None
+    source: str = "db"  # "db" = per-service config, "env" = centralized env vars
 
 
 class ConnectionTestResponse(BaseModel):
@@ -258,16 +260,43 @@ def get_oauth_config(
     _admin: dict = Depends(require_admin),
 ):
     config = svc.get_oauth_config(service_id)
-    if not config:
+    if config:
+        return OAuthConfigResponse(
+            service_id=config.service_id,
+            client_id=config.client_id,
+            auth_url=config.auth_url,
+            token_url=config.token_url,
+            scopes=config.scopes,
+            source="db",
+        )
+
+    from app.services.oauth_service import OAuthService, OAuthConfigError
+    from app.schemas.oauth import OAuthProvider
+
+    centralized_services = {
+        "gmail": OAuthProvider.GOOGLE,
+        "gcalendar": OAuthProvider.GOOGLE,
+        "gdrive": OAuthProvider.GOOGLE,
+    }
+    provider = centralized_services.get(service_id)
+    if not provider:
         raise HTTPException(status_code=404, detail=f"No OAuth config for '{service_id}'")
 
-    return OAuthConfigResponse(
-        service_id=config.service_id,
-        client_id=config.client_id,
-        auth_url=config.auth_url,
-        token_url=config.token_url,
-        scopes=config.scopes,
-    )
+    try:
+        oauth_svc = OAuthService()
+        env_config = oauth_svc._get_config_from_env(provider, service_id=service_id)
+        return OAuthConfigResponse(
+            service_id=service_id,
+            client_id=env_config.client_id,
+            auth_url=env_config.authorization_url,
+            token_url=env_config.token_url,
+            scopes=env_config.scopes,
+            source="env",
+        )
+    except OAuthConfigError:
+        raise HTTPException(
+            status_code=404, detail=f"No OAuth config for '{service_id}'"
+        )
 
 
 @router.put("/services/{service_id}/oauth", response_model=OAuthConfigResponse)

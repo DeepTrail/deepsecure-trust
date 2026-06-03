@@ -38,6 +38,11 @@ import type {
   DelegationTemplateCreateRequest,
 } from "@/lib/types/admin";
 
+interface Agent {
+  agent_id: string;
+  name: string;
+}
+
 type Tab = "templates" | "delegations";
 
 type TemplatesState =
@@ -57,9 +62,27 @@ const SOURCE_BADGE_COLORS: Record<AdminDelegation["source"], string> = {
   invite: "bg-green-500/10 text-green-700 border-green-200",
 };
 
-function truncateList(items: string[], max = 3): string {
-  if (items.length <= max) return items.join(", ");
-  return `${items.slice(0, max).join(", ")} +${items.length - max} more`;
+function groupPermissionsByService(perms: string[]): Record<string, string[]> {
+  const grouped: Record<string, string[]> = {};
+  for (const p of perms) {
+    const colonIdx = p.indexOf(":");
+    const svc = colonIdx > 0 ? p.slice(0, colonIdx) : "other";
+    const rest = colonIdx > 0 ? p.slice(colonIdx + 1) : p;
+    if (!grouped[svc]) grouped[svc] = [];
+    grouped[svc].push(rest);
+  }
+  return grouped;
+}
+
+function formatExpiryInfo(createdAt: string, expiresAt: string | null): { ttlLabel: string; isExpired: boolean } {
+  if (!expiresAt) return { ttlLabel: "—", isExpired: false };
+  const created = new Date(createdAt).getTime();
+  const expires = new Date(expiresAt).getTime();
+  const now = Date.now();
+  const ttlMs = expires - created;
+  const ttlDays = Math.round(ttlMs / 86400000);
+  const ttlLabel = ttlDays >= 1 ? `${ttlDays}d` : `${Math.round(ttlMs / 3600000)}h`;
+  return { ttlLabel, isExpired: now > expires };
 }
 
 function StatusDot({ active }: { active: boolean }) {
@@ -72,6 +95,7 @@ function StatusDot({ active }: { active: boolean }) {
     />
   );
 }
+
 
 function CreateTemplateDialog({
   open,
@@ -86,7 +110,7 @@ function CreateTemplateDialog({
   const [maxPermissions, setMaxPermissions] = useState<string[]>([]);
   const [blockedPermissions, setBlockedPermissions] = useState<string[]>([]);
   const [defaultTtlDays, setDefaultTtlDays] = useState(30);
-  const [availableToEveryone, setAvailableToEveryone] = useState(false);
+  const [availableToEveryone, setAvailableToEveryone] = useState(true);
   const [availableToGroups, setAvailableToGroups] = useState<string[]>([]);
   const [availableToUsers, setAvailableToUsers] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -118,7 +142,7 @@ function CreateTemplateDialog({
       setMaxPermissions([]);
       setBlockedPermissions([]);
       setDefaultTtlDays(30);
-      setAvailableToEveryone(false);
+      setAvailableToEveryone(true);
       setAvailableToGroups([]);
       setAvailableToUsers([]);
     } catch (err) {
@@ -224,8 +248,21 @@ export default function AdminDelegationsPage() {
   const [delegationsState, setDelegationsState] = useState<DelegationsState>({
     kind: "loading",
   });
+  const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [allowFreeform, setAllowFreeform] = useState<boolean | null>(null);
+  const [freeformUpdating, setFreeformUpdating] = useState(false);
+
+  const fetchAgents = useCallback(async () => {
+    try {
+      const resp = await apiClient<Agent[] | { agents: Agent[] }>("agents/");
+      const agents = Array.isArray(resp) ? resp : (resp.agents ?? []);
+      setAgentNameMap(Object.fromEntries(agents.map((a) => [a.agent_id, a.name || a.agent_id])));
+    } catch {
+      // non-critical; falls back to showing agent_id
+    }
+  }, []);
 
   const fetchTemplates = useCallback(async () => {
     try {
@@ -256,10 +293,39 @@ export default function AdminDelegationsPage() {
     }
   }, []);
 
+  const fetchDelegationPolicy = useCallback(async () => {
+    try {
+      const data = await apiClient<{ allow_freeform: boolean }>(
+        "admin/settings/delegation-policy"
+      );
+      setAllowFreeform(data.allow_freeform);
+    } catch {
+      setAllowFreeform(false);
+    }
+  }, []);
+
+  const toggleFreeform = async () => {
+    const newVal = !allowFreeform;
+    setFreeformUpdating(true);
+    try {
+      await apiClient("admin/settings/delegation-policy", {
+        method: "PUT",
+        body: JSON.stringify({ allow_freeform: newVal }),
+      });
+      setAllowFreeform(newVal);
+    } catch {
+      // revert
+    } finally {
+      setFreeformUpdating(false);
+    }
+  };
+
   useEffect(() => {
+    fetchAgents();
     fetchTemplates();
     fetchDelegations();
-  }, [fetchTemplates, fetchDelegations]);
+    fetchDelegationPolicy();
+  }, [fetchAgents, fetchTemplates, fetchDelegations, fetchDelegationPolicy]);
 
   const handleDeleteTemplate = async (id: string) => {
     try {
@@ -303,46 +369,64 @@ export default function AdminDelegationsPage() {
     }
 
     return (
-      <div className="space-y-2">
-        {templates.map((tmpl) => (
-          <Card key={tmpl.id} className="flex items-center justify-between px-6 py-4">
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{tmpl.agent_id}</span>
-                <Badge variant="outline" className="text-xs">
-                  TTL: {tmpl.default_ttl_days}d
-                </Badge>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                <span>
-                  Max: {truncateList(tmpl.max_permissions)}
-                </span>
-                {tmpl.blocked_permissions.length > 0 && (
-                  <>
-                    <span className="text-muted-foreground/50">|</span>
-                    <span>
-                      Blocked: {tmpl.blocked_permissions.length}
+      <div className="space-y-3">
+        {templates.map((tmpl) => {
+          const grouped = groupPermissionsByService(tmpl.max_permissions);
+          const availParts: string[] = [];
+          if (tmpl.available_to_roles.includes("all")) {
+            availParts.push("Everyone");
+          } else {
+            if (tmpl.available_to_groups?.length) availParts.push(...tmpl.available_to_groups);
+            if (tmpl.available_to_users?.length) availParts.push(...tmpl.available_to_users);
+          }
+
+          const createdDate = new Date(tmpl.created_at);
+          const expiryDate = new Date(createdDate.getTime() + tmpl.default_ttl_days * 86400000);
+          const isExpired = Date.now() > expiryDate.getTime();
+
+          return (
+            <Card key={tmpl.id} className="px-6 py-4">
+              <div className="flex items-start justify-between">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">
+                      {agentNameMap[tmpl.agent_id] || tmpl.agent_id}
                     </span>
-                  </>
-                )}
-                <span className="text-muted-foreground/50">|</span>
-                <span>
-                  {tmpl.available_to_roles.includes("all")
-                    ? "Available to: Everyone"
-                    : `Available to: ${tmpl.available_to_roles.join(", ") || "Specific groups/users"}`}
-                </span>
+                    <Badge variant={isExpired ? "destructive" : "outline"} className="text-xs">
+                      {isExpired
+                        ? `Expired · TTL was ${tmpl.default_ttl_days}d · ${expiryDate.toLocaleDateString()}`
+                        : `TTL: ${tmpl.default_ttl_days}d · Expires ${expiryDate.toLocaleDateString()}`}
+                    </Badge>
+                    {tmpl.blocked_permissions.length > 0 && (
+                      <Badge variant="destructive" className="text-xs">
+                        {tmpl.blocked_permissions.length} blocked
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(grouped).map(([svc, perms]) => (
+                      <Badge key={svc} variant="secondary" className="text-xs">
+                        {svc}: {perms.join(", ")}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Available to: {availParts.length > 0 ? availParts.join(", ") : "Everyone"}
+                    {" · "}Created: {createdDate.toLocaleDateString()}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive shrink-0 ml-2"
+                  onClick={() => handleDeleteTemplate(tmpl.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => handleDeleteTemplate(tmpl.id)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
       </div>
     );
   };
@@ -393,6 +477,7 @@ export default function AdminDelegationsPage() {
               <th className="px-4 py-3 text-left font-medium">Permissions</th>
               <th className="px-4 py-3 text-left font-medium">Source</th>
               <th className="px-4 py-3 text-left font-medium">Created</th>
+              <th className="px-4 py-3 text-left font-medium">TTL</th>
               <th className="px-4 py-3 text-left font-medium">Expires</th>
               <th className="px-4 py-3 text-left font-medium">Status</th>
               <th className="px-4 py-3 text-right font-medium">Actions</th>
@@ -400,10 +485,14 @@ export default function AdminDelegationsPage() {
           </thead>
           <tbody className="divide-y">
             {filtered.map((d) => {
-              const isActive = !d.revoked_at;
+              const isRevoked = !!d.revoked_at;
+              const expiry = formatExpiryInfo(d.created_at, d.expires_at);
+              const isActive = !isRevoked && !expiry.isExpired;
               return (
                 <tr key={d.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-medium">{d.agent_id}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {agentNameMap[d.agent_id] || d.agent_id}
+                  </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {d.delegator}
                   </td>
@@ -424,15 +513,16 @@ export default function AdminDelegationsPage() {
                     {new Date(d.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
-                    {d.expires_at
-                      ? new Date(d.expires_at).toLocaleDateString()
-                      : "Never"}
+                    {expiry.ttlLabel}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {d.expires_at ? new Date(d.expires_at).toLocaleDateString() : "—"}
                   </td>
                   <td className="px-4 py-3">
                     <span className="flex items-center gap-1.5">
                       <StatusDot active={isActive} />
                       <span className={cn("text-xs", isActive ? "text-green-700" : "text-red-700")}>
-                        {isActive ? "Active" : "Revoked"}
+                        {isRevoked ? "Revoked" : expiry.isExpired ? "Expired" : "Active"}
                       </span>
                     </span>
                     {d.revoked_at && (
@@ -496,6 +586,40 @@ export default function AdminDelegationsPage() {
           )}
         </div>
       </div>
+
+      {/* Delegation Policy */}
+      {allowFreeform !== null && (
+        <Card className="px-5 py-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Free-form delegation creation</p>
+              <p className="text-xs text-muted-foreground">
+                {allowFreeform
+                  ? "Users can create delegations without a template"
+                  : "Users must select a template to create delegations"}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={allowFreeform}
+              disabled={freeformUpdating}
+              onClick={toggleFreeform}
+              className={cn(
+                "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+                allowFreeform ? "bg-primary" : "bg-muted"
+              )}
+            >
+              <span
+                className={cn(
+                  "pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg transition-transform",
+                  allowFreeform ? "translate-x-5" : "translate-x-0"
+                )}
+              />
+            </button>
+          </div>
+        </Card>
+      )}
 
       {/* Tab Switcher */}
       <div className="flex items-center gap-3">
