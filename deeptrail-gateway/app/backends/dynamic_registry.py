@@ -124,6 +124,7 @@ class DynamicBackendLoader:
 
         Returns the number of dynamically registered backends.
         """
+        logger.info("Registry loading from: %s/api/v1/internal/services/registry", self.control_plane_url)
         try:
             services = await self._fetch_registry()
         except Exception as e:
@@ -270,7 +271,7 @@ class DynamicBackendLoader:
     async def _fetch_registry(self) -> list[ServiceConfig]:
         """GET /api/v1/internal/services/registry from Control Plane."""
         url = f"{self.control_plane_url}/api/v1/internal/services/registry"
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
                 url,
                 headers={"X-Internal-API-Token": self.internal_api_token},

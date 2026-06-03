@@ -102,7 +102,6 @@ class LifecycleService:
             .filter(
                 AgentSession.agent_id.in_(agent_ids),
                 AgentSession.last_activity_at >= cutoff,
-                AgentSession.is_active.is_(True),
             )
             .distinct()
             .all()
@@ -151,12 +150,12 @@ class LifecycleService:
         return row[0] if row else None
 
     def get_last_active_at(self, agent_id: str) -> Optional[datetime]:
-        """Return the last_activity_at of the most recent active session, or None."""
+        """Return the most recent last_activity_at across all sessions (active or ended)."""
         row = (
             self._db.query(AgentSession.last_activity_at)
             .filter(
                 AgentSession.agent_id == agent_id,
-                AgentSession.is_active.is_(True),
+                AgentSession.last_activity_at.isnot(None),
             )
             .order_by(AgentSession.last_activity_at.desc())
             .first()

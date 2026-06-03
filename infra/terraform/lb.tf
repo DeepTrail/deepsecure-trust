@@ -144,7 +144,7 @@ resource "google_compute_url_map" "main" {
     }
 
     path_rule {
-      paths   = ["/mcp/*"]
+      paths   = ["/mcp", "/mcp/*"]
       service = google_compute_backend_service.gateway.id
     }
 
