@@ -156,7 +156,8 @@ class ServiceRegistryService:
                         headers=self._mcp_probe_headers(service),
                     )
                 else:
-                    resp = client.get(url)
+                    probe_url, probe_headers = self._rest_probe_config(service)
+                    resp = client.get(probe_url, headers=probe_headers)
 
             latency_ms = int((time.monotonic() - start) * 1000)
             status_code = resp.status_code
@@ -228,6 +229,40 @@ class ServiceRegistryService:
             },
         }
 
+    @staticmethod
+    def _rest_probe_config(service: "ServiceRegistry") -> tuple:
+        """Return (probe_url, headers) tailored to the service's API.
+
+        Uses a lightweight endpoint and required headers per provider so the
+        health probe gets a meaningful response instead of a generic 400.
+        """
+        url = service.endpoint_url.rstrip("/")
+        sid = (service.service_id or "").lower()
+        headers: Dict[str, str] = {}
+
+        if "notion" in sid or "notion.com" in url:
+            headers["Notion-Version"] = "2022-06-28"
+            return f"{url}/users/me", headers
+
+        if "slack" in sid or "slack.com" in url:
+            return f"{url}/api.test", headers
+
+        if "github" in sid or "github.com" in url or "api.github.com" in url:
+            headers["Accept"] = "application/vnd.github+json"
+            headers["User-Agent"] = "DeepSecure-HealthProbe/1.0"
+            return url, headers
+
+        if "gmail" in sid or "gmail.googleapis.com" in url:
+            return f"{url}/gmail/v1/users/me/profile", headers
+
+        if "gcalendar" in sid or "googleapis.com/calendar" in url:
+            return f"{url}/calendars/primary", headers
+
+        if "gdrive" in sid or "googleapis.com/drive" in url:
+            return f"{url}/about?fields=user", headers
+
+        return url, headers
+
     def _mcp_probe_headers(self, service: "ServiceRegistry") -> Dict[str, str]:
         headers: Dict[str, str] = {"Content-Type": "application/json"}
         if (
@@ -282,10 +317,16 @@ class ServiceRegistryService:
                 "Reachable — authentication required "
                 "(expected for OAuth services, employees authorize individually)"
             )
+        if status_code == 400:
+            if is_mcp:
+                return "Bad request — MCP server may expect a different payload format"
+            return "Reachable — API responded (HTTP 400 is normal for base URL without a resource path)"
         if status_code == 404:
             if is_mcp:
                 return "Endpoint not found — verify MCP server URL"
             return "Endpoint not found — verify URL"
+        if 400 <= status_code < 500:
+            return f"Reachable — API responded with HTTP {status_code}"
         if 500 <= status_code < 600:
             if is_mcp:
                 return "Server error — MCP server may be down"

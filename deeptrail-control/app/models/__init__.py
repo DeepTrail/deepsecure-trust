@@ -12,6 +12,7 @@ from .delegation_template import DelegationTemplate  # noqa
 from .service_registry import ServiceRegistry, ServiceOAuthConfig  # noqa
 from .idp_session import IdPSession  # noqa
 from .nonce import Nonce  # noqa
+from .org_settings import OrgSettings  # noqa
 from .pending_oauth_state import PendingOAuthState  # noqa
 from .policy import Policy  # noqa
 from .user import User  # noqa
@@ -42,6 +43,7 @@ __all__ = [
     "DelegationToken",
     "IdPSession",
     "Nonce",
+    "OrgSettings",
     "PendingOAuthState",
     "PartyType",
     "PlatformType",

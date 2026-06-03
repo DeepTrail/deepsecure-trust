@@ -60,12 +60,13 @@ type PageState =
 
 export default function CreateDelegationPage() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
+  const [allowFreeform, setAllowFreeform] = useState<boolean>(true);
   const router = useRouter();
 
   const fetchData = useCallback(async () => {
     setState({ kind: "loading" });
     try {
-      const [agentsResp, permissionsResp, templatesResp] = await Promise.all([
+      const [agentsResp, permissionsResp, templatesResp, policyResp] = await Promise.all([
         apiClient<Agent[] | { agents: Agent[] }>("agents/"),
         apiClient<AvailablePermissionsResponse>(
           "users/me/available-permissions",
@@ -73,7 +74,12 @@ export default function CreateDelegationPage() {
         apiClient<{ templates: PublicTemplate[] }>(
           "auth/delegation-templates",
         ).catch(() => ({ templates: [] })),
+        apiClient<{ allow_freeform: boolean }>(
+          "settings/delegation-policy",
+        ).catch(() => ({ allow_freeform: true })),
       ]);
+
+      setAllowFreeform(policyResp.allow_freeform);
 
       const agents = Array.isArray(agentsResp)
         ? agentsResp
@@ -167,6 +173,7 @@ export default function CreateDelegationPage() {
         permissions={permissions}
         templates={templates}
         onCreated={handleCreated}
+        requireTemplate={!allowFreeform}
       />
     </div>
   );

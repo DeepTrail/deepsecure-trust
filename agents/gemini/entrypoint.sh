@@ -95,6 +95,24 @@ echo " Interval: ${INTERVAL}s"
 echo "========================================="
 
 bootstrap
+
+# Verify active delegations exist before proceeding
+echo "[$(date -Iseconds)] Checking for active delegations..."
+DELEGATION_CHECK=$(curl -sf \
+  -H "Authorization: Bearer ${AGENT_JWT}" \
+  "${CONTROL_URL}/api/v1/auth/delegations" 2>/dev/null \
+  | jq 'if type == "array" then length else 0 end' 2>/dev/null) || DELEGATION_CHECK="0"
+
+if [ "${DELEGATION_CHECK}" = "0" ] || [ -z "${DELEGATION_CHECK}" ]; then
+  echo "============================================"
+  echo " FATAL: No active delegations for agent ${AGENT_ID}"
+  echo " The agent cannot operate without delegated permissions."
+  echo " Create a delegation via the admin UI or API."
+  echo "============================================"
+  exit 1
+fi
+echo "[$(date -Iseconds)] Found ${DELEGATION_CHECK} active delegation(s)."
+
 configure_gemini
 
 # Warm up the gateway to avoid cold-start timeout in Gemini CLI's MCP client

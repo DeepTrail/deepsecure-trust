@@ -16,7 +16,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application code and Alembic setup
 COPY ./app ./app
 COPY ./alembic ./alembic
+COPY ./scripts ./scripts
 COPY alembic.ini .
+COPY group_policies.yaml .
 COPY run_service.sh .
 
 # Make the startup script executable

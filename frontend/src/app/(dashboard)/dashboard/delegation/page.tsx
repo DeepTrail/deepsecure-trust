@@ -129,9 +129,12 @@ export default function DelegationPage() {
             permsByService[svc].push(parts.slice(1).join(":"));
           }
 
-          const isExpired = d.created_at
-            ? Date.now() > new Date(d.created_at).getTime() + d.expires_in * 1000
-            : false;
+          const expiresAtMs = d.created_at
+            ? new Date(d.created_at).getTime() + d.expires_in * 1000
+            : null;
+          const isExpired = expiresAtMs ? Date.now() > expiresAtMs : false;
+          const ttlLabel = formatTtl(d.expires_in);
+          const expiryDate = expiresAtMs ? new Date(expiresAtMs).toLocaleDateString() : null;
 
           const handleRevoke = async () => {
             if (!window.confirm("Revoke this delegation? The agent will lose these permissions immediately.")) return;
@@ -153,12 +156,12 @@ export default function DelegationPage() {
                 <div className="flex items-center gap-2">
                   {isExpired ? (
                     <Badge variant="destructive" className="text-xs">
-                      Expired
+                      Expired · TTL was {ttlLabel}{expiryDate ? ` · ${expiryDate}` : ""}
                     </Badge>
                   ) : (
                     <Badge variant="secondary" className="text-xs">
                       <Clock className="mr-1 h-3 w-3" />
-                      TTL {formatTtl(d.expires_in)}
+                      TTL {ttlLabel}{expiryDate ? ` · Expires ${expiryDate}` : ""}
                     </Badge>
                   )}
                   <Badge variant="default">

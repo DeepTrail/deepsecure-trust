@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 
 export type BackendType = "rest" | "mcp";
-export type ServiceStatus = "active" | "sandbox" | "review" | "disabled";
+export type ServiceStatus = "active" | "sandbox" | "disable";
 export type HealthStatus = "up" | "healthy" | "down" | "slow" | "unknown";
 export type McpAuthMethod = "none" | "api-key" | "bearer-token" | "oauth";
 export type McpTransport = "rest" | "streamable-http" | "sse";
@@ -98,8 +98,9 @@ export interface ServiceOAuthConfig {
   auth_url: string | null;
   token_url: string | null;
   scopes: string[];
-  created_at: string;
-  updated_at: string;
+  source?: "db" | "env";
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface OAuthConfigSetRequest {
@@ -131,6 +132,21 @@ export interface ToolDiscoveryResult {
 // Agent Fleet
 // ---------------------------------------------------------------------------
 
+export interface DelegationSummary {
+  id: string;
+  delegator: string;
+  permissions: string[];
+  created_at: string | null;
+  expires_at: string | null;
+  is_expired: boolean;
+}
+
+export interface SessionSummary {
+  session_id: string;
+  created_at: string | null;
+  last_activity_at: string | null;
+}
+
 export interface AdminAgent {
   agent_id: string;
   name: string;
@@ -141,6 +157,8 @@ export interface AdminAgent {
   delegation_count: number;
   delegating_users: string[];
   active_sessions: number;
+  delegations: DelegationSummary[];
+  sessions: SessionSummary[];
 }
 
 export interface AdminAgentListResponse {
@@ -191,6 +209,8 @@ export interface DelegationTemplate {
   blocked_permissions: string[];
   default_ttl_days: number;
   available_to_roles: string[];
+  available_to_groups?: string[];
+  available_to_users?: string[];
   max_actions_per_day: number | null;
   working_hours_start: string | null;
   working_hours_end: string | null;

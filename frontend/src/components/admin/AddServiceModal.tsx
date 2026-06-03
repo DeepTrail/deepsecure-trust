@@ -55,6 +55,7 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
   const [oauthAuthUrl, setOauthAuthUrl] = useState("");
   const [oauthTokenUrl, setOauthTokenUrl] = useState("");
   const [oauthScopes, setOauthScopes] = useState("");
+  const [oauthCentralized, setOauthCentralized] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,17 +64,35 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
   function detectAndPrefillOAuth(url: string) {
     if (isMcp || !url) return;
     const lc = url.toLowerCase();
+    const isGoogle = lc.includes("googleapis.com");
+
     if (lc.includes("notion.com") || lc.includes("notion.so")) {
+      setOauthCentralized(false);
       if (!oauthAuthUrl) setOauthAuthUrl("https://api.notion.com/v1/oauth/authorize");
       if (!oauthTokenUrl) setOauthTokenUrl("https://api.notion.com/v1/oauth/token");
     } else if (lc.includes("slack.com")) {
+      setOauthCentralized(false);
       if (!oauthAuthUrl) setOauthAuthUrl("https://slack.com/oauth/v2/authorize");
       if (!oauthTokenUrl) setOauthTokenUrl("https://slack.com/api/oauth.v2.access");
       if (!oauthScopes) setOauthScopes("channels:read,chat:write,users:read");
     } else if (lc.includes("github.com") || lc.includes("api.github.com")) {
+      setOauthCentralized(false);
       if (!oauthAuthUrl) setOauthAuthUrl("https://github.com/login/oauth/authorize");
       if (!oauthTokenUrl) setOauthTokenUrl("https://github.com/login/oauth/access_token");
       if (!oauthScopes) setOauthScopes("repo,read:org,read:user");
+    } else if (isGoogle) {
+      setOauthCentralized(true);
+      setOauthAuthUrl("https://accounts.google.com/o/oauth2/v2/auth");
+      setOauthTokenUrl("https://oauth2.googleapis.com/token");
+      if (lc.includes("gmail")) {
+        if (!oauthScopes) setOauthScopes("https://www.googleapis.com/auth/gmail.readonly");
+      } else if (lc.includes("calendar")) {
+        if (!oauthScopes) setOauthScopes("https://www.googleapis.com/auth/calendar.readonly");
+      } else if (lc.includes("drive")) {
+        if (!oauthScopes) setOauthScopes("https://www.googleapis.com/auth/drive.readonly");
+      }
+    } else {
+      setOauthCentralized(false);
     }
   }
 
@@ -96,6 +115,7 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
     setOauthAuthUrl("");
     setOauthTokenUrl("");
     setOauthScopes("");
+    setOauthCentralized(false);
     setError(null);
   }
 
@@ -109,6 +129,7 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
         description: description || undefined,
         backend_type: backendType,
         endpoint_url: endpointUrl,
+        status: "active",
         data_classification: dataClassification,
         available_to_roles: availableToEveryone ? ["all"] : [],
         available_to_groups: availableToEveryone ? [] : (availableToGroups.length ? availableToGroups : undefined),
@@ -294,61 +315,87 @@ export function AddServiceModal({ open, onOpenChange, onCreated }: AddServiceMod
                 )}
                 <span className="text-sm font-semibold">OAuth Credentials</span>
                 <span className="text-xs text-muted-foreground ml-auto">
-                  {oauthClientId ? "Configured" : "Optional — configure now or later"}
+                  {oauthCentralized
+                    ? "Auto-configured"
+                    : oauthClientId
+                      ? "Configured"
+                      : "Optional — configure now or later"}
                 </span>
               </button>
               {oauthOpen && (
                 <div className="grid gap-3 border-t px-3 pb-3 pt-2">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="oauth-client-id">Client ID</Label>
-                      <Input
-                        id="oauth-client-id"
-                        placeholder="OAuth Client ID"
-                        value={oauthClientId}
-                        onChange={(e) => setOauthClientId(e.target.value)}
-                      />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="oauth-client-secret">Client Secret</Label>
-                      <Input
-                        id="oauth-client-secret"
-                        type="password"
-                        placeholder="OAuth Client Secret"
-                        value={oauthClientSecret}
-                        onChange={(e) => setOauthClientSecret(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="oauth-auth-url">Authorization URL</Label>
-                      <Input
-                        id="oauth-auth-url"
-                        placeholder="https://provider.com/oauth/authorize"
-                        value={oauthAuthUrl}
-                        onChange={(e) => setOauthAuthUrl(e.target.value)}
-                      />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="oauth-token-url">Token URL</Label>
-                      <Input
-                        id="oauth-token-url"
-                        placeholder="https://provider.com/oauth/token"
-                        value={oauthTokenUrl}
-                        onChange={(e) => setOauthTokenUrl(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="oauth-scopes">Scopes (comma-separated)</Label>
-                    <Input
-                      id="oauth-scopes"
-                      placeholder="e.g. repo, read:org, read:user"
-                      value={oauthScopes}
-                      onChange={(e) => setOauthScopes(e.target.value)}
-                    />
-                  </div>
+                  {oauthCentralized ? (
+                    <>
+                      <div className="rounded bg-blue-50 px-3 py-2">
+                        <p className="text-xs text-blue-700 font-medium">
+                          Client ID and Secret are managed centrally via environment configuration.
+                          No manual entry needed.
+                        </p>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label htmlFor="oauth-scopes">Scopes (comma-separated)</Label>
+                        <Input
+                          id="oauth-scopes"
+                          placeholder="e.g. https://www.googleapis.com/auth/gmail.readonly"
+                          value={oauthScopes}
+                          onChange={(e) => setOauthScopes(e.target.value)}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="oauth-client-id">Client ID</Label>
+                          <Input
+                            id="oauth-client-id"
+                            placeholder="OAuth Client ID"
+                            value={oauthClientId}
+                            onChange={(e) => setOauthClientId(e.target.value)}
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="oauth-client-secret">Client Secret</Label>
+                          <Input
+                            id="oauth-client-secret"
+                            type="password"
+                            placeholder="OAuth Client Secret"
+                            value={oauthClientSecret}
+                            onChange={(e) => setOauthClientSecret(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="oauth-auth-url">Authorization URL</Label>
+                          <Input
+                            id="oauth-auth-url"
+                            placeholder="https://provider.com/oauth/authorize"
+                            value={oauthAuthUrl}
+                            onChange={(e) => setOauthAuthUrl(e.target.value)}
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="oauth-token-url">Token URL</Label>
+                          <Input
+                            id="oauth-token-url"
+                            placeholder="https://provider.com/oauth/token"
+                            value={oauthTokenUrl}
+                            onChange={(e) => setOauthTokenUrl(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label htmlFor="oauth-scopes">Scopes (comma-separated)</Label>
+                        <Input
+                          id="oauth-scopes"
+                          placeholder="e.g. repo, read:org, read:user"
+                          value={oauthScopes}
+                          onChange={(e) => setOauthScopes(e.target.value)}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
