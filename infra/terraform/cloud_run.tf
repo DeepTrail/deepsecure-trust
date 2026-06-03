@@ -204,7 +204,7 @@ resource "google_cloud_run_v2_service" "control" {
 
       # --- JWT & Internal Tokens ---
       env {
-        name = "JWT_SECRET"
+        name = "SECRET_KEY"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.auto["jwt-secret"].secret_id
@@ -482,6 +482,15 @@ resource "google_cloud_run_v2_service" "gateway" {
       env {
         name  = "CORS_ALLOWED_ORIGINS"
         value = "https://${var.domain}"
+      }
+      env {
+        name = "SECRET_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.auto["jwt-secret"].secret_id
+            version = "latest"
+          }
+        }
       }
 
       startup_probe {

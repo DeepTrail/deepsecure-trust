@@ -476,7 +476,7 @@ def load_config() -> ProxyConfig:
             'block_internal_ips': os.getenv('BLOCK_INTERNAL_IPS', 'true').lower() == 'true',
             'max_request_size': parse_size(os.getenv('MAX_REQUEST_SIZE', '10MB')),
             'request_timeout': int(os.getenv('REQUEST_TIMEOUT', '30')),
-            'jwt_secret_key': os.getenv('SECRET_KEY', 'your-secret-key-for-jwt'),
+            'jwt_secret_key': os.getenv('SECRET_KEY', os.getenv('JWT_SECRET', 'your-secret-key-for-jwt')),
             'jwt_algorithm': os.getenv('JWT_ALGORITHM', 'HS256'),
             'jwt_access_token_expire_minutes': int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', '30')),
         },

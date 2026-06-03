@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     TEST_DATABASE_URL: str = os.getenv("TEST_DATABASE_URL", "sqlite:///./test.db") # In-memory for tests
 
     # JWT settings (Keep for potential future use, but not used by current auth)
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "a_very_insecure_default_secret_key_replace_me")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", os.getenv("JWT_SECRET", "a_very_insecure_default_secret_key_replace_me"))
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 

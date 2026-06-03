@@ -1294,26 +1294,42 @@ class BootstrapService:
                 platform="gcp",
             )
 
-        # 4. Find an active delegation for this agent (needed for session)
+        # 4. Find ALL active delegations and merge permissions
         from app.models.delegation import DelegationToken
-        delegation = (
+        active_delegations = (
             db.query(DelegationToken)
             .filter(
                 DelegationToken.agent_id == agent.agent_id,
                 DelegationToken.revoked_at.is_(None),
                 DelegationToken.expires_at > dt_cls.now(timezone.utc),
             )
-            .first()
+            .order_by(DelegationToken.created_at.desc())
+            .all()
         )
+        delegation = active_delegations[0] if active_delegations else None
 
-        # 5. Issue Agent JWT (include delegation permissions for gateway)
+        # 5. Issue Agent JWT — merge permissions from ALL active delegations
         token_kwargs = {}
         if delegation:
+            merged_permissions: list[str] = []
+            seen: set[str] = set()
+            for d in active_delegations:
+                for p in (d.delegated_permissions or []):
+                    if p not in seen:
+                        merged_permissions.append(p)
+                        seen.add(p)
+
+            delegators = list({d.delegator for d in active_delegations if d.delegator})
+            logger.info(
+                "GCP bootstrap: merging %d delegation(s) for agent %s — %d unique permissions from %s",
+                len(active_delegations), agent.agent_id, len(merged_permissions), delegators,
+            )
+
             token_kwargs["extra_claims"] = {
                 "sub": agent.agent_id,
                 "owner": delegation.delegator or "",
                 "delegation_id": str(delegation.id),
-                "delegated_permissions": delegation.delegated_permissions or [],
+                "delegated_permissions": merged_permissions,
             }
 
         access_token = create_access_token(
