@@ -6,7 +6,7 @@
     <span style="margin-left: 15px;">DeepSecure</span>
   </h1>
 
-  **A Virtual Trust Layer that gives every AI agent a cryptographic identity,
+  **The Trust Layer that secures AI agents for enterprises through identity, authorization, and governance. Every AI agent gets a cryptographic identity,
   fine-grained permissions, and audited access to external tools — without
   exposing a single API key.**
 
