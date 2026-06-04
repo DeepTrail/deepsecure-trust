@@ -14,19 +14,19 @@ It also tracks **current P5.3 implementation gaps** (runtime + UI) and proposes 
 
 ## P5.3 Implementation Status (June 2026)
 
-> **Note:** The P5.2 spec marks all 8 P5.3 items as "✅ Full," but production behavior and the UI tell a more mixed story. This table reflects **actual codebase and deployment state**, not aspirational spec status.
+> **Updated June 4, 2026:** Phase 0 (per-delegation JWT with round-robin execution) is **complete and deployed to production**. The runtime gap ("1 JWT → 1 owner") is resolved. All 3 agent jobs now cycle through delegations, get per-owner scoped JWTs, and run service-matched prompts. Remaining gaps are **UI visibility** (Phases 1–4) and the `_meta.user_id` per-call path (future interactive agents).
 
 ### Gap Analysis: Runtime & Data Model
 
 | Item | Status | What exists today | What's still missing |
 |------|--------|-------------------|----------------------|
-| **Multi-user delegation support** | Partial | N users can delegate to the same agent (`delegation_tokens`). Agent Fleet shows multiple delegating users. | Runtime is still **1 JWT → 1 owner**. GCP bootstrap picks one delegation (or merges permissions but keeps a single `owner`). Per-delegation round-robin is **not implemented** — see [round-robin plan](../../plans/multi-user-delegation-roundrobin_0fca7fec.plan.md). |
-| **User-scoped token selection in gateway** | Partial | Gateway parses `_meta.user_id` in `tools_call.py`. | Vault token **fetch** still uses JWT `owner`, not `_meta.user_id`. Switching users per call does **not** work end-to-end. |
-| **Per-user permission levels** | Partial | Each delegation can have different permissions at creation time. Gateway enforces permissions on the JWT. | With a merged/single-owner JWT, gateway cannot enforce "User B only has github" vs "User A has notion+slack" at runtime. |
-| **Admin registers agent, users self-delegate** | Done | Admin registers agents; users create their own delegations independently. | — |
+| **Multi-user delegation support** | **Done** | N users can delegate to the same agent. **Per-delegation round-robin deployed (June 4).** New endpoints: `GET /auth/agent/delegations` + `POST /auth/agent/delegation-token`. Entrypoint cycles through delegations with scoped JWTs and service-matched prompts. | UI does not yet surface which delegation is "active now" or show per-round execution status. |
+| **User-scoped token selection in gateway** | **Done (via round-robin)** | Each delegation-scoped JWT has a single `owner` → vault resolves that owner's OAuth tokens. Gateway handles this natively — no code changes needed. | `_meta.user_id` **per-call** path still incomplete (not needed for round-robin; future path for interactive multi-user agents). |
+| **Per-user permission levels** | **Done** | Each delegation-scoped JWT carries only that delegation's permissions. Gateway enforces per-JWT. User B's github-only delegation → agent gets github-only JWT → gateway shows only github tools. Smart prompt selection in entrypoint matches prompts to permissions. | — |
+| **Admin registers agent, users self-delegate** | **Done** | Admin registers agents; users create their own delegations independently. | — |
 | **Agent → Users → Tokens mapping UI** | Partial | Fleet shows delegating users, delegations (permission count), sessions. | Does not show connected services per user, OAuth token refs, Agent JWT metadata, or identity-layer visualization. |
-| **`user_id` in `tools/call`** | Partial (infra only) | `_meta.user_id` hook exists in gateway. | No agent runtime uses it today (Gemini CLI jobs don't send it). Vault path incomplete. |
-| **Multi-user demo** | Partial | `demos/demo_admin_multi_user.py` exists. | Does not demonstrate live per-call user switching in production agents. |
+| **`user_id` in `tools/call`** | Partial (infra only) | `_meta.user_id` hook exists in gateway. Round-robin uses per-delegation JWT (different approach, same outcome). | No agent runtime uses `_meta.user_id` yet. Vault `_meta` path incomplete. |
+| **Multi-user demo** | **Done (production)** | Round-robin entrypoint **is** the multi-user demo — runs in production on 3 agent jobs (gemini-deepsecure-agent, thunderbolt-deepsecure-agent, engineering-audit). | Standalone `demos/demo_admin_multi_user.py` not updated for round-robin flow yet. |
 | **One SA per customer** | Partial (pattern) | GCP agents use one SA per agent (`agents.selector` = SA email). | Not documented/enforced as a company-level pattern in UI. |
 
 ### What Cloud Agents Actually Receive (Credential Confusion)
@@ -45,16 +45,28 @@ Three different credential concepts exist in the platform. They are **not interc
 
 **Why Agent Credentials is empty for GCP agents:** That tab reads `GET /vault/user-credentials`, which queries the `credentials` table (ephemeral Ed25519/X25519 split-key credentials from `POST /vault/credentials`). GCP workload-identity agents bootstrap via `POST /auth/bootstrap/gcp` and receive an **Agent Session JWT (L3)** — a different credential path entirely. Empty is **expected**, not a bug.
 
-**Bootstrap flow for cloud agents:**
+**Bootstrap flow for cloud agents (round-robin, deployed June 4):**
 
 ```
 Cloud Scheduler → Cloud Run Job
-  → GCP OIDC token (Google SA)           ← one-time bootstrap proof, not stored in DeepSecure
-  → POST /auth/bootstrap/gcp
-  → Agent Session JWT (L3)               ← returned to agent, held in memory/env
-  → AgentSession row in DB               ← metadata only (session_id, delegator, timestamps)
-  → MCP tools/call using that JWT
-  → Gateway fetches USER OAuth tokens from vault_tokens (keyed by JWT owner / delegator)
+  Phase 1: Bootstrap
+    → GCP OIDC token (Google SA)              ← one-time platform proof, not stored
+    → POST /auth/bootstrap/gcp
+    → Discovery JWT (L3)                      ← scoped to newest delegation's owner
+  Phase 2: Discover delegations
+    → GET /auth/agent/delegations             ← returns all active delegations
+  Phase 3: Round-robin loop (per round, per delegation)
+    → POST /auth/agent/delegation-token       ← exchange delegation_id for scoped JWT
+    → Delegation-scoped JWT (L3)              ← owner=this delegator, perms=this delegation
+    → AgentSession row in DB                  ← new session per delegation exchange
+    → configure MCP client with scoped JWT
+    → warm gateway (initialize MCP session)
+    → select prompts matching delegation's services
+    → MCP tools/call with scoped JWT
+    → Gateway fetches USER OAuth tokens from vault_tokens (keyed by JWT owner)
+    → (next delegation...)
+  → sleep(interval)
+  → (next round... re-fetch delegations to pick up changes)
 ```
 
 ---
@@ -123,16 +135,18 @@ Missing fields needed for full mapping UI:
 3. **User-centric vault view** — Non-admin users see their own OAuth tokens (existing) plus which agents have active delegations using those tokens.
 4. **Clarify credential types** — Rename or annotate Vault tabs so "Agent Credentials" vs "Agent Sessions" is unambiguous.
 
-### Phase 0: Runtime prerequisite (backend, not UI)
+### Phase 0: Runtime prerequisite (backend, not UI) — ✅ COMPLETE (June 4, 2026)
 
-Implement [round-robin plan](../../plans/multi-user-delegation-roundrobin_0fca7fec.plan.md) so each delegation gets its own scoped JWT and session. Without this, the UI would show multiple users but runtime still acts as one owner.
+Implemented [round-robin plan](../../plans/multi-user-delegation-roundrobin_0fca7fec.plan.md). Each delegation gets its own scoped JWT and session. Deployed to all 3 production agent jobs.
 
-| Task | File(s) | Acceptance |
-|------|---------|------------|
-| Revert merged permissions in bootstrap | `bootstrap_service.py` | Default bootstrap picks single newest delegation |
-| Add `GET /auth/agent/delegations` | `delegation.py` | Agent lists active delegations |
-| Add `POST /auth/agent/delegation-token` | `bootstrap.py` | Exchange for per-delegation JWT |
-| Round-robin entrypoint | `agents/gemini/entrypoint.sh` | Agent cycles delegations with scoped JWTs |
+| Task | File(s) | Status |
+|------|---------|--------|
+| Revert merged permissions in bootstrap | `bootstrap_service.py` | ✅ Discovery JWT scoped to single newest delegation |
+| Add `AgentIdentityDep` | `deps.py` | ✅ Lightweight JWT validation without requiring owner claims |
+| Add `GET /auth/agent/delegations` | `agent_auth.py` | ✅ Agent lists active delegations |
+| Add `POST /auth/agent/delegation-token` | `agent_auth.py` | ✅ Exchange delegation_id for scoped JWT + AgentSession |
+| Round-robin entrypoint | `agents/gemini/entrypoint.sh` | ✅ Two-phase bootstrap, delegation cycling, smart prompt selection, discovery JWT refresh |
+| Problem 5 in outage doc | `AGENT_OUTAGE_INVESTIGATION.md` | ✅ Documented single-delegation JWT root cause and fix |
 
 ### Phase 1: Agent Fleet — User → Services mapping (M)
 
