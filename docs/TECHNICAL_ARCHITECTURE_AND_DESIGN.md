@@ -1,8 +1,9 @@
 # DeepSecure: Technical Architecture, System Design & Decision Record
 
-> **Version:** 1.0 | **Last Updated:** May 27, 2026  
+> **Version:** 1.1 | **Last Updated:** June 4, 2026  
 > **Audience:** Engineers, architects, investors, and technical evaluators  
-> **Scope:** Complete technical architecture, design decisions, tradeoffs, and problem-solving approaches
+> **Scope:** Complete technical architecture, design decisions, tradeoffs, and problem-solving approaches  
+> **v1.1 changes:** Multi-user delegation with per-delegation JWT and round-robin execution (§5.5, §9.1, §10.1, §12.4, ADR-011)
 
 ---
 
@@ -13,6 +14,7 @@
 3. [System Architecture](#3-system-architecture)
 4. [Security Architecture](#4-security-architecture)
 5. [Identity & Authentication](#5-identity--authentication)
+   - [5.5 Multi-User Delegation & Round-Robin Bootstrap](#55-multi-user-delegation--round-robin-bootstrap)
 6. [Permission & Authorization Model](#6-permission--authorization-model)
 7. [Credential Management & Split-Key Architecture](#7-credential-management--split-key-architecture)
 8. [Gateway (Data Plane) Design](#8-gateway-data-plane-design)
@@ -281,12 +283,44 @@ POST /auth/agent/verify            → Verifies signature against
 
 For Day 0 trust establishment, DeepSecure uses a pluggable Attestor Model:
 
-| Platform | Attestation Mechanism | Verification Method |
-|----------|----------------------|---------------------|
-| **Kubernetes** | Projected Service Account Token (SAT) | Verify against K8s API server |
-| **AWS** | IAM Role ARN | `sts:GetCallerIdentity` API call |
-| **GCP** | Google Service Account identity token | Validate against Google OAuth2 certs |
-| **Local (MVP)** | Ed25519 key pair stored in OS keyring | Challenge-response verification |
+| Platform | Attestation Mechanism | Verification Method | Production Status |
+|----------|----------------------|---------------------|-------------------|
+| **GCP** | Google Service Account OIDC identity token | Validate against Google OAuth2 certs (JWKS) | ✅ Production (all 3 agent jobs) |
+| **Kubernetes** | Projected Service Account Token (SAT) | Verify against K8s API server | 🔲 Planned |
+| **AWS** | IAM Role ARN | `sts:GetCallerIdentity` API call | ⚠️ Exists, security fix needed (P10) |
+| **Local (MVP)** | Ed25519 key pair stored in OS keyring | Challenge-response verification | ✅ Production (SDK agents) |
+
+#### GCP Bootstrap Flow (Production)
+
+GCP workload-identity agents authenticate via `POST /auth/bootstrap/gcp`:
+
+```
+Cloud Run Job starts
+  │
+  ├── 1. Agent fetches OIDC token from GCP Metadata Server
+  │      GET http://metadata.google.internal/.../identity?audience=<CONTROL_URL>
+  │      → Short-lived Google-signed OIDC JWT proving SA identity
+  │
+  ├── 2. Agent sends OIDC token to Control Plane
+  │      POST /api/v1/auth/bootstrap/gcp { "identity_token": "<oidc>" }
+  │
+  ├── 3. Control Plane validates:
+  │      - Google OIDC signature (via JWKS)
+  │      - SA email matches a registered agent's selector (1:1 mapping)
+  │      - Agent is not suspended
+  │
+  ├── 4. Control Plane finds the newest active delegation for this agent
+  │      (single delegation → single owner for JWT clarity)
+  │
+  └── 5. Issues Discovery JWT (L3):
+         sub: <agent_id>
+         owner: <delegation.delegator>
+         delegation_id: <delegation.id>
+         delegated_permissions: [...]
+         exp: +1h
+```
+
+The Discovery JWT is scoped to one delegation's owner and permissions — not a merge of all delegations. This is a deliberate design choice (see [ADR-011](#adr-011-per-delegation-jwt-over-merged-permissions)).
 
 ### 5.4 SSO Integration (IdP-Enhanced)
 
@@ -304,6 +338,66 @@ ID Token (OIDC)                    POST /api/v1/auth/sso/{idp}/callback
 ```
 
 The `organization_id` is derived from the first IdP group membership, providing multi-tenant data isolation throughout the system.
+
+### 5.5 Multi-User Delegation & Round-Robin Bootstrap
+
+> **Deployed:** June 4, 2026 — all 3 production agent jobs  
+> **Design:** [round-robin plan](../plans/multi-user-delegation-roundrobin_0fca7fec.plan.md), [ADR-011](#adr-011-per-delegation-jwt-over-merged-permissions)
+
+#### The Problem: 1 JWT → 1 Owner
+
+A single agent can receive delegations from N users (User A delegates notion+slack, User B delegates github). The original bootstrap merged all permissions into one JWT with a single `owner` claim. Since the vault resolves OAuth tokens by `owner`, the agent could only reach one user's tokens — making multi-user delegation non-functional at runtime.
+
+#### The Solution: Per-Delegation Scoped JWTs
+
+Instead of one merged JWT, the agent gets a separate JWT for each delegation:
+
+```
+Agent (1 workload identity)
+  │
+  ├── Phase 1: Bootstrap → Discovery JWT (scoped to newest delegation)
+  │
+  ├── Phase 2: GET /auth/agent/delegations → list all active delegations
+  │     Returns: [{delegation_id, delegator, permissions, expires_at}, ...]
+  │
+  └── Phase 3: Round-robin loop
+        │
+        ├── Round 1:
+        │   ├── Delegation A (User A: notion+slack)
+        │   │   POST /auth/agent/delegation-token {delegation_id: A}
+        │   │   → JWT: {owner: UserA, perms: [notion:*, slack:*]}
+        │   │   → Configure MCP, run matching prompts
+        │   │
+        │   └── Delegation B (User B: github)
+        │       POST /auth/agent/delegation-token {delegation_id: B}
+        │       → JWT: {owner: UserB, perms: [github:*]}
+        │       → Configure MCP, run matching prompts
+        │
+        ├── sleep(interval)
+        ├── Re-fetch delegations (pick up new/dropped)
+        └── Round 2: (repeat)
+```
+
+#### New Control Plane Endpoints
+
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET /api/v1/auth/agent/delegations` | Any Agent JWT (via `AgentIdentityDep`) | List all active, non-revoked, non-expired delegations for the calling agent |
+| `POST /api/v1/auth/agent/delegation-token` | Any Agent JWT | Exchange `{delegation_id}` for a new JWT scoped to that delegation's owner and permissions; creates an `AgentSession` |
+
+#### AgentIdentityDep
+
+A lightweight FastAPI dependency that extracts `agent_id` from any valid Agent JWT — discovery or delegation-scoped — without requiring `owner` or full delegation claims. Used by agent-facing endpoints where the agent needs to identify itself (e.g., listing its own delegations) but doesn't need delegation-scoped authorization.
+
+#### Smart Prompt Selection
+
+The agent entrypoint tags each prompt with the services it requires (e.g., `"notion|Search for strategy docs"`). When cycling through a delegation, only prompts whose required services match the delegation's permissions are selected. This prevents the agent from attempting tool calls that would be denied by the gateway.
+
+#### Resilience
+
+- **Discovery JWT refresh:** If the discovery JWT approaches its 1h TTL (checked at 50min), the agent re-bootstraps from the GCP metadata server automatically
+- **Client-side expiry check:** Delegations with `expires_at` in the past are skipped before making an API call
+- **Dynamic delegation list:** Re-fetched each round to pick up newly created delegations and drop revoked ones
 
 ---
 
@@ -581,7 +675,8 @@ The Control Plane exposes a comprehensive REST API organized by domain:
 | Domain | Endpoints | Purpose |
 |--------|-----------|---------|
 | **Auth** | `/auth/login`, `/auth/sso/*`, `/auth/delegate` | User authentication, delegation |
-| **Agent Auth** | `/auth/agent/challenge`, `/auth/agent/verify` | Agent Ed25519 authentication |
+| **Agent Auth** | `/auth/agent/challenge`, `/auth/agent/verify`, `/auth/agent/delegations`, `/auth/agent/delegation-token` | Agent Ed25519 auth, GCP bootstrap, delegation discovery, per-delegation JWT exchange |
+| **Agent Bootstrap** | `/auth/bootstrap/gcp` | GCP workload identity OIDC bootstrap |
 | **Agents** | `/agents/` (CRUD) | Agent lifecycle management |
 | **Policies** | `/policies/` (CRUD) | Policy management |
 | **Tasks** | `/tasks/` (CRUD), `/tasks/{id}/token` | Task-scoped tokens |
@@ -606,9 +701,12 @@ The Control Plane exposes a comprehensive REST API organized by domain:
 | `idp_sessions` | ✅ | SSO session tracking |
 | `tasks` | ✅ | Task records for task-scoped tokens |
 | `scoped_permissions` | ✅ | Per-task permission grants |
-| `delegation_tokens` | ⚠️ Model exists, migration pending | Persistent delegation storage |
-| `agent_sessions` | ⚠️ Model exists, migration pending | Agent session tracking |
-| `audit_events` | ⚠️ Model exists, migration pending | Persistent audit trail |
+| `delegation_tokens` | ✅ | Persistent delegation storage (multi-user delegation grants) |
+| `agent_sessions` | ✅ | Agent session tracking (created per delegation-token exchange) |
+| `audit_events` | ✅ | Persistent audit trail |
+| `service_registry` | ✅ | IT Admin service catalog (dynamic MCP backend registry) |
+| `service_oauth_config` | ✅ | Org-level OAuth credentials per service |
+| `delegation_templates` | ✅ | Admin delegation templates with permission ceilings |
 | `user_sessions` | ⚠️ Model exists, deferred | User session tracking |
 
 ### 9.3 Decentralized Policy Architecture
@@ -626,6 +724,8 @@ This provides resilience: the Gateway can enforce policies even during brief Con
 ## 10. Data Flow & Token Hierarchy
 
 ### 10.1 Complete Token Flow
+
+#### Single-User Flow (Ed25519 / SDK agents)
 
 ```
 IdP (Keycloak/Okta)
@@ -662,6 +762,51 @@ Task Token JWT (L4)  [optional, for per-task scoping]
   │  auto_revoke_on_complete: true
   │  exp: min(deadline, now + 1h)
 ```
+
+#### Multi-User Flow (GCP Workload Identity / Round-Robin agents)
+
+When an agent has delegations from multiple users, the token hierarchy adds a discovery + exchange phase:
+
+```
+GCP Metadata Server
+  │
+  │  OIDC identity token (Google-signed, SA email as subject)
+  ▼
+Discovery JWT (L3 — bootstrap)
+  │  sub: agent-001
+  │  owner: sarah@acme.com (newest delegation's owner)
+  │  delegation_id: del-sarah-<uuid>
+  │  delegated_permissions: [notion:*, slack:*]
+  │  exp: +1h
+  │
+  │  GET /auth/agent/delegations (using Discovery JWT)
+  │  → [{delegation_id: A, delegator: sarah, perms: [notion,slack], expires_at: ...},
+  │     {delegation_id: B, delegator: bob, perms: [github], expires_at: ...}]
+  │
+  ├── POST /auth/agent/delegation-token {delegation_id: A}
+  │   ▼
+  │   Delegation-Scoped JWT (L3 — for Sarah)
+  │     sub: agent-001
+  │     owner: sarah@acme.com
+  │     delegation_id: del-sarah-<uuid>
+  │     delegated_permissions: [notion:pages:search, slack:channels:list, ...]
+  │     session_id: asess-<new-uuid>
+  │     exp: +1h
+  │     → Gateway resolves Sarah's OAuth tokens from vault
+  │
+  └── POST /auth/agent/delegation-token {delegation_id: B}
+      ▼
+      Delegation-Scoped JWT (L3 — for Bob)
+        sub: agent-001
+        owner: bob@acme.com
+        delegation_id: del-bob-<uuid>
+        delegated_permissions: [github:repos:read, github:issues:list, ...]
+        session_id: asess-<new-uuid>
+        exp: +1h
+        → Gateway resolves Bob's OAuth tokens from vault
+```
+
+**Key invariant:** Each JWT has exactly one `owner`. The vault token lookup is always unambiguous — `owner` in the JWT maps to one user's OAuth tokens. Multi-user support is achieved through multiple JWTs, not merged claims in a single token.
 
 ### 10.2 Organization Identity Lineage
 
@@ -789,14 +934,52 @@ Deployment infrastructure is managed through:
 
 ### 12.4 Background Agent Architecture (GCP)
 
-For long-running agent workloads, the platform supports background execution:
+Background agents run as Cloud Run Jobs triggered by Cloud Scheduler (every 6 hours). Each job bootstraps via GCP Workload Identity, cycles through all delegated users using round-robin execution, and exits cleanly.
 
-| Component | Purpose |
-|-----------|---------|
-| **Agent Runner Service** | Cloud Run service that executes agent tasks |
-| **Task Queue** | Cloud Tasks for async job dispatch |
-| **Event Bus** | Pub/Sub for inter-service events |
-| **GCP Identity Integration** | Service account → DeepSecure agent identity mapping |
+| Component | GCP Service | Purpose |
+|-----------|-------------|---------|
+| **Agent Container** | Cloud Run Job | Gemini CLI with DeepSecure MCP, round-robin entrypoint |
+| **Scheduler** | Cloud Scheduler | Triggers job every 6h to keep agents "active" |
+| **Identity** | GCP Service Account | 1:1 mapping to DeepSecure agent via `selector` field |
+| **Secrets** | Secret Manager | `gemini-api-key` injected as env var |
+
+#### Production Agent Jobs (June 2026)
+
+| Job Name | Agent ID | SA Email | Schedule |
+|----------|----------|----------|----------|
+| `gemini-deepsecure-agent` | `debugging-agent-sa` | `debugging-agent-sa@deepsecure-saas.iam.gserviceaccount.com` | `0 */6 * * *` |
+| `thunderbolt-deepsecure-agent` | `thunderbolt-agent` | `thunderbolt-agent-sa@deepsecure-saas.iam.gserviceaccount.com` | `0 */6 * * *` |
+| `engineering-audit` | `engineering-audit-agent` | `engineering-audit-sa@deepsecure-saas.iam.gserviceaccount.com` | `0 */6 * * *` |
+
+#### Round-Robin Execution Model
+
+Each job run:
+
+1. **Bootstrap** — Exchange GCP OIDC token for Discovery JWT (1 API call)
+2. **Discover** — `GET /auth/agent/delegations` to list all active delegations
+3. **Round-robin** — For `AGENT_MAX_ROUNDS` rounds (default 3):
+   - For each delegation: exchange for scoped JWT → configure MCP → run `AGENT_PROMPTS_PER_DELEGATION` (default 2) matching prompts → next delegation
+   - Sleep `AGENT_INTERVAL_SECONDS` between rounds
+   - Re-fetch delegations to pick up changes
+4. **Exit** — Clean exit after all rounds complete
+
+#### Configuration (Environment Variables)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AGENT_MAX_ROUNDS` | `3` | Number of complete passes through all delegations |
+| `AGENT_PROMPTS_PER_DELEGATION` | `2` | Max prompts run per delegation per round |
+| `AGENT_INTERVAL_SECONDS` | `60` | Sleep between rounds |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | LLM model (Flash for 1K RPM vs Pro's 25 RPM) |
+
+#### Deploy Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `infra/deploy-agent.sh` | Build + push image, create/update Cloud Run Job + Scheduler |
+| `infra/build-and-push.sh` | Build + push service images (control, gateway, frontend) |
+| `infra/deploy.sh` | Deploy Cloud Run services |
+| `infra/migrate.sh` | Run Alembic migrations via Cloud Run Job or local proxy |
 
 ---
 
@@ -1035,17 +1218,27 @@ The platform is designed with a clear open-source/enterprise boundary:
 | Frontend Dashboard | ✅ Done | — | MVP |
 | OAuth Service Connection Flow | ✅ Done | — | MVP |
 | ScopeMapper (Scope → Permission) | ✅ Done | — | MVP |
-| Persistent Delegations/Audit (DB migration) | ⏳ In Progress | P1 | Post-MVP |
-| Delegation Validation Against Scopes (WS-K4) | ⏳ Spec Created | P1 | Post-MVP |
+| Persistent Delegations/Audit (DB migration) | ✅ Done | P1 | Post-MVP |
+| Delegation Validation Against Scopes (WS-K4) | ✅ Done | P1 | Post-MVP |
 | GCP Cloud Run Deployment | ✅ Done | — | Production |
 | Task-Scoped Tokens | ✅ Done | — | MVP |
 | HubSpot Backend Integration | ✅ Done | — | Phase 2 |
-| SSE Streaming for Audit Events | ⏳ Planned | P2 | Post-MVP |
+| SSE Streaming for Audit Events | ✅ Done | P2 | Post-MVP |
+| GCP Workload Identity Bootstrap | ✅ Done | P4 | Production |
+| Agent Lifecycle (4-state) | ✅ Done | P2 | Production |
+| IT Admin Service Catalog | ✅ Done | P5.2 | Production |
+| Audit Trail + Tool Call Analytics UI | ✅ Done | P5.1 | Production |
+| **Multi-User Delegation (Round-Robin)** | ✅ Done | P5.3 | **Production (June 4, 2026)** |
+| Per-Delegation Scoped JWTs | ✅ Done | P5.3 | Production |
+| Smart Prompt Selection (service-tagged) | ✅ Done | P5.3 | Production |
+| Multi-User UI (Fleet → Services mapping) | ⏳ Planned | P5.3 Phase 1 | Post-MVP |
+| Identity Stack Panel UI | ⏳ Planned | P5.3 Phase 2 | Post-MVP |
+| MCP Auth Spec Compliance (OAuth 2.1) | ⏳ Planned | P5.3 | Pre-July 2026 |
 | PII Result Filtering | ⏳ Planned | P2 | Enterprise |
 | Circuit Breakers | ⏳ Planned | P2 | Production |
 | Redis Session Persistence | ⏳ Planned | P2 | Scaling |
 | Prompt Injection Detection | ⏳ Planned | P2 | Security |
-| Cross-Mapper Consistency Tests | ⏳ Recommended | P1 | Quality |
+| Cross-Mapper Consistency Tests | ✅ Done | P1 | Quality |
 | Intent-Based Permissions | 📋 Research | P3 | Future |
 | Federated Virtual Servers | 📋 Research | P3 | Enterprise |
 | Non-Python SDK Support | 📋 Planned | P3 | Ecosystem |
@@ -1064,8 +1257,8 @@ The platform is designed with a clear open-source/enterprise boundary:
 | **p4-gcp-identity-agent-registration** | GCP identity + agent registration flow | ✅ Complete |
 | **gcp-background-agent** | Background agent execution on GCP | ✅ Complete |
 | **idp-selector** | Multi-IdP selection UI | ✅ Complete |
-| **ui-improvements-audit-activity** | Audit log viewer + agent activity improvements | ✅ Complete |
-| **mvp-production-readiness** | DB persistence, cache fixes, production hardening | 🔄 In Progress |
+| **ui-improvements-audit-activity** | Audit trail redesign, tool call analytics, delegation chain visualization | ✅ Complete |
+| **it-admin-service-catalog-mcp-mgmt** | IT Admin service catalog, OAuth config, delegation templates, admin fleet, multi-user delegation runtime | 🔄 In Progress |
 
 ---
 
@@ -1141,8 +1334,27 @@ The platform is designed with a clear open-source/enterprise boundary:
 - **Decision**: Tags include feature branch suffix: `{base-tag}-{feature-branch}`
 - **Consequence**: Unique tags; traceability to specific workstream
 
+### ADR-011: Per-Delegation JWT Over Merged Permissions
+
+- **Status**: Accepted (June 4, 2026)
+- **Context**: When an agent has delegations from N users (User A with notion+slack, User B with github), the original bootstrap merged all permissions into a single JWT with one `owner` claim. The vault resolves OAuth tokens by `owner`, so the agent could only reach one user's tokens — making multi-user delegation non-functional at runtime despite having correct data in the database.
+
+- **Decision**: Issue one JWT per delegation via a two-phase bootstrap:
+  1. **Discovery JWT** — GCP bootstrap returns a JWT scoped to the newest delegation (not a merge). Used only to call agent-facing API endpoints (`GET /delegations`, `POST /delegation-token`).
+  2. **Delegation-Scoped JWT** — Agent exchanges a `delegation_id` for a JWT with that delegation's owner and permissions. One JWT per user, rotated each round.
+
+- **Alternatives considered**:
+
+| Approach | Why rejected |
+|----------|-------------|
+| Merged JWT with `_meta.user_id` per tool call | Requires vault changes to use `_meta` instead of JWT `owner`; gateway must parse and trust client-supplied user context; increases attack surface |
+| Separate MCP sessions per user | Higher complexity; gateway session manager not designed for multi-session agents |
+| Single JWT, re-bootstrap per user | Requires re-authenticating to GCP metadata server per delegation; unnecessary latency |
+
+- **Consequence**: Agent entrypoint is more complex (round-robin loop vs flat loop), but each JWT has exactly one `owner` — vault lookup is always unambiguous. Gateway required zero changes (already handles per-JWT owner correctly). New env vars `AGENT_MAX_ROUNDS` and `AGENT_PROMPTS_PER_DELEGATION` replace `AGENT_MAX_ITERATIONS`.
+
 ---
 
 > **Document maintained by**: DeepSecure Engineering  
-> **Sources**: 25 internal design markdowns, 12 top-level design docs, 7 spec documents, 4 architecture deep-dives, 12 workstream records  
+> **Sources**: 25 internal design markdowns, 12 top-level design docs, 7 spec documents, 4 architecture deep-dives, 13 workstream records  
 > **Next review**: When architectural changes are made to any core component
