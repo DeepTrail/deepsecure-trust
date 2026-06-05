@@ -29,6 +29,10 @@ import type {
   AdminAgentListResponse,
   AgentSuspendRequest,
 } from "@/lib/types/admin";
+import { CrossUserMappingTable } from "@/components/agents/CrossUserMappingTable";
+import { DelegationsTable } from "@/components/agents/DelegationsTable";
+import { SessionsTable } from "@/components/agents/SessionsTable";
+import { IdentityStackPanel } from "@/components/agents/IdentityStackPanel";
 
 type PageState =
   | { kind: "loading" }
@@ -246,49 +250,49 @@ export default function AdminAgentFleetPage() {
 
                 {isExpanded && (
                   <div className="border-t bg-muted/20 px-6 py-4 space-y-5">
-                    <div className="grid gap-6 md:grid-cols-2">
-                      <div className="space-y-3">
-                        <h4 className="text-sm font-semibold">Details</h4>
-                        <dl className="space-y-1 text-sm">
+                    {/* Details */}
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold">Details</h4>
+                      <dl className="space-y-1 text-sm max-w-md">
+                        <div className="flex justify-between">
+                          <dt className="text-muted-foreground">Auth</dt>
+                          <dd className={agent.public_key ? "font-mono text-xs" : "text-xs"}>
+                            {truncateKey(agent.public_key)}
+                          </dd>
+                        </div>
+                        {agent.platform && (
                           <div className="flex justify-between">
-                            <dt className="text-muted-foreground">Auth</dt>
-                            <dd className={agent.public_key ? "font-mono text-xs" : "text-xs"}>
-                              {truncateKey(agent.public_key)}
-                            </dd>
+                            <dt className="text-muted-foreground">Platform</dt>
+                            <dd className="text-xs uppercase">{agent.platform}</dd>
                           </div>
-                          <div className="flex justify-between">
-                            <dt className="text-muted-foreground">Created</dt>
-                            <dd>{formatDate(agent.created_at)}</dd>
-                          </div>
-                          <div className="flex justify-between">
-                            <dt className="text-muted-foreground">Last Active</dt>
-                            <dd>{formatDate(agent.last_active_at)}</dd>
-                          </div>
-                        </dl>
-                      </div>
-
-                      <div className="space-y-3">
-                        <h4 className="text-sm font-semibold">
-                          Delegating Users ({agent.delegating_users.length})
-                        </h4>
-                        {agent.delegating_users.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {agent.delegating_users.map((user) => (
-                              <Badge
-                                key={user}
-                                variant="secondary"
-                                className="text-xs"
-                              >
-                                {user}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">
-                            No delegating users
-                          </p>
                         )}
-                      </div>
+                        {agent.selector && (
+                          <div className="flex justify-between">
+                            <dt className="text-muted-foreground">Selector</dt>
+                            <dd className="font-mono text-xs">{agent.selector}</dd>
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <dt className="text-muted-foreground">Auth Method</dt>
+                          <dd className="text-xs capitalize">{agent.auth_method.replace("_", " ")}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-muted-foreground">Created</dt>
+                          <dd>{formatDate(agent.created_at)}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-muted-foreground">Last Active</dt>
+                          <dd>{formatDate(agent.last_active_at)}</dd>
+                        </div>
+                      </dl>
+                    </div>
+
+                    {/* Cross-User Mapping */}
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold">
+                        Cross-User Mapping ({agent.delegators?.length ?? 0})
+                      </h4>
+                      <CrossUserMappingTable delegators={agent.delegators ?? []} />
                     </div>
 
                     {/* Delegations */}
@@ -296,83 +300,14 @@ export default function AdminAgentFleetPage() {
                       <h4 className="text-sm font-semibold">
                         Delegations ({agent.delegation_count})
                       </h4>
-                      {agent.delegations.length > 0 ? (
-                        <div className="overflow-x-auto rounded border">
-                          <table className="w-full text-xs">
-                            <thead className="bg-muted/50 border-b">
-                              <tr>
-                                <th className="px-3 py-2 text-left font-medium">Delegator</th>
-                                <th className="px-3 py-2 text-left font-medium">Permissions</th>
-                                <th className="px-3 py-2 text-left font-medium">Created</th>
-                                <th className="px-3 py-2 text-left font-medium">Expires</th>
-                                <th className="px-3 py-2 text-left font-medium">Status</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y">
-                              {agent.delegations.map((d) => (
-                                <tr key={d.id}>
-                                  <td className="px-3 py-2 text-muted-foreground">{d.delegator}</td>
-                                  <td className="px-3 py-2">
-                                    <span className="text-muted-foreground">{d.permissions.length} permissions</span>
-                                  </td>
-                                  <td className="px-3 py-2 text-muted-foreground">
-                                    {d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}
-                                  </td>
-                                  <td className="px-3 py-2 text-muted-foreground">
-                                    {d.expires_at ? new Date(d.expires_at).toLocaleDateString() : "—"}
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <Badge
-                                      variant={d.is_expired ? "destructive" : "outline"}
-                                      className={cn("text-xs", !d.is_expired && "text-green-700 border-green-200")}
-                                    >
-                                      {d.is_expired ? "Expired" : "Active"}
-                                    </Badge>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">No active delegations</p>
-                      )}
+                      <DelegationsTable delegations={agent.delegations} />
                     </div>
 
                     {/* Sessions */}
-                    <div className="space-y-2">
-                      <h4 className="text-sm font-semibold">
-                        Sessions ({agent.active_sessions})
-                      </h4>
-                      {agent.sessions.length > 0 ? (
-                        <div className="overflow-x-auto rounded border">
-                          <table className="w-full text-xs">
-                            <thead className="bg-muted/50 border-b">
-                              <tr>
-                                <th className="px-3 py-2 text-left font-medium">Session ID</th>
-                                <th className="px-3 py-2 text-left font-medium">Created</th>
-                                <th className="px-3 py-2 text-left font-medium">Last Activity</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y">
-                              {agent.sessions.map((s) => (
-                                <tr key={s.session_id}>
-                                  <td className="px-3 py-2 font-mono text-muted-foreground">{s.session_id}</td>
-                                  <td className="px-3 py-2 text-muted-foreground">
-                                    {s.created_at ? new Date(s.created_at).toLocaleString() : "—"}
-                                  </td>
-                                  <td className="px-3 py-2 text-muted-foreground">
-                                    {s.last_activity_at ? new Date(s.last_activity_at).toLocaleString() : "—"}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">No active sessions</p>
-                      )}
-                    </div>
+                    <SessionsTable sessions={agent.sessions} agentId={agent.agent_id} />
+
+                    {/* Identity Stack */}
+                    <IdentityStackPanel agentId={agent.agent_id} />
                   </div>
                 )}
               </Card>

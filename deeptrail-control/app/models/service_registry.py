@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
-    ARRAY,
     Boolean,
     Column,
     DateTime,
@@ -175,7 +174,7 @@ class ServiceOAuthConfig(Base):
     auth_url = Column(String(500), nullable=True)
     token_url = Column(String(500), nullable=True)
     scopes = Column(
-        ARRAY(String),
+        JSON().with_variant(postgresql.JSONB(), "postgresql"),
         nullable=True,
         comment="Available OAuth scopes",
     )
