@@ -46,6 +46,23 @@ export interface ServiceCredentialItem {
   updated_at?: string;
 }
 
+export interface AgentSessionVaultItem {
+  session_id: number;
+  agent_id: string;
+  agent_name: string;
+  delegation_id: number;
+  permissions_count: number;
+  status: "active" | "expired" | "revoked";
+  created_at: string | null;
+  expires_at: string | null;
+  last_activity_at: string | null;
+}
+
+export interface AgentSessionsVaultResponse {
+  sessions: AgentSessionVaultItem[];
+  total: number;
+}
+
 export interface EncryptionStatus {
   service_credentials: "gcp-kms" | "fernet" | "none";
   vault_tokens: "kms" | "fernet";

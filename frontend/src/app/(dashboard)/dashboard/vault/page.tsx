@@ -9,22 +9,25 @@ import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { useUserRole } from "@/hooks/useUserRole";
-import { Lock, Plus, Trash2, Key, Shield, Bot, Server, ChevronDown, ChevronRight } from "lucide-react";
+import { Lock, Plus, Trash2, Key, Shield, Bot, Server, ChevronDown, ChevronRight, Activity, ExternalLink } from "lucide-react";
 import type {
   VaultTokenItem,
   RefreshLogEntry,
   CredentialItem,
   SecretItem,
   EncryptionStatus,
+  AgentSessionVaultItem,
+  AgentSessionsVaultResponse,
 } from "@/lib/types/vault";
 
-type Tab = "oauth-tokens" | "secrets" | "agent-credentials" | "service-credentials";
+type Tab = "oauth-tokens" | "secrets" | "split-key-credentials" | "agent-sessions" | "service-credentials";
 
 const TAB_META: { key: Tab; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
   { key: "service-credentials", label: "Service Credentials", icon: <Server className="h-4 w-4" />, adminOnly: true },
   { key: "oauth-tokens", label: "OAuth Tokens", icon: <Key className="h-4 w-4" /> },
   { key: "secrets", label: "Secrets", icon: <Lock className="h-4 w-4" /> },
-  { key: "agent-credentials", label: "Agent Credentials", icon: <Bot className="h-4 w-4" /> },
+  { key: "split-key-credentials", label: "Split-Key Credentials", icon: <Bot className="h-4 w-4" /> },
+  { key: "agent-sessions", label: "Agent Sessions", icon: <Activity className="h-4 w-4" /> },
 ];
 
 export default function VaultPage() {
@@ -85,7 +88,8 @@ export default function VaultPage() {
 
       {tab === "oauth-tokens" && <OAuthTokensTab encBadge={encBadgeFor("vault_tokens")} />}
       {tab === "secrets" && <SecretsTab encBadge={encBadgeFor("secrets")} />}
-      {tab === "agent-credentials" && <AgentCredentialsTab />}
+      {tab === "split-key-credentials" && <SplitKeyCredentialsTab />}
+      {tab === "agent-sessions" && <AgentSessionsTab />}
       {tab === "service-credentials" && isAdmin && <ServiceCredentialsTab encBadge={encBadgeFor("service_credentials")} />}
     </div>
   );
@@ -336,9 +340,9 @@ function SecretsTab({ encBadge }: { encBadge: React.ReactNode }) {
   );
 }
 
-// ─── Agent Credentials Tab ───────────────────────────────────────────────────
+// ─── Split-Key Credentials Tab (renamed from Agent Credentials) ──────────────
 
-function AgentCredentialsTab() {
+function SplitKeyCredentialsTab() {
   const [credentials, setCredentials] = useState<CredentialItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -359,13 +363,21 @@ function AgentCredentialsTab() {
   useEffect(() => { fetch_(); }, [fetch_]);
 
   if (loading) return <PageSkeleton />;
-  if (error) return <ErrorCard title="Agent Credentials" message={error} retry={fetch_} />;
+  if (error) return <ErrorCard title="Split-Key Credentials" message={error} retry={fetch_} />;
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold">Agent Credentials</h2>
+      <div>
+        <h2 className="text-lg font-semibold">Split-Key Credentials</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Ed25519 agents only. GCP/AWS workload-identity agents use Agent Sessions.
+        </p>
+      </div>
       {credentials.length === 0 ? (
-        <EmptyState title="No agent credentials" description="Credentials appear here when agents are issued ephemeral keys." />
+        <EmptyState
+          title="No split-key credentials"
+          description="Split-key credentials appear here when Ed25519 agents are issued ephemeral keys. GCP/AWS workload-identity agents use the Agent Sessions tab instead."
+        />
       ) : (
         <div className="rounded-md border">
           <table className="w-full text-sm">
@@ -397,6 +409,103 @@ function AgentCredentialsTab() {
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Agent Sessions Tab ─────────────────────────────────────────────────────
+
+function AgentSessionsTab() {
+  const [sessions, setSessions] = useState<AgentSessionVaultItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetch_ = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient<AgentSessionsVaultResponse>("vault/agent-sessions");
+      setSessions(data.sessions ?? []);
+      setTotal(data.total ?? 0);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error ${err.status}` : "Failed to load agent sessions");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetch_(); }, [fetch_]);
+
+  if (loading) return <PageSkeleton />;
+  if (error) return <ErrorCard title="Agent Sessions" message={error} retry={fetch_} />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Agent Sessions</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Active sessions for agents you have delegated permissions to.
+          </p>
+        </div>
+        <a
+          href="/dashboard/admin/agents"
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          View in Fleet
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      </div>
+      {sessions.length === 0 ? (
+        <EmptyState
+          title="No agent sessions"
+          description="Sessions appear here when agents you have delegated to create active sessions. Delegate permissions to an agent to get started."
+        />
+      ) : (
+        <>
+          <div className="rounded-md border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-4 py-3 text-left font-medium">Agent</th>
+                  <th className="px-4 py-3 text-left font-medium">Status</th>
+                  <th className="px-4 py-3 text-left font-medium">Permissions</th>
+                  <th className="px-4 py-3 text-left font-medium">Created</th>
+                  <th className="px-4 py-3 text-left font-medium">Expires</th>
+                  <th className="px-4 py-3 text-left font-medium">Last Activity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((s) => (
+                  <tr key={s.session_id} className="border-b last:border-b-0">
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col">
+                        <span className="font-medium">{s.agent_name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">{s.agent_id}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
+                    <td className="px-4 py-3">
+                      <Badge variant="secondary">{s.permissions_count} scope{s.permissions_count !== 1 ? "s" : ""}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{fmtDate(s.created_at)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{fmtDate(s.expires_at)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {s.last_activity_at ? fmtRelative(s.last_activity_at) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {total > sessions.length && (
+            <p className="text-sm text-muted-foreground text-center">
+              Showing {sessions.length} of {total} sessions
+            </p>
+          )}
+        </>
       )}
     </div>
   );
