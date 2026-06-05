@@ -74,6 +74,8 @@ services:
     env_file:
       - path: .env.google
         required: false
+      - path: .env.services
+        required: false
     environment:
       - DATABASE_URL=postgresql://deepsecure_user:deepsecure_password@db/deeptrail_controldb
       - SECRET_KEY=your-secret-key-for-jwt
@@ -111,18 +113,23 @@ services:
       # OAuth Configuration (test values for integration testing)
       # Caddy TLS proxy on :8443 handles OAuth callbacks requiring HTTPS (e.g. Slack)
       - OAUTH_REDIRECT_BASE_URL=https://localhost:8443
-      - NOTION_CLIENT_ID=${NOTION_CLIENT_ID:-test-notion-client-id}
-      - NOTION_CLIENT_SECRET=${NOTION_CLIENT_SECRET:-test-notion-client-secret}
-      - SLACK_CLIENT_ID=${SLACK_CLIENT_ID:-test-slack-client-id}
-      - SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET:-test-slack-client-secret}
+      # Notion + Slack OAuth credentials loaded from .env.services (via env_file above).
       # Google OAuth credentials loaded from .env.google (via env_file above).
       # GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_HD are set there.
+      # Google Workspace Directory API (service account with domain-wide delegation)
+      - FERNET_KEY=8hRIHNo6DAfIIq3Oy-Ql2wK4GSn8sRLKiQbZ_BFs1Xg=
+      - IDP_FETCH_GROUPS=true
+      - GOOGLE_SERVICE_ACCOUNT_EMAIL=deepsecure-admin@gen-lang-client-0227820266.iam.gserviceaccount.com
+      - GOOGLE_ADMIN_EMAIL=mahendra@deeptrail.com
+      - GOOGLE_APPLICATION_CREDENTIALS=/gcloud/application_default_credentials.json
       
     volumes:
       # Mount the policies file into the container to make it accessible to the service.
       # The ':ro' makes the file read-only inside the container for better security.
       - ./deeptrail-control/policies.yml:/app/policies.yml:ro
       - ./deeptrail-control/group_policies.yaml:/app/group_policies.yaml:ro
+      # Mount ADC credentials for local dev (Directory API via service account)
+      - ${HOME}/.config/gcloud/application_default_credentials.json:/gcloud/application_default_credentials.json:ro
       
     networks:
       - deepsecure_network
@@ -160,6 +167,11 @@ services:
       - GATEWAY_INTERNAL_API_TOKEN=gateway-internal-secret-token
       # Pass the current DeepSecure version to the container
       - DEEPSECURE_VERSION=0.1.12
+      # OAuth / MCP realm (internal JWKS URL vs public issuer for token validation)
+      - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_ISSUER_URL=http://localhost:8080
+      - KEYCLOAK_MCP_REALM=mcp
+      - OAUTH_AUDIENCE=mcp-gateway
     networks:
       - deepsecure_network
 

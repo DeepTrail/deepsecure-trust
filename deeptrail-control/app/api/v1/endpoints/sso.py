@@ -34,6 +34,7 @@ from app.schemas.sso import (
     SSORefreshResponse,
     SSOUserInfo,
 )
+from app.models.user_session import UserSession
 from app.services.group_policy import GroupPolicyMapper
 from app.services.idp_service import (
     OIDCError,
@@ -228,10 +229,12 @@ async def sso_authorize(
     if response_mode == "redirect":
         return RedirectResponse(url=authorization_url, status_code=302)
 
+    _exp = pending.expires_at if pending.expires_at.tzinfo else pending.expires_at.replace(tzinfo=timezone.utc)
+    expires_in = max(0, int((_exp - datetime.now(timezone.utc)).total_seconds()))
     return SSOAuthorizeResponse(
         authorization_url=authorization_url,
         state=state,
-        expires_in=pending.expires_in,
+        expires_in=expires_in,
     )
 
 
@@ -335,17 +338,31 @@ async def sso_callback(
             detail=f"ID token validation failed: {exc}",
         )
 
-    # Fetch groups from Directory API for Google when configured
-    if idp == "google" and idp_config.fetch_groups:
+    # Fetch groups and admin status from Google Workspace Directory API.
+    # Uses service account with domain-wide delegation (works for all users).
+    _workspace_is_admin = False
+    if idp == "google":
         try:
-            from app.services.providers.google import GoogleProvider
+            from app.services.providers.google import fetch_workspace_user_info
 
-            if isinstance(provider, GoogleProvider):
-                groups = await provider.fetch_user_groups(
-                    access_token=tokens.access_token,
-                    email=claims.email,
+            workspace_info = await fetch_workspace_user_info(claims.email)
+            if workspace_info is not None:
+                claims.groups = workspace_info.groups
+                _workspace_is_admin = workspace_info.is_admin
+                logger.info(
+                    "Workspace Directory API: %s groups=%s isAdmin=%s",
+                    claims.email, workspace_info.groups, workspace_info.is_admin,
                 )
-                claims.groups = groups
+            elif idp_config.fetch_groups:
+                # Fallback to user's access token (only works for Workspace admins)
+                from app.services.providers.google import GoogleProvider
+
+                if isinstance(provider, GoogleProvider):
+                    groups = await provider.fetch_user_groups(
+                        access_token=tokens.access_token,
+                        email=claims.email,
+                    )
+                    claims.groups = groups
         except Exception:
             logger.warning(
                 "Failed to fetch groups for %s — continuing without group policy",
@@ -354,8 +371,7 @@ async def sso_callback(
             )
 
     # Fallback: use the hosted domain (hd) as a synthetic group when
-    # Directory API returned nothing.  This lets group_policies.yaml
-    # map domain-level roles (e.g. "deeptrail.com" → engineer).
+    # Directory API returned nothing.
     if idp == "google" and not claims.groups:
         hd = (claims.raw_claims or {}).get("hd")
         if hd:
@@ -402,6 +418,45 @@ async def sso_callback(
     }
     token = pyjwt.encode(token_data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
+    # Derive role: Google Workspace isAdmin is authoritative, then check
+    # YAML-mapped roles, then default to employee.
+    if _workspace_is_admin:
+        derived_role = "admin"
+    elif "admin" in user_data.get("roles", []):
+        derived_role = "admin"
+    elif "security" in user_data.get("roles", []):
+        derived_role = "security"
+    else:
+        derived_role = "employee"
+
+    # Upsert UserSession row so role lookups and admin middleware work.
+    # Always update the role from the IdP — the Workspace admin console
+    # is the source of truth for who is an admin.
+    existing_session = (
+        db.query(UserSession)
+        .filter(
+            UserSession.user_id == user_data["email"],
+            UserSession.revoked_at.is_(None),
+        )
+        .first()
+    )
+    if existing_session:
+        existing_session.session_id = session_id
+        existing_session.expires_at = now + timedelta(hours=SSO_SESSION_EXPIRY_HOURS)
+        existing_session.idp_issuer = f"https://{idp}"
+        existing_session.role = derived_role
+    else:
+        new_session = UserSession(
+            session_id=session_id,
+            user_id=user_data["email"],
+            idp_issuer=f"https://{idp}",
+            organization_id=user_data.get("organization_id"),
+            role=derived_role,
+            expires_at=now + timedelta(hours=SSO_SESSION_EXPIRY_HOURS),
+        )
+        db.add(new_session)
+    db.commit()
+
     # Store IdP tokens for future refresh (Feature 2 — offline access)
     refresh_available = False
     if tokens.refresh_token:
@@ -425,6 +480,21 @@ async def sso_callback(
             )
 
     logger.info("SSO login via %s: %s (new=%s)", idp, claims.email, user_data["is_new_user"])
+
+    if derived_role == "admin":
+        try:
+            from app.services.directory_sync_service import DirectorySyncService
+
+            sync_svc = DirectorySyncService(db)
+            result = sync_svc.sync_from_google()
+            if result["groups_synced"] or result["users_synced"]:
+                logger.info(
+                    "Auto-synced directory on admin login: %d groups, %d users",
+                    result["groups_synced"],
+                    result["users_synced"],
+                )
+        except Exception:
+            logger.warning("Directory auto-sync failed on admin login", exc_info=True)
 
     if pending.post_login_redirect:
         from urllib.parse import urlencode as _urlencode
@@ -607,6 +677,21 @@ async def sso_refresh(
         "idp": idp,
     }
     new_jwt = pyjwt.encode(token_data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+    # Update UserSession row with new session_id and expiry
+    user_id_for_session = refreshed_claims.get("sub", sub)
+    existing = (
+        db.query(UserSession)
+        .filter(
+            UserSession.user_id == user_id_for_session,
+            UserSession.revoked_at.is_(None),
+        )
+        .first()
+    )
+    if existing:
+        existing.session_id = new_session_id
+        existing.expires_at = now + timedelta(hours=SSO_SESSION_EXPIRY_HOURS)
+        db.commit()
 
     # --- Store new IdP session, revoke old ---
     try:

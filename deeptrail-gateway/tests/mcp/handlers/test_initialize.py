@@ -250,20 +250,17 @@ class TestInitializeErrors:
     """Tests for error handling in initialize handler."""
     
     @pytest.mark.asyncio
-    async def test_unsupported_protocol_version(self):
-        """Test error for unsupported protocol version."""
+    async def test_unsupported_protocol_version_negotiates_down(self):
+        """Test that unsupported protocol version is negotiated to latest supported."""
         params = {
             "protocolVersion": "1999-01-01",
             "capabilities": {},
             "clientInfo": {"name": "TestClient", "version": "1.0"}
         }
         
-        with pytest.raises(MCPError) as exc_info:
-            await handle_initialize(params)
+        result = await handle_initialize(params)
         
-        assert exc_info.value.code == JsonRpcErrorCode.INVALID_PARAMS
-        assert "Unsupported protocol version" in exc_info.value.message
-        assert "2024-11-05" in exc_info.value.message  # Lists supported versions
+        assert result["protocolVersion"] == SUPPORTED_PROTOCOL_VERSIONS[0]
     
     @pytest.mark.asyncio
     async def test_missing_protocol_version(self):
@@ -320,18 +317,17 @@ class TestInitializeErrors:
         assert exc_info.value.code == JsonRpcErrorCode.INVALID_PARAMS
     
     @pytest.mark.asyncio
-    async def test_invalid_protocol_version_format(self):
-        """Test error for invalid protocolVersion format."""
+    async def test_invalid_protocol_version_format_negotiates(self):
+        """Test that invalid protocolVersion format (but valid YYYY-MM-DD shape) is negotiated."""
         params = {
             "protocolVersion": "not-a-date",
             "capabilities": {},
             "clientInfo": {"name": "TestClient", "version": "1.0"}
         }
         
-        with pytest.raises(MCPError) as exc_info:
-            await handle_initialize(params)
+        result = await handle_initialize(params)
         
-        assert exc_info.value.code == JsonRpcErrorCode.INVALID_PARAMS
+        assert result["protocolVersion"] == SUPPORTED_PROTOCOL_VERSIONS[0]
 
 
 # =============================================================================
@@ -372,9 +368,8 @@ class TestInitializeIntegration:
         assert response.result["serverInfo"]["name"] == "DeepTrail Virtual MCP Server"
     
     @pytest.mark.asyncio
-    async def test_initialize_error_propagates(self, handler):
-        """Test that initialize errors are properly returned as JSON-RPC errors."""
-        # Use a valid format but unsupported version
+    async def test_initialize_negotiates_unsupported_version(self, handler):
+        """Test that unsupported version is negotiated (not rejected) through protocol handler."""
         request = {
             "jsonrpc": "2.0",
             "id": 1,
@@ -390,9 +385,8 @@ class TestInitializeIntegration:
         response = await handler.handle_request(raw)
         
         assert response.id == 1
-        assert response.error is not None
-        assert response.error.code == JsonRpcErrorCode.INVALID_PARAMS
-        assert "Unsupported protocol version" in response.error.message
+        assert response.error is None
+        assert response.result["protocolVersion"] == SUPPORTED_PROTOCOL_VERSIONS[0]
     
     @pytest.mark.asyncio
     async def test_initialize_with_context(self, handler):

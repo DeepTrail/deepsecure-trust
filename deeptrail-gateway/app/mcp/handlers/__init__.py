@@ -36,6 +36,8 @@ from .tools_call import (
     ToolsCallErrorCode,
 )
 
+from .discover import handle_discover
+
 __all__ = [
     # Initialize handler (B2)
     "handle_initialize",
@@ -58,4 +60,6 @@ __all__ = [
     "ToolsCallParams",
     "ToolsCallResult",
     "ToolsCallErrorCode",
+    # Discover handler (MCP 2026-07-28)
+    "handle_discover",
 ]

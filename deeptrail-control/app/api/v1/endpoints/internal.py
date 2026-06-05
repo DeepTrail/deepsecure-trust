@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.api import deps
 from app.core.config import settings
+from app.core.kms import get_kms_client
+from app.services.service_registry_service import ServiceRegistryService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -73,4 +75,47 @@ def get_secret_share(
         target_url = secret.secret_metadata.get("target_base_url")
 
     logger.debug(f"Returning share_1 and prime_mod for secret '{secret_name}'")
-    return SecretShareResponse(share_1=share_1_data, prime_mod=prime_mod, target_base_url=target_url) 
+    return SecretShareResponse(share_1=share_1_data, prime_mod=prime_mod, target_base_url=target_url)
+
+
+# --- Internal Service Registry (for Gateway) ---
+
+@router.get("/services/registry")
+def get_services_registry(
+    db: Session = Depends(deps.get_db),
+    api_key: str = Depends(verify_internal_api_key),
+):
+    """Return active services with connection configs for gateway consumption.
+
+    Only active services are returned. MCP auth values are decrypted so the
+    gateway can use them directly for backend connections.
+    """
+    svc = ServiceRegistryService(db=db, kms=get_kms_client())
+    services = svc.get_registry_for_gateway()
+    return {"services": services}
+
+
+class HealthReportRequest(BaseModel):
+    health_status: str
+    latency_ms: Optional[int] = None
+    error_count_24h: Optional[int] = None
+
+
+@router.post("/services/{service_id}/health")
+def report_service_health(
+    service_id: str,
+    body: HealthReportRequest,
+    db: Session = Depends(deps.get_db),
+    api_key: str = Depends(verify_internal_api_key),
+):
+    """Gateway reports health status for a backend service."""
+    svc = ServiceRegistryService(db=db, kms=get_kms_client())
+    service = svc.update_health(
+        service_id=service_id,
+        health_status=body.health_status,
+        latency_ms=body.latency_ms,
+        error_count_24h=body.error_count_24h,
+    )
+    if not service:
+        raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found")
+    return {"status": "ok", "service_id": service_id, "health_status": body.health_status}

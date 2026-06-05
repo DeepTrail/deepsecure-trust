@@ -364,7 +364,7 @@ class TestJWTValidationLayer3:
         assert response.json()["error"] == "invalid_signature"
 
     def test_wrong_issuer(self, client, valid_layer3_payload):
-        """Test 401 for wrong issuer."""
+        """Test 401 for wrong issuer — no legacy fallback."""
         valid_layer3_payload["iss"] = "wrong-issuer"
         bad_token = jose_jwt.encode(
             valid_layer3_payload, TEST_SECRET, algorithm=TEST_ALGORITHM
@@ -375,10 +375,10 @@ class TestJWTValidationLayer3:
         )
 
         assert response.status_code == 401
-        # Falls back to legacy mode but still validates
+        assert response.json()["error"] == "invalid_issuer"
 
     def test_wrong_audience(self, client, valid_layer3_payload):
-        """Test 401 for wrong audience."""
+        """Test 401 for wrong audience — no legacy fallback."""
         valid_layer3_payload["aud"] = "wrong-audience"
         bad_token = jose_jwt.encode(
             valid_layer3_payload, TEST_SECRET, algorithm=TEST_ALGORITHM
@@ -389,7 +389,7 @@ class TestJWTValidationLayer3:
         )
 
         assert response.status_code == 401
-        # Falls back to legacy mode but still validates
+        assert response.json()["error"] == "invalid_audience"
 
     def test_missing_sub_claim(self, client, valid_layer3_payload):
         """Test 401 for missing sub claim."""
@@ -471,30 +471,23 @@ class TestJWTValidationLayer3:
 
 
 class TestJWTValidationLegacy:
-    """Tests for legacy JWT format (backward compatibility)."""
+    """Tests for legacy JWT format — now REJECTED (P0-B1/A1: fallback removed)."""
 
-    def test_legacy_token_accepted(self, client, legacy_token):
-        """Test that legacy tokens are still accepted."""
+    def test_legacy_token_rejected(self, client, legacy_token):
+        """Legacy tokens without iss/aud are now rejected (no fallback)."""
         response = client.get(
             "/proxy/test", headers={"Authorization": f"Bearer {legacy_token}"}
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["agent_id"] == "agent-legacy-001"
+        assert response.status_code == 401
 
-    def test_legacy_scope_converted_to_permissions(self, client, legacy_token):
-        """Test that legacy 'scope' claim is converted to permissions."""
+    def test_legacy_token_rejected_on_mcp(self, client, legacy_token):
+        """Legacy tokens are also rejected on MCP paths."""
         response = client.get(
             "/mcp/tools", headers={"Authorization": f"Bearer {legacy_token}"}
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["agent_id"] == "agent-legacy-001"
-        # Legacy scope "read write" should become ["read", "write"]
-        assert "read" in data["permissions"]
-        assert "write" in data["permissions"]
+        assert response.status_code == 401
 
 
 # =============================================================================
@@ -547,7 +540,7 @@ class TestJWTValidationTaskToken:
         data = response.json()
         assert data["agent_id"] == "sdr-assistant-001"
         assert data["owner"] == ""
-        assert data["delegation_id"] == ""
+        assert data["delegation_id"] is None
         assert data["permissions_count"] == 2
 
     def test_task_token_session_id_is_task_id(self, task_token_payload):
@@ -661,7 +654,8 @@ class TestAuthorizationHeader:
         assert response.status_code == 401
         assert response.json()["error"] == "missing_authorization"
         assert "WWW-Authenticate" in response.headers
-        assert response.headers["WWW-Authenticate"] == "Bearer"
+        www_auth = response.headers["WWW-Authenticate"]
+        assert 'realm="deeptrail-gateway"' in www_auth
 
     def test_invalid_authorization_format(self, client):
         """Test 401 for invalid Authorization format."""
@@ -946,9 +940,29 @@ class TestSecurity:
         assert "sarah@acme.com" not in response.text
 
     def test_www_authenticate_header_on_401(self, client):
-        """Test WWW-Authenticate header is present on 401."""
+        """Test WWW-Authenticate header has structured RFC 6750 format."""
         response = client.get("/mcp/tools")
 
         assert response.status_code == 401
         assert "WWW-Authenticate" in response.headers
-        assert response.headers["WWW-Authenticate"] == "Bearer"
+        www_auth = response.headers["WWW-Authenticate"]
+        assert 'realm="deeptrail-gateway"' in www_auth
+
+    def test_www_authenticate_includes_error_on_invalid_token(self, client, valid_layer3_payload):
+        """Test WWW-Authenticate includes error/error_description for invalid tokens."""
+        valid_layer3_payload["exp"] = (
+            datetime.now(timezone.utc) - timedelta(hours=1)
+        ).timestamp()
+        expired_token = jose_jwt.encode(
+            valid_layer3_payload, TEST_SECRET, algorithm=TEST_ALGORITHM
+        )
+
+        response = client.get(
+            "/mcp/tools", headers={"Authorization": f"Bearer {expired_token}"}
+        )
+
+        assert response.status_code == 401
+        www_auth = response.headers["WWW-Authenticate"]
+        assert 'realm="deeptrail-gateway"' in www_auth
+        assert 'error="invalid_token"' in www_auth
+        assert "error_description=" in www_auth

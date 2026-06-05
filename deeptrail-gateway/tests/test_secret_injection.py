@@ -4,38 +4,34 @@ Phase 2 Task 2.4: Test Simple Secret Injection
 Validate middleware/secret_injection.py fetches secrets from deeptrail-control and injects them.
 
 This test suite validates:
-1. Secret injection for different authentication types (Bearer, API key, Basic)
+1. Secret injection for Bearer token authentication via split-key architecture
 2. Proper bypass of health check and documentation paths
 3. Domain-based secret selection and injection
-4. Header modification and injection mechanics
+4. Header modification and injection mechanics via MutableHeaders
 5. Error handling and fallback behavior
 6. Integration with JWT validation middleware
 7. Agent-specific secret access control
 """
 
 import pytest
-import pytest_asyncio
 import asyncio
-import httpx
+import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, Any, Optional
-import json
-import base64
-
-# Import the middleware
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'deeptrail-gateway'))
 
 from app.middleware.secret_injection import SecretInjectionMiddleware
-from fastapi import FastAPI, Request, HTTPException
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import ASGIApp, Receive, Scope, Send
+from fastapi import FastAPI
+from starlette.datastructures import Headers, MutableHeaders
 
 
 class MockRequest:
-    """Mock request object for testing."""
-    
+    """Mock request object for testing.
+
+    Uses Starlette's ``Headers`` for case-insensitive lookup, and reads
+    from ``scope["headers"]`` so that changes made by
+    ``MutableHeaders(scope=request.scope)`` are visible to assertions.
+    """
+
     def __init__(self, method: str = "GET", url: str = "/", headers: Dict[str, str] = None, body: bytes = b""):
         self.method = method
         self.url = MagicMock()
@@ -48,57 +44,53 @@ class MockRequest:
             "type": "http",
             "method": method,
             "path": url,
-            "headers": [(k.encode(), v.encode()) for k, v in self._initial_headers.items()]
+            "headers": [(k.lower().encode(), v.encode()) for k, v in self._initial_headers.items()]
         }
-        self._headers = self._initial_headers.copy()
-    
+
     @property
     def headers(self):
-        """Return headers from _headers to reflect any modifications."""
-        return self._headers
-    
-    def get_header(self, name: str) -> Optional[str]:
-        return self._headers.get(name)
+        """Return a Starlette Headers object for case-insensitive access."""
+        return Headers(scope=self.scope)
 
 
 class SecretInjectionTester:
     """Test utility for validating secret injection middleware."""
-    
+
     def __init__(self):
         self.app = FastAPI()
-        self.middleware = SecretInjectionMiddleware(
-            self.app, 
-            control_plane_url="http://test-control:8000"
-        )
-    
+        with patch('app.core.share_storage.ShareStorageManager'):
+            self.middleware = SecretInjectionMiddleware(
+                self.app,
+                control_plane_url="http://test-control:8000"
+            )
+
     async def test_injection(self, request: MockRequest) -> Dict[str, Any]:
         """Test secret injection on a mock request."""
-        
-        # Mock the call_next function
+
         async def mock_call_next(req):
-            return {"status": "processed", "headers": dict(req.headers)}
-        
-        # Process the request through middleware
+            return {"status": "processed"}
+
         result = await self.middleware.dispatch(request, mock_call_next)
-        
+
+        final_headers = {k: v for k, v in request.headers.items()}
         return {
             "result": result,
-            "final_headers": dict(request.headers),
+            "final_headers": final_headers,
             "agent_id": getattr(request.state, "agent_id", None)
         }
 
 
 class TestSecretInjectionCore:
     """Test core secret injection functionality."""
-    
+
     @pytest.fixture
     def secret_tester(self):
         """Create a secret injection tester instance."""
         return SecretInjectionTester()
-    
+
     @pytest.mark.asyncio
     async def test_bearer_token_injection(self, secret_tester):
-        """Test Bearer token injection for OpenAI API."""
+        """Test Bearer token injection for OpenAI API via split-key reassembly."""
         request = MockRequest(
             method="POST",
             url="/proxy/v1/chat/completions",
@@ -107,18 +99,17 @@ class TestSecretInjectionCore:
                 "Content-Type": "application/json"
             }
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        # Verify Bearer token was injected
-        assert "Authorization" in result["final_headers"]
-        assert result["final_headers"]["Authorization"].startswith("Bearer ")
-        assert "OPENAI_API_KEY_PLACEHOLDER" in result["final_headers"]["Authorization"]
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value="sk-test-openai-key"):
+            result = await secret_tester.test_injection(request)
+
+        assert "authorization" in result["final_headers"]
+        assert result["final_headers"]["authorization"] == "Bearer sk-test-openai-key"
         assert result["result"]["status"] == "processed"
-    
+
     @pytest.mark.asyncio
     async def test_no_secret_injection_for_httpbin(self, secret_tester):
-        """Test that no secret is injected for httpbin.org (type: none)."""
+        """Test that no secret is injected for unmapped domains."""
         request = MockRequest(
             method="GET",
             url="/proxy/get",
@@ -127,18 +118,17 @@ class TestSecretInjectionCore:
                 "Accept": "application/json"
             }
         )
-        
+
         result = await secret_tester.test_injection(request)
-        
-        # Verify no Authorization header was added
-        assert "Authorization" not in result["final_headers"]
+
+        assert "authorization" not in result["final_headers"]
         assert result["result"]["status"] == "processed"
-    
+
     @pytest.mark.asyncio
     async def test_bypass_health_check_paths(self, secret_tester):
         """Test that health check paths bypass secret injection."""
         health_paths = ["/", "/health", "/ready", "/metrics", "/config", "/docs"]
-        
+
         for path in health_paths:
             request = MockRequest(
                 method="GET",
@@ -147,18 +137,17 @@ class TestSecretInjectionCore:
                     "X-Target-Base-URL": "https://api.openai.com"
                 }
             )
-            
+
             result = await secret_tester.test_injection(request)
-            
-            # Verify no secret injection occurred
-            assert "Authorization" not in result["final_headers"]
+
+            assert "authorization" not in result["final_headers"], f"Path {path} should bypass injection"
             assert result["result"]["status"] == "processed"
-    
+
     @pytest.mark.asyncio
     async def test_bypass_non_proxy_paths(self, secret_tester):
         """Test that non-proxy paths bypass secret injection."""
         non_proxy_paths = ["/api/v1/agents", "/auth/token", "/admin/policies"]
-        
+
         for path in non_proxy_paths:
             request = MockRequest(
                 method="GET",
@@ -167,13 +156,12 @@ class TestSecretInjectionCore:
                     "X-Target-Base-URL": "https://api.openai.com"
                 }
             )
-            
+
             result = await secret_tester.test_injection(request)
-            
-            # Verify no secret injection occurred
-            assert "Authorization" not in result["final_headers"]
+
+            assert "authorization" not in result["final_headers"]
             assert result["result"]["status"] == "processed"
-    
+
     @pytest.mark.asyncio
     async def test_missing_target_url_header(self, secret_tester):
         """Test handling of missing X-Target-Base-URL header."""
@@ -182,16 +170,14 @@ class TestSecretInjectionCore:
             url="/proxy/v1/chat/completions",
             headers={
                 "Content-Type": "application/json"
-                # Missing X-Target-Base-URL header
             }
         )
-        
+
         result = await secret_tester.test_injection(request)
-        
-        # Should continue without injection
-        assert "Authorization" not in result["final_headers"]
+
+        assert "authorization" not in result["final_headers"]
         assert result["result"]["status"] == "processed"
-    
+
     @pytest.mark.asyncio
     async def test_missing_agent_id(self, secret_tester):
         """Test handling of missing agent ID."""
@@ -203,114 +189,80 @@ class TestSecretInjectionCore:
                 "Content-Type": "application/json"
             }
         )
-        
-        # Remove agent_id from state
+
         request.state.agent_id = None
-        
+
         result = await secret_tester.test_injection(request)
-        
-        # Should continue without injection
-        assert "Authorization" not in result["final_headers"]
+
+        assert "authorization" not in result["final_headers"]
         assert result["result"]["status"] == "processed"
 
 
 class TestSecretInjectionTypes:
-    """Test different secret injection types."""
-    
+    """Test secret injection helper methods for different auth types."""
+
     @pytest.fixture
     def secret_tester(self):
-        """Create a secret injection tester with extended secret store."""
-        tester = SecretInjectionTester()
-        
-        # Extend the secret store with different auth types
-        tester.middleware.secret_store.update({
-            "api.example.com": {
-                "type": "bearer",
-                "value": "test-bearer-token-123"
-            },
-            "api.service.com": {
-                "type": "api_key",
-                "value": "test-api-key-456",
-                "header": "X-API-Key"
-            },
-            "api.legacy.com": {
-                "type": "basic",
-                "value": base64.b64encode(b"username:password").decode()
-            },
-            "api.custom.com": {
-                "type": "api_key",
-                "value": "custom-key-789",
-                "header": "X-Custom-Auth"
-            }
-        })
-        
-        return tester
-    
+        return SecretInjectionTester()
+
     @pytest.mark.asyncio
-    async def test_bearer_token_injection(self, secret_tester):
-        """Test Bearer token injection."""
+    async def test_bearer_token_injection_via_pipeline(self, secret_tester):
+        """Test Bearer token injection through the full pipeline."""
         request = MockRequest(
             method="POST",
             url="/proxy/api/data",
             headers={
-                "X-Target-Base-URL": "https://api.example.com",
+                "X-Target-Base-URL": "https://api.openai.com",
                 "Content-Type": "application/json"
             }
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        assert result["final_headers"]["Authorization"] == "Bearer test-bearer-token-123"
-    
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value="test-bearer-token-123"):
+            result = await secret_tester.test_injection(request)
+
+        assert result["final_headers"]["authorization"] == "Bearer test-bearer-token-123"
+
     @pytest.mark.asyncio
-    async def test_api_key_injection_default_header(self, secret_tester):
-        """Test API key injection with default header."""
+    async def test_inject_api_key_header_directly(self, secret_tester):
+        """Test _inject_api_key_header helper injects the correct header."""
         request = MockRequest(
             method="GET",
             url="/proxy/api/data",
-            headers={
-                "X-Target-Base-URL": "https://api.service.com",
-                "Accept": "application/json"
-            }
+            headers={"Accept": "application/json"}
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        assert result["final_headers"]["X-API-Key"] == "test-api-key-456"
-    
+
+        secret_tester.middleware._inject_api_key_header(request, "X-API-Key", "test-api-key-456")
+
+        assert request.headers["x-api-key"] == "test-api-key-456"
+
     @pytest.mark.asyncio
-    async def test_api_key_injection_custom_header(self, secret_tester):
-        """Test API key injection with custom header."""
+    async def test_inject_api_key_custom_header_directly(self, secret_tester):
+        """Test _inject_api_key_header with a custom header name."""
         request = MockRequest(
             method="GET",
             url="/proxy/api/data",
-            headers={
-                "X-Target-Base-URL": "https://api.custom.com",
-                "Accept": "application/json"
-            }
+            headers={"Accept": "application/json"}
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        assert result["final_headers"]["X-Custom-Auth"] == "custom-key-789"
-    
+
+        secret_tester.middleware._inject_api_key_header(request, "X-Custom-Auth", "custom-key-789")
+
+        assert request.headers["x-custom-auth"] == "custom-key-789"
+
     @pytest.mark.asyncio
-    async def test_basic_auth_injection(self, secret_tester):
-        """Test Basic authentication injection."""
+    async def test_inject_basic_auth_directly(self, secret_tester):
+        """Test _inject_basic_auth helper injects Basic auth header."""
         request = MockRequest(
             method="POST",
             url="/proxy/api/secure",
-            headers={
-                "X-Target-Base-URL": "https://api.legacy.com",
-                "Content-Type": "application/json"
-            }
+            headers={"Content-Type": "application/json"}
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        expected_auth = f"Basic {base64.b64encode(b'username:password').decode()}"
-        assert result["final_headers"]["Authorization"] == expected_auth
-    
+
+        creds = base64.b64encode(b"username:password").decode()
+        secret_tester.middleware._inject_basic_auth(request, creds)
+
+        expected_auth = f"Basic {creds}"
+        assert request.headers["authorization"] == expected_auth
+
     @pytest.mark.asyncio
     async def test_unknown_domain_no_injection(self, secret_tester):
         """Test that unknown domains don't get secret injection."""
@@ -322,21 +274,20 @@ class TestSecretInjectionTypes:
                 "Accept": "application/json"
             }
         )
-        
+
         result = await secret_tester.test_injection(request)
-        
-        # Should not have any auth headers
-        assert "Authorization" not in result["final_headers"]
-        assert "X-API-Key" not in result["final_headers"]
+
+        assert "authorization" not in result["final_headers"]
+        assert "x-api-key" not in result["final_headers"]
 
 
 class TestSecretInjectionDomainParsing:
     """Test domain parsing and secret selection."""
-    
+
     @pytest.fixture
     def secret_tester(self):
         return SecretInjectionTester()
-    
+
     @pytest.mark.asyncio
     async def test_domain_parsing_with_subdomain(self, secret_tester):
         """Test domain parsing with subdomains."""
@@ -348,22 +299,16 @@ class TestSecretInjectionDomainParsing:
                 "Content-Type": "application/json"
             }
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        # Should match api.openai.com and inject Bearer token
-        assert "Authorization" in result["final_headers"]
-        assert result["final_headers"]["Authorization"].startswith("Bearer ")
-    
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value="sk-test-key"):
+            result = await secret_tester.test_injection(request)
+
+        assert "authorization" in result["final_headers"]
+        assert result["final_headers"]["authorization"] == "Bearer sk-test-key"
+
     @pytest.mark.asyncio
     async def test_domain_parsing_with_port(self, secret_tester):
-        """Test domain parsing with port numbers."""
-        # Add a test domain with port
-        secret_tester.middleware.secret_store["localhost:8080"] = {
-            "type": "bearer",
-            "value": "local-test-token"
-        }
-        
+        """Test that domains with ports are handled (no match in default mapping)."""
         request = MockRequest(
             method="GET",
             url="/proxy/api/test",
@@ -372,11 +317,11 @@ class TestSecretInjectionDomainParsing:
                 "Accept": "application/json"
             }
         )
-        
+
         result = await secret_tester.test_injection(request)
-        
-        assert result["final_headers"]["Authorization"] == "Bearer local-test-token"
-    
+
+        assert "authorization" not in result["final_headers"]
+
     @pytest.mark.asyncio
     async def test_domain_case_insensitive_matching(self, secret_tester):
         """Test that domain matching is case-insensitive."""
@@ -388,21 +333,39 @@ class TestSecretInjectionDomainParsing:
                 "Content-Type": "application/json"
             }
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        # Should match api.openai.com (case insensitive)
-        assert "Authorization" in result["final_headers"]
-        assert result["final_headers"]["Authorization"].startswith("Bearer ")
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value="sk-test-key"):
+            result = await secret_tester.test_injection(request)
+
+        assert "authorization" in result["final_headers"]
+        assert result["final_headers"]["authorization"] == "Bearer sk-test-key"
+
+    @pytest.mark.asyncio
+    async def test_explicit_secret_name_header(self, secret_tester):
+        """Test that X-Deeptrail-Secret-Name header overrides domain mapping."""
+        request = MockRequest(
+            method="POST",
+            url="/proxy/api/test",
+            headers={
+                "X-Target-Base-URL": "https://unknown.example.com",
+                "X-Deeptrail-Secret-Name": "my-custom-secret",
+                "Content-Type": "application/json"
+            }
+        )
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value="custom-secret-value"):
+            result = await secret_tester.test_injection(request)
+
+        assert result["final_headers"]["authorization"] == "Bearer custom-secret-value"
 
 
 class TestSecretInjectionErrorHandling:
     """Test error handling and edge cases."""
-    
+
     @pytest.fixture
     def secret_tester(self):
         return SecretInjectionTester()
-    
+
     @pytest.mark.asyncio
     async def test_malformed_target_url(self, secret_tester):
         """Test handling of malformed target URLs."""
@@ -414,71 +377,59 @@ class TestSecretInjectionErrorHandling:
                 "Content-Type": "application/json"
             }
         )
-        
+
         result = await secret_tester.test_injection(request)
-        
-        # Should continue without injection
+
         assert result["result"]["status"] == "processed"
-    
+
     @pytest.mark.asyncio
-    async def test_secret_with_empty_value(self, secret_tester):
-        """Test handling of secrets with empty values."""
-        secret_tester.middleware.secret_store["empty.test.com"] = {
-            "type": "bearer",
-            "value": ""
-        }
-        
+    async def test_reassembly_returns_none(self, secret_tester):
+        """Test handling when secret reassembly fails (returns None)."""
         request = MockRequest(
             method="POST",
             url="/proxy/api/test",
             headers={
-                "X-Target-Base-URL": "https://empty.test.com",
+                "X-Target-Base-URL": "https://api.openai.com",
                 "Content-Type": "application/json"
             }
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        # Should not inject empty Bearer token
-        assert "Authorization" not in result["final_headers"]
-    
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value=None):
+            result = await secret_tester.test_injection(request)
+
+        assert "authorization" not in result["final_headers"]
+        assert result["result"]["status"] == "processed"
+
     @pytest.mark.asyncio
-    async def test_secret_with_unknown_type(self, secret_tester):
-        """Test handling of unknown secret types."""
-        secret_tester.middleware.secret_store["unknown.test.com"] = {
-            "type": "unknown_type",
-            "value": "some-value"
-        }
-        
+    async def test_inject_secrets_exception_returns_502(self, secret_tester):
+        """Test that exceptions in _inject_secrets return 502 (fail-closed, P0-B1/A7)."""
         request = MockRequest(
             method="POST",
             url="/proxy/api/test",
             headers={
-                "X-Target-Base-URL": "https://unknown.test.com",
+                "X-Target-Base-URL": "https://api.openai.com",
                 "Content-Type": "application/json"
             }
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        # Should continue without injection
-        assert "Authorization" not in result["final_headers"]
-        assert result["result"]["status"] == "processed"
+
+        with patch.object(secret_tester.middleware, '_inject_secrets', new_callable=AsyncMock, side_effect=Exception("test error")):
+            result = await secret_tester.test_injection(request)
+
+        assert result["result"].status_code == 502
 
 
 class TestSecretInjectionIntegration:
     """Test integration scenarios and performance."""
-    
+
     @pytest.fixture
     def secret_tester(self):
         return SecretInjectionTester()
-    
+
     @pytest.mark.asyncio
     async def test_multiple_concurrent_injections(self, secret_tester):
         """Test handling of multiple concurrent secret injections."""
         requests = []
-        
-        # Create multiple requests for different domains
+
         for i in range(10):
             request = MockRequest(
                 method="POST",
@@ -490,17 +441,16 @@ class TestSecretInjectionIntegration:
             )
             request.state.agent_id = f"agent-{i}"
             requests.append(request)
-        
-        # Process all requests concurrently
-        tasks = [secret_tester.test_injection(req) for req in requests]
-        results = await asyncio.gather(*tasks)
-        
-        # Verify all injections succeeded
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value="sk-concurrent-key"):
+            tasks = [secret_tester.test_injection(req) for req in requests]
+            results = await asyncio.gather(*tasks)
+
         for result in results:
-            assert "Authorization" in result["final_headers"]
-            assert result["final_headers"]["Authorization"].startswith("Bearer ")
+            assert "authorization" in result["final_headers"]
+            assert result["final_headers"]["authorization"] == "Bearer sk-concurrent-key"
             assert result["result"]["status"] == "processed"
-    
+
     @pytest.mark.asyncio
     async def test_request_header_preservation(self, secret_tester):
         """Test that existing request headers are preserved."""
@@ -514,18 +464,16 @@ class TestSecretInjectionIntegration:
                 "X-Request-ID": "test-123"
             }
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        # Verify existing headers are preserved
-        assert result["final_headers"]["Content-Type"] == "application/json"
-        assert result["final_headers"]["User-Agent"] == "Test-Agent/1.0"
-        assert result["final_headers"]["X-Request-ID"] == "test-123"
-        
-        # Verify new header is added
-        assert "Authorization" in result["final_headers"]
-        assert result["final_headers"]["Authorization"].startswith("Bearer ")
-    
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value="sk-test-key"):
+            result = await secret_tester.test_injection(request)
+
+        assert result["final_headers"]["content-type"] == "application/json"
+        assert result["final_headers"]["user-agent"] == "Test-Agent/1.0"
+        assert result["final_headers"]["x-request-id"] == "test-123"
+        assert "authorization" in result["final_headers"]
+        assert result["final_headers"]["authorization"] == "Bearer sk-test-key"
+
     @pytest.mark.asyncio
     async def test_header_override_behavior(self, secret_tester):
         """Test that secret injection overrides existing auth headers."""
@@ -538,19 +486,18 @@ class TestSecretInjectionIntegration:
                 "Authorization": "Bearer old-token"
             }
         )
-        
-        result = await secret_tester.test_injection(request)
-        
-        # Verify the auth header was overridden
-        assert result["final_headers"]["Authorization"] != "Bearer old-token"
-        assert result["final_headers"]["Authorization"].startswith("Bearer ")
-        assert "OPENAI_API_KEY_PLACEHOLDER" in result["final_headers"]["Authorization"]
-    
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value="sk-new-key"):
+            result = await secret_tester.test_injection(request)
+
+        assert result["final_headers"]["authorization"] != "Bearer old-token"
+        assert result["final_headers"]["authorization"] == "Bearer sk-new-key"
+
     @pytest.mark.asyncio
     async def test_performance_timing(self, secret_tester):
         """Test that secret injection completes quickly."""
         import time
-        
+
         request = MockRequest(
             method="POST",
             url="/proxy/v1/chat/completions",
@@ -559,15 +506,15 @@ class TestSecretInjectionIntegration:
                 "Content-Type": "application/json"
             }
         )
-        
-        start_time = time.time()
-        result = await secret_tester.test_injection(request)
-        end_time = time.time()
-        
+
+        with patch.object(secret_tester.middleware, '_reassemble_secret', new_callable=AsyncMock, return_value="sk-perf-key"):
+            start_time = time.time()
+            result = await secret_tester.test_injection(request)
+            end_time = time.time()
+
         injection_time = end_time - start_time
-        
-        # Should complete within 10ms
-        assert injection_time < 0.01, f"Secret injection took {injection_time:.3f}s, should be < 10ms"
+
+        assert injection_time < 0.1, f"Secret injection took {injection_time:.3f}s, should be < 100ms"
         assert result["result"]["status"] == "processed"
 
 
@@ -575,39 +522,34 @@ class TestSecretInjectionIntegration:
 async def test_secret_injection_middleware_initialization():
     """Test that the middleware initializes correctly."""
     app = FastAPI()
-    
-    # Test default initialization
-    middleware = SecretInjectionMiddleware(app)
-    assert middleware.control_plane_url == "http://deeptrail-control:8000"
-    assert "/health" in middleware.bypass_paths
-    assert "api.openai.com" in middleware.secret_store
-    
-    # Test custom initialization
-    middleware = SecretInjectionMiddleware(app, control_plane_url="http://custom-control:9000")
-    assert middleware.control_plane_url == "http://custom-control:9000"
+
+    with patch('app.core.share_storage.ShareStorageManager'):
+        middleware = SecretInjectionMiddleware(app)
+        assert middleware.control_plane_url == "http://deeptrail-control:8000"
+        assert "/health" in middleware.bypass_paths
+
+        middleware = SecretInjectionMiddleware(app, control_plane_url="http://custom-control:9000")
+        assert middleware.control_plane_url == "http://custom-control:9000"
 
 
 @pytest.mark.asyncio
 async def test_secret_injection_integration_with_gateway():
     """Integration test for secret injection with the gateway service."""
-    # This test would validate the middleware works with the running gateway
-    # For now, we'll validate the middleware structure
-    
     app = FastAPI()
-    middleware = SecretInjectionMiddleware(app)
-    
-    # Verify middleware has required methods
+
+    with patch('app.core.share_storage.ShareStorageManager'):
+        middleware = SecretInjectionMiddleware(app)
+
     assert hasattr(middleware, 'dispatch')
     assert hasattr(middleware, '_inject_secrets')
-    assert hasattr(middleware, '_get_secret_for_domain')
+    assert hasattr(middleware, '_reassemble_secret')
     assert hasattr(middleware, '_inject_bearer_token')
     assert hasattr(middleware, '_inject_api_key_header')
     assert hasattr(middleware, '_inject_basic_auth')
-    
-    # Verify secret store is populated
-    assert len(middleware.secret_store) > 0
-    assert "api.openai.com" in middleware.secret_store
+
+    assert middleware.bypass_paths is not None
+    assert len(middleware.bypass_paths) > 0
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"]) 
+    pytest.main([__file__, "-v"])

@@ -120,7 +120,13 @@ class TestHeaders:
 class TestListMessages:
     @pytest.mark.asyncio
     async def test_list_messages_success(self, gmail_client):
-        """Test 1: 200 response with message id/threadId stubs."""
+        """Test 1: 200 response with message id/threadId stubs.
+
+        ``list_messages`` enriches results by fetching metadata for each
+        message, so the mock will be called multiple times (1 list + N
+        enrichment calls). We check ``call_args_list[0]`` for the
+        initial list request.
+        """
         mock_response = _mock_response(
             200,
             body={
@@ -140,13 +146,13 @@ class TestListMessages:
             assert not result.is_error
             assert result.status == ToolCallStatus.SUCCESS
             assert len(result.raw["messages"]) == 2
+            first_call = mock_get.call_args_list[0]
             assert (
-                mock_get.call_args.args[0]
+                first_call.args[0]
                 == "https://gmail.googleapis.com/gmail/v1/users/me/messages"
             )
-            params = mock_get.call_args.kwargs["params"]
+            params = first_call.kwargs["params"]
             assert params["maxResults"] == 10
-            # Without label_ids, no labelIds param.
             assert "labelIds" not in params
 
     @pytest.mark.asyncio
@@ -261,7 +267,12 @@ class TestReadMessage:
 class TestSearchMessages:
     @pytest.mark.asyncio
     async def test_search_messages_success(self, gmail_client):
-        """Test 6: 200 response with q-based search."""
+        """Test 6: 200 response with q-based search.
+
+        ``search_messages`` enriches results by fetching metadata for
+        each message, so we check ``call_args_list[0]`` for the initial
+        search request.
+        """
         mock_response = _mock_response(
             200, body={"messages": [{"id": "m1", "threadId": "t1"}]}
         )
@@ -276,11 +287,12 @@ class TestSearchMessages:
             )
 
             assert not result.is_error
-            params = mock_get.call_args.kwargs["params"]
+            first_call = mock_get.call_args_list[0]
+            params = first_call.kwargs["params"]
             assert params["q"] == "from:alice subject:meeting newer_than:7d"
             assert params["maxResults"] == 20
             assert (
-                mock_get.call_args.args[0]
+                first_call.args[0]
                 == "https://gmail.googleapis.com/gmail/v1/users/me/messages"
             )
 
@@ -704,6 +716,10 @@ class TestConfigFallback:
 class TestTransformResponseEdgeCases:
     @pytest.mark.asyncio
     async def test_success_response_with_unparseable_json(self, gmail_client):
+        """Use ``list_labels`` because it routes 200 responses through
+        ``_transform_response`` which handles bad JSON gracefully.
+        ``list_messages`` does NOT use ``_transform_response`` for
+        success (it has custom enrichment logic)."""
         response = MagicMock(spec=httpx.Response)
         response.status_code = 200
         response.json.side_effect = ValueError("bad json")
@@ -711,7 +727,7 @@ class TestTransformResponseEdgeCases:
 
         with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = response
-            result = await gmail_client.list_messages(auth_token="tok")
+            result = await gmail_client.list_labels(auth_token="tok")
 
         assert not result.is_error
         assert result.raw == {"raw_text": "not-json"}

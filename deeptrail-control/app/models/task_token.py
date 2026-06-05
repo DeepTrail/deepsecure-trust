@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import (
     Boolean,
     Column,
@@ -341,6 +341,14 @@ class TaskCreate(BaseModel):
     requested_permissions: Optional[List[ScopedPermissionRequest]] = Field(
         default=None, description="Permissions requested for this task"
     )
+
+    @field_validator("requested_permissions")
+    @classmethod
+    def validate_permissions_not_empty(cls, v):
+        if v is not None and len(v) == 0:
+            raise ValueError("requested_permissions must not be empty if provided")
+        return v
+
     deadline_minutes: Optional[int] = Field(
         None,
         ge=1,

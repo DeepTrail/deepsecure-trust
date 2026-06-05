@@ -1,0 +1,70 @@
+# Status: P5.2 IT Admin Service Catalog + MCP Server Management
+
+> **Feature:** `it-admin-service-catalog-mcp-mgmt`
+> **Last Updated:** May 29, 2026
+
+## Overall Progress
+
+| Phase | Status |
+|-------|--------|
+| PLAN | ✅ Complete |
+| EXECUTE | ✅ Complete (B1+B2+B3+B4 done) |
+| REVIEW | ⏳ Not Started |
+| SHIP | ⏳ Not Started |
+
+## Batch Progress
+
+| Batch | Tasks | Completed | Status |
+|-------|-------|-----------|--------|
+| P0-B1: Foundation | 5 | 5/5 | ✅ Complete |
+| P0-B2: Backend APIs | 15 | 15/15 | ✅ Complete |
+| P0-B3: Gateway + Frontend | 11 | 11/11 | ✅ Complete |
+| P0-B4: Integration | 4 | 4/4 | ✅ Complete |
+
+## Task Status
+
+| Task ID | Description | Status | Report |
+|---------|-------------|--------|--------|
+| WS-A1 | Alembic migration | ✅ Complete | 2026-05-29 |
+| WS-A2 | SQLAlchemy models | ✅ Complete | 2026-05-29 |
+| WS-A3 | KMS client wrapper | ✅ Complete | 2026-05-29 |
+| WS-A4 | Admin middleware | ✅ Complete | 2026-05-29 |
+| WS-A5 | Seed script + role API | ✅ Complete | 2026-05-29 |
+| WS-B1 | Service registry service | ✅ Complete | 2026-05-29 |
+| WS-B2 | Service CRUD endpoints | ✅ Complete | 2026-05-29 |
+| WS-B3 | OAuth config endpoints | ✅ Complete | 2026-05-29 |
+| WS-B4 | Internal registry API | ✅ Complete | 2026-05-29 |
+| WS-B5 | Health reporting endpoint | ✅ Complete | 2026-05-29 |
+| WS-B6 | Register admin routers | ✅ Complete | 2026-05-29 |
+| WS-C5 | Extract user_id from _meta | ✅ Complete | 2026-05-29 |
+| WS-C6 | Per-user delegation resolution | ✅ Complete | 2026-05-29 |
+| WS-C7 | User-scoped credential injection | ✅ Complete | 2026-05-29 |
+| WS-C8 | Backward compatibility | ✅ Complete | 2026-05-29 |
+| WS-D1 | Admin fleet API | ✅ Complete | 2026-05-29 |
+| WS-D2 | Agent suspend | ✅ Complete | 2026-05-29 |
+| WS-D3 | Delegation template CRUD | ✅ Complete | 2026-05-29 |
+| WS-D4 | Admin delegation management | ✅ Complete | 2026-05-29 |
+| WS-D5 | Emergency endpoints | ✅ Complete | 2026-05-29 |
+| WS-C1 | Dynamic backend loader | ✅ Complete | 2026-05-29 |
+| WS-C2 | Gateway startup integration | ✅ Complete | 2026-05-29 |
+| WS-C3 | ToolCache dynamic population | ✅ Complete | 2026-05-29 |
+| WS-C4 | Health reporter | ✅ Complete | 2026-05-29 |
+| WS-E1 | Admin role hook + sidebar | ✅ Complete | 2026-05-29 |
+| WS-E2 | Service Catalog page | ✅ Complete | 2026-05-29 |
+| WS-E3 | Add Service modal | ✅ Complete | 2026-05-29 |
+| WS-E4 | Health dashboard | ✅ Complete | 2026-05-29 |
+| WS-E5 | Agent Fleet view | ✅ Complete | 2026-05-29 |
+| WS-E6 | Delegation Management | ✅ Complete | 2026-05-29 |
+| WS-E7 | Admin TypeScript types | ✅ Complete | 2026-05-29 |
+| WS-F1 | Employee services from DB | ✅ Complete | 2026-05-29 |
+| WS-F2 | Template enforcement | ✅ Complete | 2026-05-29 |
+| WS-F3 | E2E tests | ✅ Complete | 2026-05-29 |
+| WS-F4 | Multi-user demo | ✅ Complete | 2026-05-29 |
+
+## Merge Points
+
+| MP | Trigger | Status |
+|----|---------|--------|
+| MP1 | P0-B1 complete (schema + middleware) | ✅ Reached |
+| MP2 | P0-B2 complete (all backend APIs) | ✅ Reached |
+| MP3 | P0-B3 complete (gateway + frontend) | ✅ Reached |

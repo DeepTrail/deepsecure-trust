@@ -24,6 +24,8 @@ Environment Variables:
 
 from __future__ import annotations
 
+import os
+
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
@@ -166,28 +168,14 @@ class GatewaySettings(BaseSettings):
 
     Aggregates all backend configurations and gateway-level settings.
 
-    Attributes:
-        control_plane_url: URL of the Control Plane service
-        notion: Notion API configuration
-        slack: Slack API configuration
-        hubspot: HubSpot API configuration
-        gdrive: Google Drive API configuration
-        gcalendar: Google Calendar API configuration
-        gmail: Gmail API configuration
-        max_connections_per_backend: Maximum connections per backend
-        health_check_interval_seconds: Interval between health checks
-        health_check_timeout_seconds: Timeout for health check requests
-
-    Environment Variables:
-        GATEWAY_CONTROL_PLANE_URL: Control Plane URL
-        GATEWAY_MAX_CONNECTIONS_PER_BACKEND: Max connections per backend
-        GATEWAY_HEALTH_CHECK_INTERVAL_SECONDS: Health check interval
-        GATEWAY_HEALTH_CHECK_TIMEOUT_SECONDS: Health check timeout
-        GDRIVE_BASE_URL: Google Drive API base URL
-        GCALENDAR_BASE_URL: Google Calendar API base URL
-        GMAIL_BASE_URL: Gmail API base URL
+    Environment variables are resolved with GATEWAY_ prefix first (via
+    Pydantic env_prefix), then explicit os.getenv fallbacks for vars that
+    are set without the prefix in Cloud Run (CONTROL_PLANE_URL,
+    GATEWAY_INTERNAL_TOKEN).
     """
-    control_plane_url: str = Field(default="http://localhost:8000")
+    control_plane_url: str = Field(
+        default_factory=lambda: os.getenv("CONTROL_PLANE_URL", "http://localhost:8000"),
+    )
     notion: NotionConfig = Field(default_factory=NotionConfig)
     slack: SlackConfig = Field(default_factory=SlackConfig)
     hubspot: HubSpotConfig = Field(default_factory=HubSpotConfig)
@@ -197,6 +185,14 @@ class GatewaySettings(BaseSettings):
     max_connections_per_backend: int = Field(default=10)
     health_check_interval_seconds: float = Field(default=30.0)
     health_check_timeout_seconds: float = Field(default=5.0)
+    gateway_internal_api_token: str = Field(
+        default_factory=lambda: os.getenv(
+            "GATEWAY_INTERNAL_API_TOKEN",
+            os.getenv("GATEWAY_INTERNAL_TOKEN", "gateway-internal-secret-token"),
+        ),
+    )
+    registry_refresh_interval: int = Field(default=60)
+    registry_health_report_interval: int = Field(default=30)
 
     model_config = {
         "env_prefix": "GATEWAY_",

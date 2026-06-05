@@ -956,6 +956,72 @@ git push origin "$FULL_TAG"
 - `/create-batch-execution-plan` Section 1 — documents base tag in Quick Reference
 - `/create-workstream` — MERGE_POINTS.md Merge Actions use dynamic construction
 
+### Merge Point Protocol (MANDATORY)
+
+**LESSON LEARNED (May 2026):** During the P5.2 workstream, Merge Actions (commit, tag, push) were executed immediately after code implementation and local SQLite tests passed — skipping Container Deployment, Container Test Scenarios, and the Success Criteria checklist from MERGE_POINTS.md. The Alembic migration had never been run against PostgreSQL before MP1 was tagged. All steps passed when run retroactively, but this was luck, not process.
+
+**Rule:** Merge Point completion is a **sequential pre-merge gate**. You MUST complete all steps in this exact order before running Merge Actions:
+
+| Step | Source | What |
+|------|--------|------|
+| 1. **Batch Validation** | `BATCH_EXECUTION_PLAN.md` → Validation section | Run every `pytest` and verification command listed for the batch |
+| 2. **Container Deployment** | `MERGE_POINTS.md` → Container Deployment | `docker compose build`, `up -d`, `alembic upgrade head`, table verification |
+| 3. **Container Test Scenarios** | `MERGE_POINTS.md` → Container Test Scenarios | Live `curl` tests against running containers (health, endpoints, auth) |
+| 4. **Success Criteria** | `MERGE_POINTS.md` → Success Criteria | Check every `[ ]` box — if any fail, fix before proceeding |
+| 5. **Merge Actions** | `MERGE_POINTS.md` → Merge Actions | Only now: `git commit`, `git push`, `git tag` |
+
+**Anti-pattern (what went wrong):**
+```
+Code → Local tests pass → Commit → Tag → Push → [Container tests skipped]
+```
+
+**Correct pattern:**
+```
+Code → Local tests pass → Container build → Container deploy → Container tests → Success criteria → Commit → Tag → Push
+```
+
+**Why this matters:**
+- SQLite tests don't catch PostgreSQL-specific issues (UUID types, JSONB, NOT NULL constraints)
+- Container deployment verifies the service actually starts with new code
+- Container test scenarios verify endpoints work with real auth, real DB, real service-to-service communication
+- A tagged merge point that fails container tests creates confusion about what "complete" means
+
+**Where enforced:**
+- `/run-batch` Step 7 — must run Container Deployment + Test Scenarios before Merge Actions
+- Agent self-check — before any `git tag` for a merge point, verify Container Test Scenarios were executed in this session
+
+### Test Suite Health (MANDATORY)
+
+**LESSON LEARNED (May 2026):** During P5.2 batch execution, 151 pre-existing test failures (19 FAILED + 83 ERRORs in `deeptrail-control`, 132 FAILED + 5 ERRORs in `deeptrail-gateway`) were encountered and skipped with the rationale "not from this workstream." This is wrong — test failures compound, root causes become harder to diagnose over time, and new code may silently break old tests.
+
+**Rule: ALL tests must pass before a batch is declared complete.**
+
+| Scenario | Action |
+|----------|--------|
+| Test fails and was broken by your changes | Fix immediately — this is a regression |
+| Test was already failing before your changes | Fix it anyway — you encountered it, you own it |
+| Test requires live services (Redis, PostgreSQL) | Mark with `@pytest.mark.e2e` or `@pytest.mark.integration`, but do NOT skip silently |
+| Test references non-existent code (design spec drift) | Rewrite to test actual implementation |
+| Test is flaky (passes alone, fails in suite) | Fix the root cause (usually fixture cleanup, DB state pollution, or `dependency_overrides.clear()`) |
+
+**Common root causes of pre-existing failures:**
+- Tests written against design specs, not actual implementation (wrong imports, non-existent classes)
+- `app.dependency_overrides.clear()` in one test fixture destroying overrides set by conftest (use `pop()` instead)
+- Hardcoded expected values that drifted (version numbers, backend counts, response field names)
+- Missing fixture cleanup causing `UNIQUE constraint` violations across tests
+- Pydantic V2 migration: aliases in error messages, `ConfigDict` vs `class Config`
+
+**Verification command (run before declaring any batch complete):**
+```bash
+cd deeptrail-control && python -m pytest tests/ --ignore=tests/test_jwt_tokens.py -q --tb=short
+cd deeptrail-gateway && python -m pytest tests/ -q --tb=short
+```
+
+**Where enforced:**
+- `/run-batch` Step 6 (after task execution) — full test suite must pass
+- `/execute-task` completion gate — tests in the modified service must pass
+- Agent self-check — never dismiss a failing test as "not mine"
+
 ### Documentation Consistency (MANDATORY)
 
 **LESSON LEARNED (Feb 2026):** Status files drifted out of sync with completion reports, causing confusion about batch completion and blocking next batch unnecessarily.
@@ -1034,13 +1100,12 @@ git push origin "$FULL_TAG"
 | May 2026 | MERGE_POINTS.md verification checked only 6 of 18 required sections — p3-gcp file passed with 10 sections missing entirely | Expanded `/create-workstream` verification from 6 to 18+2 section checks; added N/A-block pattern for inapplicable sections | MERGE_POINTS.md Required Sections |
 | May 2026 | Deploy batch in BATCH_EXECUTION_PLAN.md used inline `docker build`/`docker push` instead of existing `infra/build-and-push.sh`; `migrate.sh` used wrong gcloud flag (`--add-cloudsql-instances` vs `--set-cloudsql-instances`) hidden by `2>/dev/null` | Added deploy-script prerequisite check to `/create-batch-execution-plan`; fixed `migrate.sh` flag and error handling; added verification check for inline docker commands | Deploy Commands |
 | May 2026 | Workstream fully deployed and verified on live site but all status files still showed "in progress" — closure was manual and forgotten | Added auto-closure to `/verify-batch-completion`: detects final batch, auto-updates STATUS.md, BATCH_EXECUTION_PLAN.md, MERGE_POINTS.md, and workstreams/README.md | Verify Batch Completion |
-<<<<<<< Updated upstream
 | May 2026 | Merge point tags like `mp1-foundation-complete` collided across workstreams — no way to tell which workstream a tag belonged to | Tags now include feature branch suffix: `{base-tag}-{feature-branch}` (e.g., `mp1-foundation-complete-feature/ui-improvements-audit-activity`). Updated `/run-batch`, `/create-batch-execution-plan`, `/create-workstream` | Merge Point Tag Naming Convention |
-=======
 | May 2026 | mp_config files were created manually per workstream/merge-point — easy to forget, inconsistent | Added Step 3.5 to `/run-plan`: auto-generates `scripts/mp_configs/[feature]-mp[N].conf` from MERGE_POINTS.md after batch plan is created | mp_config Auto-Generation |
 | May 2026 | `execute_merge_point.sh` Phase 4 had hardcoded agent-lifecycle API smoke tests; Phase 5 had hardcoded commit-message grep | Replaced with config-driven `SMOKE_ENDPOINTS[]` array and `COMMIT_PATTERN` variable; added single-branch mode support (empty `WORKTREE_PATH`) | Execute Merge Point Generalization |
 | May 2026 | `/run-batch` did not call `execute_merge_point.sh` or `validate_integration.sh`; no batch chaining | Added Steps 7e (execute_merge_point.sh), 7f (validate_integration.sh for backend batches), and 8a (`--continue` flag for auto-chaining batches) | Batch Automation Generalization |
->>>>>>> Stashed changes
+| May 2026 | Merge Actions (commit, tag, push) were run before BATCH_EXECUTION_PLAN Validation scripts, Container Deployment, and Container Test Scenarios — migration had never been tested on PostgreSQL before MP1 was tagged | Added "Merge Point Protocol" section: Validation → Container Deployment → Container Test Scenarios → Success Criteria → Merge Actions. This is a sequential pre-merge gate, not an optional post-merge check | Merge Point Protocol |
+| May 2026 | P0-B1/B2 execution skipped 151 pre-existing test failures (19F+83E control, 132F+5E gateway) — tests were dismissed as "not from this workstream" but many were broken by new code or drifted from implementation | Added mandatory rule: ALL tests must pass before batch completion, not just workstream-generated tests. Pre-existing failures must be fixed if encountered. Added "Test Suite Health (MANDATORY)" section | Test Suite Health |
 
 ### How to Add New Lessons
 

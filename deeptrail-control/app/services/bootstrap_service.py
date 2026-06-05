@@ -1294,7 +1294,7 @@ class BootstrapService:
                 platform="gcp",
             )
 
-        # 4. Find an active delegation for this agent (needed for session)
+        # 4. Find newest active delegation (single owner per JWT)
         from app.models.delegation import DelegationToken
         delegation = (
             db.query(DelegationToken)
@@ -1303,12 +1303,18 @@ class BootstrapService:
                 DelegationToken.revoked_at.is_(None),
                 DelegationToken.expires_at > dt_cls.now(timezone.utc),
             )
+            .order_by(DelegationToken.created_at.desc())
             .first()
         )
 
-        # 5. Issue Agent JWT (include delegation permissions for gateway)
+        # 5. Issue discovery JWT scoped to a single delegation
         token_kwargs = {}
         if delegation:
+            logger.info(
+                "GCP bootstrap: using delegation %s (delegator=%s) for agent %s",
+                delegation.id, delegation.delegator, agent.agent_id,
+            )
+
             token_kwargs["extra_claims"] = {
                 "sub": agent.agent_id,
                 "owner": delegation.delegator or "",

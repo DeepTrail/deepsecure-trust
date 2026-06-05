@@ -204,7 +204,7 @@ resource "google_cloud_run_v2_service" "control" {
 
       # --- JWT & Internal Tokens ---
       env {
-        name = "JWT_SECRET"
+        name = "SECRET_KEY"
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.auto["jwt-secret"].secret_id
@@ -229,6 +229,39 @@ resource "google_cloud_run_v2_service" "control" {
             version = "latest"
           }
         }
+      }
+
+      # --- Encryption ---
+      env {
+        name = "FERNET_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.auto["fernet-key"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      # --- KMS (envelope encryption for vault tokens & service credentials) ---
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "KMS_LOCATION"
+        value = var.region
+      }
+      env {
+        name  = "KMS_KEYRING"
+        value = "deepsecure"
+      }
+      env {
+        name  = "KMS_KEY_NAME"
+        value = "service-credentials"
+      }
+      env {
+        name  = "KMS_VAULT_KEY_NAME"
+        value = "vault-tokens"
       }
 
       # --- OAuth Integrations ---
@@ -316,6 +349,16 @@ resource "google_cloud_run_v2_service" "control" {
         value = "https://${var.domain}"
       }
 
+      # --- Directory Sync (Google Workspace) ---
+      env {
+        name  = "GOOGLE_SERVICE_ACCOUNT_EMAIL"
+        value = google_service_account.runner.email
+      }
+      env {
+        name  = "GOOGLE_ADMIN_EMAIL"
+        value = "mahendra@deeptrail.com"
+      }
+
       # --- Runtime ---
       env {
         name  = "CLOUD_RUN"
@@ -327,6 +370,24 @@ resource "google_cloud_run_v2_service" "control" {
       }
       env {
         name  = "FRONTEND_ORIGIN"
+        value = "https://${var.domain}"
+      }
+
+      # --- Token Refresh Scheduler ---
+      env {
+        name  = "TOKEN_REFRESH_BACKEND"
+        value = "cloud_tasks"
+      }
+      env {
+        name  = "CLOUD_TASKS_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "CLOUD_TASKS_LOCATION"
+        value = var.region
+      }
+      env {
+        name  = "CONTROL_PLANE_URL"
         value = "https://${var.domain}"
       }
 
@@ -345,6 +406,7 @@ resource "google_cloud_run_v2_service" "control" {
     google_project_service.apis["run.googleapis.com"],
     google_secret_manager_secret_version.user,
     google_secret_manager_secret_version.auto,
+    google_cloud_tasks_queue.token_refresh,
   ]
 }
 
@@ -420,6 +482,15 @@ resource "google_cloud_run_v2_service" "gateway" {
       env {
         name  = "CORS_ALLOWED_ORIGINS"
         value = "https://${var.domain}"
+      }
+      env {
+        name = "SECRET_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.auto["jwt-secret"].secret_id
+            version = "latest"
+          }
+        }
       }
 
       startup_probe {

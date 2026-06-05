@@ -213,18 +213,18 @@ class TestPhase1Routing:
     
     def test_phase1_routing_comments_present(self):
         """Test that Phase 1 routing comments are present in the code."""
-        # Read the BaseClient source to verify comments are present
-        with open("deepsecure/_core/base_client.py", "r") as f:
+        import os
+        base_client_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "deepsecure", "_core", "base_client.py"
+        )
+        with open(base_client_path, "r") as f:
             content = f.read()
             
-        # Verify Phase 1 routing comments are present
         assert "Phase 1: Direct routing to deeptrail-control" in content
         assert "Phase 2: Gateway routing (future implementation)" in content
         
-        # Verify the direct routing implementation
         assert "url = f\"{self._api_url}{path}\"" in content
-        
-        # Verify the gateway routing is implemented (Phase 2 is now active)
         assert "url = f\"{self._gateway_url}{path}\"" in content
     
     def test_no_gateway_proxy_in_phase1(self):

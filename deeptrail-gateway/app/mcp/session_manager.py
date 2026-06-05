@@ -187,35 +187,15 @@ class AgentMCPSession:
 
 class MCPSessionManager:
     """
-    Manages MCP sessions between gateway and backend servers.
-    
-    For each agent that connects, we maintain:
-    - One AgentMCPSession (the agent's view of the gateway)
-    - Multiple BackendMCPSessions (gateway's connections to backends)
-    
-    This is in-memory storage for MVP. Production should use Redis or
-    distributed cache for horizontal scaling.
-    
-    Thread Safety:
-        This implementation is NOT thread-safe. For production, add locking
-        or use a thread-safe backend like Redis.
-    
-    Usage:
-        manager = MCPSessionManager()
-        
-        # On agent initialize
-        session = manager.create_agent_session(
-            agent_session_id="agent-123",
-            delegator="sarah@acme.com",
-            delegated_permissions=["notion:pages:search"],
-            connected_services=[{"service_id": "notion", ...}]
-        )
-        
-        # On tools/list
-        tools = manager.get_allowed_tools("agent-123")
-        
-        # On tools/call
-        cred = manager.get_credential_ref_for_tool("agent-123", "notion.search")
+    Optional session cache for MCP gateway (B6: gutted for stateless).
+
+    As of MCP 2026-07-28, sessions are no longer required for tools/list or
+    tools/call — JWT claims are the source of truth.  This manager acts as
+    an **optimization cache**: if initialize was called, subsequent requests
+    can skip permission re-derivation by looking up the cached session.
+
+    Handlers MUST work correctly when no session exists.  All critical paths
+    derive permissions from JWT context, not from session state.
     """
     
     def __init__(self) -> None:

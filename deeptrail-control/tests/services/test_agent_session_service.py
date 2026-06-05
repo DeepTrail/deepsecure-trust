@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 
 import jwt
 import pytest
+
+from app.core.jwt_signing import reset_jwt_signing_service
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 # Note: We don't import AgentSession/DelegationToken for spec= usage
@@ -35,6 +37,17 @@ def _clear_pending_challenges():
     _pending_challenges.clear()
     yield
     _pending_challenges.clear()
+
+
+@pytest.fixture(autouse=True)
+def _force_hs256_jwt_for_tests(monkeypatch, jwt_secret):
+    """Align JWT signing with test decode key (HS256 + test secret)."""
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    monkeypatch.setenv("SECRET_KEY", jwt_secret)
+    monkeypatch.setenv("JWT_SECRET", jwt_secret)
+    reset_jwt_signing_service()
+    yield
+    reset_jwt_signing_service()
 
 
 @pytest.fixture
@@ -432,9 +445,20 @@ class TestJWTGeneration:
         ed25519_keypair,
         jwt_secret,
         agent_id,
+        mock_delegation,
     ):
         """Test JWT contains all required claims from design doc."""
         private_key, _ = ed25519_keypair
+
+        agent_session_service.db.query.return_value.filter.return_value.order_by.return_value.first.return_value = mock_delegation
+
+        def _fake_refresh(session):
+            if not hasattr(session, "id") or session.id is None:
+                session.id = f"asess-{uuid.uuid4().hex[:12]}"
+            if not hasattr(session, "created_at") or session.created_at is None:
+                session.created_at = datetime.now(timezone.utc)
+
+        agent_session_service.db.refresh.side_effect = _fake_refresh
 
         challenge = agent_session_service.create_challenge(agent_id)
         signature = sign_challenge(private_key, challenge)

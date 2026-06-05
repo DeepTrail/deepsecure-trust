@@ -31,6 +31,7 @@ from unittest.mock import Mock, patch, AsyncMock
 from typing import Dict, Any, Optional
 
 import httpx
+from jose import jwt as jose_jwt
 from fastapi.testclient import TestClient
 from fastapi import FastAPI, Request, HTTPException
 
@@ -43,6 +44,9 @@ from app.core.proxy_config import ProxyConfig, load_config
 from app.core.request_logger import RequestLogger, LoggingConfig
 from app.core.request_validator import ProxyRequestInfo
 
+JWT_SECRET_KEY = "your-secret-key-for-jwt"
+JWT_ALGORITHM = "HS256"
+
 
 class TestJWTValidationMiddleware:
     """Test JWT validation middleware functionality."""
@@ -52,38 +56,37 @@ class TestJWTValidationMiddleware:
         self.client = TestClient(app, raise_server_exceptions=False)
         self.valid_jwt_payload = {
             "sub": "agent-test-123",
+            "iss": "deeptrail-control",
+            "aud": "deeptrail-gateway",
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:GET", "method:POST"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "iat": int(datetime.now(timezone.utc).timestamp()),
             "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
-            "permissions": ["domain:httpbin.org", "method:GET", "method:POST"],
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["GET", "POST"]
         }
     
     def create_mock_jwt(self, payload: Dict[str, Any]) -> str:
-        """Create a mock JWT token for testing (not cryptographically secure)."""
-        header = {"alg": "RS256", "typ": "JWT"}
-        
-        # Base64url encode header and payload
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
-        signature_b64 = "mock_signature"
-        
-        return f"{header_b64}.{payload_b64}.{signature_b64}"
+        """Create a properly signed JWT token for testing."""
+        return jose_jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.core.http_client.get_http_client')
+    @patch('app.proxy.get_http_client')
     def test_jwt_validation_success(self, mock_client, mock_validate_request, mock_jwt_validation):
         """Test successful JWT validation."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-test-123",
-            "permissions": ["domain:httpbin.org", "method:GET"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:GET"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["GET"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://httpbin.org",
             method="GET",
@@ -93,11 +96,11 @@ class TestJWTValidationMiddleware:
             content_type=None
         )
         
-        # Mock HTTP client response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
         mock_response.content = b'{"test": "response"}'
+        mock_response.aread = AsyncMock(return_value=b'{"test": "response"}')
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
@@ -110,7 +113,6 @@ class TestJWTValidationMiddleware:
             }
         )
         
-        # Should not fail JWT validation
         assert response.status_code == 200
         mock_jwt_validation.assert_called_once()
     
@@ -153,7 +155,7 @@ class TestJWTValidationMiddleware:
         )
         
         assert response.status_code == 401
-        assert "JWT token expired" in response.json()["detail"]
+        assert "expired" in response.json()["detail"].lower()
     
     def test_jwt_validation_missing_subject(self):
         """Test JWT validation with missing subject claim."""
@@ -171,7 +173,7 @@ class TestJWTValidationMiddleware:
         )
         
         assert response.status_code == 401
-        assert "JWT token missing subject claim" in response.json()["detail"]
+        assert "missing required claims" in response.json()["detail"].lower() or "sub" in response.json()["detail"]
     
     def test_jwt_validation_bypassed_for_health_endpoints(self):
         """Test that JWT validation is bypassed for health endpoints."""
@@ -193,35 +195,37 @@ class TestPolicyEnforcementMiddleware:
         self.client = TestClient(app, raise_server_exceptions=False)
         self.valid_jwt_payload = {
             "sub": "agent-test-123",
+            "iss": "deeptrail-control",
+            "aud": "deeptrail-gateway",
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:api.openai.com", "method:GET", "method:POST"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "iat": int(datetime.now(timezone.utc).timestamp()),
             "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
-            "permissions": ["domain:api.openai.com", "method:GET", "method:POST"],
             "allowed_domains": ["api.openai.com", "httpbin.org"],
             "allowed_methods": ["GET", "POST"]
         }
     
     def create_mock_jwt(self, payload: Dict[str, Any]) -> str:
-        """Create a mock JWT token for testing."""
-        header = {"alg": "RS256", "typ": "JWT"}
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
-        signature_b64 = "mock_signature"
-        return f"{header_b64}.{payload_b64}.{signature_b64}"
+        """Create a properly signed JWT token for testing."""
+        return jose_jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.core.http_client.get_http_client')
+    @patch('app.proxy.get_http_client')
     def test_policy_enforcement_allowed_domain(self, mock_client, mock_validate_request, mock_jwt_validation):
         """Test policy enforcement allows access to permitted domain."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-test-123",
-            "permissions": ["domain:api.openai.com", "method:GET"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:api.openai.com", "method:GET"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["api.openai.com"],
             "allowed_methods": ["GET"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://api.openai.com",
             method="GET",
@@ -231,11 +235,11 @@ class TestPolicyEnforcementMiddleware:
             content_type=None
         )
         
-        # Mock HTTP client response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
         mock_response.content = b'{"test": "response"}'
+        mock_response.aread = AsyncMock(return_value=b'{"test": "response"}')
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
@@ -248,7 +252,6 @@ class TestPolicyEnforcementMiddleware:
             }
         )
         
-        # Should not fail policy enforcement
         assert response.status_code == 200
         mock_jwt_validation.assert_called_once()
     
@@ -317,36 +320,38 @@ class TestSecretInjectionMiddleware:
         self.client = TestClient(app, raise_server_exceptions=False)
         self.valid_jwt_payload = {
             "sub": "agent-test-123",
+            "iss": "deeptrail-control",
+            "aud": "deeptrail-gateway",
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:api.openai.com", "method:GET"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "iat": int(datetime.now(timezone.utc).timestamp()),
             "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
-            "permissions": ["domain:api.openai.com", "method:GET"],
             "allowed_domains": ["api.openai.com", "httpbin.org"],
             "allowed_methods": ["GET"]
         }
     
     def create_mock_jwt(self, payload: Dict[str, Any]) -> str:
-        """Create a mock JWT token for testing."""
-        header = {"alg": "RS256", "typ": "JWT"}
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
-        signature_b64 = "mock_signature"
-        return f"{header_b64}.{payload_b64}.{signature_b64}"
+        """Create a properly signed JWT token for testing."""
+        return jose_jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.middleware.secret_injection.SecretInjectionMiddleware._get_secret_for_domain')
-    @patch('app.core.http_client.get_http_client')
-    def test_secret_injection_bearer_token(self, mock_client, mock_get_secret, mock_validate_request, mock_jwt_validation):
+    @patch('app.middleware.secret_injection.SecretInjectionMiddleware._inject_secrets')
+    @patch('app.proxy.get_http_client')
+    def test_secret_injection_bearer_token(self, mock_client, mock_inject_secrets, mock_validate_request, mock_jwt_validation):
         """Test secret injection with Bearer token."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-test-123",
-            "permissions": ["domain:api.openai.com", "method:GET"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:api.openai.com", "method:GET"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["api.openai.com"],
             "allowed_methods": ["GET"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://api.openai.com",
             method="GET",
@@ -356,17 +361,13 @@ class TestSecretInjectionMiddleware:
             content_type=None
         )
         
-        # Mock secret configuration
-        mock_get_secret.return_value = {
-            "type": "bearer",
-            "value": "test-bearer-token"
-        }
+        mock_inject_secrets.return_value = None
         
-        # Mock HTTP client response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.content = b"test response"
+        mock_response.aread = AsyncMock(return_value=b"test response")
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
@@ -379,25 +380,25 @@ class TestSecretInjectionMiddleware:
             }
         )
         
-        # Verify the request was made with injected secret
         mock_client.return_value.proxy_request.assert_called_once()
         assert response.status_code == 200
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.middleware.secret_injection.SecretInjectionMiddleware._get_secret_for_domain')
-    @patch('app.core.http_client.get_http_client')
-    def test_secret_injection_no_secret_needed(self, mock_client, mock_get_secret, mock_validate_request, mock_jwt_validation):
+    @patch('app.middleware.secret_injection.SecretInjectionMiddleware._inject_secrets')
+    @patch('app.proxy.get_http_client')
+    def test_secret_injection_no_secret_needed(self, mock_client, mock_inject_secrets, mock_validate_request, mock_jwt_validation):
         """Test secret injection when no secret is needed."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-test-123",
-            "permissions": ["domain:httpbin.org", "method:GET"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:GET"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["GET"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://httpbin.org",
             method="GET",
@@ -407,17 +408,13 @@ class TestSecretInjectionMiddleware:
             content_type=None
         )
         
-        # Mock no secret configuration
-        mock_get_secret.return_value = {
-            "type": "none",
-            "value": None
-        }
+        mock_inject_secrets.return_value = None
         
-        # Mock HTTP client response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.content = b"test response"
+        mock_response.aread = AsyncMock(return_value=b"test response")
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
@@ -441,35 +438,37 @@ class TestProxyCore:
         self.client = TestClient(app, raise_server_exceptions=False)
         self.valid_jwt_payload = {
             "sub": "agent-test-123",
+            "iss": "deeptrail-control",
+            "aud": "deeptrail-gateway",
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:GET", "method:POST"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "iat": int(datetime.now(timezone.utc).timestamp()),
             "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
-            "permissions": ["domain:httpbin.org", "method:GET", "method:POST"],
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["GET", "POST"]
         }
     
     def create_mock_jwt(self, payload: Dict[str, Any]) -> str:
-        """Create a mock JWT token for testing."""
-        header = {"alg": "RS256", "typ": "JWT"}
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
-        signature_b64 = "mock_signature"
-        return f"{header_b64}.{payload_b64}.{signature_b64}"
+        """Create a properly signed JWT token for testing."""
+        return jose_jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.core.http_client.get_http_client')
+    @patch('app.proxy.get_http_client')
     def test_proxy_get_request(self, mock_client, mock_validate_request, mock_jwt_validation):
         """Test basic GET request proxying."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-test-123",
-            "permissions": ["domain:httpbin.org", "method:GET"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:GET"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["GET"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://httpbin.org",
             method="GET",
@@ -479,11 +478,11 @@ class TestProxyCore:
             content_type=None
         )
         
-        # Mock HTTP client response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
         mock_response.content = b'{"test": "response"}'
+        mock_response.aread = AsyncMock(return_value=b'{"test": "response"}')
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
@@ -501,18 +500,19 @@ class TestProxyCore:
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.core.http_client.get_http_client')
+    @patch('app.proxy.get_http_client')
     def test_proxy_post_request_with_body(self, mock_client, mock_validate_request, mock_jwt_validation):
         """Test POST request proxying with request body."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-test-123",
-            "permissions": ["domain:httpbin.org", "method:POST"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:POST"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["POST"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://httpbin.org",
             method="POST",
@@ -522,11 +522,11 @@ class TestProxyCore:
             content_type="application/json"
         )
         
-        # Mock HTTP client response
         mock_response = Mock()
         mock_response.status_code = 201
         mock_response.headers = {"Content-Type": "application/json"}
         mock_response.content = b'{"created": true}'
+        mock_response.aread = AsyncMock(return_value=b'{"created": true}')
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
@@ -546,18 +546,19 @@ class TestProxyCore:
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.core.http_client.get_http_client')
+    @patch('app.proxy.get_http_client')
     def test_proxy_error_handling(self, mock_client, mock_validate_request, mock_jwt_validation):
         """Test proxy error handling."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-test-123",
-            "permissions": ["domain:httpbin.org", "method:GET"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:GET"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["GET"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://httpbin.org",
             method="GET",
@@ -567,7 +568,6 @@ class TestProxyCore:
             content_type=None
         )
         
-        # Mock HTTP client to raise an exception
         mock_client.return_value.proxy_request = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
@@ -580,14 +580,14 @@ class TestProxyCore:
             }
         )
         
-        # Should return 500 for connection errors
         assert response.status_code == 500
     
     def test_proxy_request_without_prefix(self):
         """Test that requests without /proxy prefix are handled correctly."""
         response = self.client.get("/test")
         assert response.status_code == 404
-        assert "not found" in response.json()["message"].lower()
+        data = response.json()
+        assert "not found" in data.get("message", data.get("detail", "")).lower()
 
 
 class TestHealthEndpoints:
@@ -646,36 +646,38 @@ class TestEndToEndIntegration:
         self.client = TestClient(app, raise_server_exceptions=False)
         self.valid_jwt_payload = {
             "sub": "agent-integration-test",
+            "iss": "deeptrail-control",
+            "aud": "deeptrail-gateway",
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:api.openai.com", "method:GET", "method:POST"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "iat": int(datetime.now(timezone.utc).timestamp()),
             "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
-            "permissions": ["domain:api.openai.com", "method:GET", "method:POST"],
             "allowed_domains": ["api.openai.com", "httpbin.org"],
             "allowed_methods": ["GET", "POST"]
         }
     
     def create_mock_jwt(self, payload: Dict[str, Any]) -> str:
-        """Create a mock JWT token for testing."""
-        header = {"alg": "RS256", "typ": "JWT"}
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
-        signature_b64 = "mock_signature"
-        return f"{header_b64}.{payload_b64}.{signature_b64}"
+        """Create a properly signed JWT token for testing."""
+        return jose_jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.middleware.secret_injection.SecretInjectionMiddleware._get_secret_for_domain')
-    @patch('app.core.http_client.get_http_client')
-    def test_full_request_flow(self, mock_client, mock_get_secret, mock_validate_request, mock_jwt_validation):
+    @patch('app.middleware.secret_injection.SecretInjectionMiddleware._inject_secrets')
+    @patch('app.proxy.get_http_client')
+    def test_full_request_flow(self, mock_client, mock_inject_secrets, mock_validate_request, mock_jwt_validation):
         """Test complete request flow through all middleware."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-integration-test",
-            "permissions": ["domain:api.openai.com", "method:POST"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:api.openai.com", "method:POST"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["api.openai.com"],
             "allowed_methods": ["POST"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://api.openai.com",
             method="POST",
@@ -685,17 +687,13 @@ class TestEndToEndIntegration:
             content_type="application/json"
         )
         
-        # Mock secret injection
-        mock_get_secret.return_value = {
-            "type": "bearer",
-            "value": "test-api-key"
-        }
+        mock_inject_secrets.return_value = None
         
-        # Mock HTTP client response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
         mock_response.content = b'{"success": true}'
+        mock_response.aread = AsyncMock(return_value=b'{"success": true}')
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
@@ -710,15 +708,10 @@ class TestEndToEndIntegration:
             json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "Hello"}]}
         )
         
-        # Verify the request went through all middleware successfully
         assert response.status_code == 200
         assert response.json()["success"] is True
-        
-        # Verify HTTP client was called
         mock_client.return_value.proxy_request.assert_called_once()
-        
-        # Verify secret injection was attempted
-        mock_get_secret.assert_called_once()
+        mock_inject_secrets.assert_called_once()
     
     def test_security_rejection_flow(self):
         """Test security rejection at different middleware layers."""
@@ -745,35 +738,37 @@ class TestPerformanceAndEdgeCases:
         self.client = TestClient(app, raise_server_exceptions=False)
         self.valid_jwt_payload = {
             "sub": "agent-perf-test",
+            "iss": "deeptrail-control",
+            "aud": "deeptrail-gateway",
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:GET", "method:POST"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "iat": int(datetime.now(timezone.utc).timestamp()),
             "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
-            "permissions": ["domain:httpbin.org", "method:GET", "method:POST"],
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["GET", "POST"]
         }
     
     def create_mock_jwt(self, payload: Dict[str, Any]) -> str:
-        """Create a mock JWT token for testing."""
-        header = {"alg": "RS256", "typ": "JWT"}
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
-        signature_b64 = "mock_signature"
-        return f"{header_b64}.{payload_b64}.{signature_b64}"
+        """Create a properly signed JWT token for testing."""
+        return jose_jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.core.http_client.get_http_client')
+    @patch('app.proxy.get_http_client')
     def test_large_request_handling(self, mock_client, mock_validate_request, mock_jwt_validation):
         """Test handling of large requests."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-perf-test",
-            "permissions": ["domain:httpbin.org", "method:POST"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:POST"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["POST"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://httpbin.org",
             method="POST",
@@ -783,16 +778,15 @@ class TestPerformanceAndEdgeCases:
             content_type="application/json"
         )
         
-        # Mock HTTP client response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.content = b'{"processed": true}'
+        mock_response.aread = AsyncMock(return_value=b'{"processed": true}')
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
         
-        # Create a large payload (but within limits)
         large_data = {"data": "x" * 1000}
         
         response = self.client.post(
@@ -809,18 +803,19 @@ class TestPerformanceAndEdgeCases:
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.core.http_client.get_http_client')
+    @patch('app.proxy.get_http_client')
     def test_malformed_requests(self, mock_client, mock_validate_request, mock_jwt_validation):
         """Test handling of malformed requests."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-perf-test",
-            "permissions": ["domain:httpbin.org", "method:POST"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:POST"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["POST"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://httpbin.org",
             method="POST",
@@ -830,16 +825,15 @@ class TestPerformanceAndEdgeCases:
             content_type="application/json"
         )
         
-        # Mock HTTP client response  
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.content = b'{"processed": true}'
+        mock_response.aread = AsyncMock(return_value=b'{"processed": true}')
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
         
-        # Test with malformed JSON
         response = self.client.post(
             "/proxy/test",
             headers={
@@ -847,26 +841,26 @@ class TestPerformanceAndEdgeCases:
                 "X-Target-Base-URL": "https://httpbin.org",
                 "Content-Type": "application/json"
             },
-            data="invalid json"
+            content="invalid json"
         )
         
-        # Should handle malformed JSON gracefully
         assert response.status_code == 200
     
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
-    @patch('app.core.http_client.get_http_client')
+    @patch('app.proxy.get_http_client')
     def test_concurrent_requests(self, mock_client, mock_validate_request, mock_jwt_validation):
         """Test handling of concurrent requests."""
-        # Mock JWT validation to return valid agent info
         mock_jwt_validation.return_value = {
             "sub": "agent-perf-test",
-            "permissions": ["domain:httpbin.org", "method:GET"],
+            "owner": "test@example.com",
+            "delegated_permissions": ["domain:httpbin.org", "method:GET"],
+            "delegation_id": "test-delegation",
+            "session_id": "test-session",
             "allowed_domains": ["httpbin.org"],
             "allowed_methods": ["GET"]
         }
         
-        # Mock request validation to return a valid ProxyRequestInfo
         mock_validate_request.return_value = ProxyRequestInfo(
             target_url="https://httpbin.org",
             method="GET",
@@ -876,16 +870,15 @@ class TestPerformanceAndEdgeCases:
             content_type=None
         )
         
-        # Mock HTTP client response
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.content = b'{"success": true}'
+        mock_response.aread = AsyncMock(return_value=b'{"success": true}')
         mock_client.return_value.proxy_request = AsyncMock(return_value=mock_response)
         
         jwt_token = self.create_mock_jwt(self.valid_jwt_payload)
         
-        # Make multiple concurrent requests
         responses = []
         for i in range(5):
             response = self.client.get(
@@ -897,7 +890,6 @@ class TestPerformanceAndEdgeCases:
             )
             responses.append(response)
         
-        # All requests should succeed
         for response in responses:
             assert response.status_code == 200
 

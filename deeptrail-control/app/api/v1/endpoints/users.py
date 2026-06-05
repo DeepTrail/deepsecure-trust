@@ -24,6 +24,7 @@ from app.services.vault_client import VaultClient
 from app.services.scope_mapper import ScopeMapper
 from app.services.cache_events import publish_service_disconnected
 from app.models.connected_service import ConnectedService
+from app.models.user_session import UserSession
 
 logger = logging.getLogger(__name__)
 
@@ -223,20 +224,34 @@ def get_current_user_profile(
     current_user: CurrentUserDep,
     db: deps.DbDep,
 ) -> UserResponse:
-    """Get the current user's profile."""
+    """Get the current user's profile, including role from user_sessions."""
     user = db.query(User).filter(User.user_id == current_user).first()
+
+    session = (
+        db.query(UserSession)
+        .filter(
+            UserSession.user_id == current_user,
+            UserSession.revoked_at.is_(None),
+        )
+        .order_by(UserSession.created_at.desc())
+        .first()
+    )
+    role = getattr(session, "role", "employee") if session else "employee"
 
     if user is None:
         now = datetime.now(timezone.utc)
         return UserResponse(
             user_id=current_user,
             email=current_user,
+            role=role,
             onboarding_completed=False,
             created_at=now,
             updated_at=now,
         )
 
-    return UserResponse.model_validate(user)
+    resp = UserResponse.model_validate(user)
+    resp.role = role
+    return resp
 
 
 # =============================================================================
@@ -310,6 +325,12 @@ def connect_service(
         ).first()
 
         if existing:
+            # Clean up old vault row before storing new ref (prevent orphans)
+            if existing.oauth_token_ref and existing.oauth_token_ref != token_ref:
+                try:
+                    vault.delete_token(existing.oauth_token_ref, db=db)
+                except Exception:
+                    logger.warning("Failed to delete old vault token: ref=%s", existing.oauth_token_ref)
             # Update existing connection (reconnect)
             existing.oauth_token_ref = token_ref
             existing.scopes_granted = scopes

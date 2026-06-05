@@ -15,7 +15,7 @@ Security features:
 - State tokens are cryptographically random (32 bytes)
 - State tokens are single-use (consumed on validation)
 - PKCE code_verifier is 43-128 characters (RFC 7636)
-- Client secrets read from environment variables
+- Client credentials: service_oauth_config table (admin-managed) → env vars (legacy)
 """
 
 import base64
@@ -28,6 +28,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
+from sqlalchemy.orm import Session
 
 from app.schemas.oauth import (
     AuthorizationRequest,
@@ -89,6 +90,7 @@ DEFAULT_SCOPES = {
     OAuthProvider.SLACK: ["channels:read", "channels:history", "chat:write"],
     OAuthProvider.HUBSPOT: ["crm.objects.contacts.read", "crm.objects.contacts.write"],
     OAuthProvider.GOOGLE: [],  # Service-specific scopes used instead
+    OAuthProvider.GITHUB: ["repo", "read:org", "read:user"],
 }
 
 # Service-specific default scopes (for providers shared by multiple services)
@@ -118,6 +120,11 @@ PROVIDER_URLS = {
     OAuthProvider.GOOGLE: {
         "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
+        "uses_pkce": False,
+    },
+    OAuthProvider.GITHUB: {
+        "authorization_url": "https://github.com/login/oauth/authorize",
+        "token_url": "https://github.com/login/oauth/access_token",
         "uses_pkce": False,
     },
 }
@@ -193,37 +200,136 @@ class OAuthService:
     # ========================================================================
 
     def get_provider_config(
-        self, provider: OAuthProvider, service_id: str | None = None
+        self,
+        provider: OAuthProvider,
+        service_id: str | None = None,
+        db: Session | None = None,
     ) -> OAuthConfig:
         """Get OAuth configuration for a provider.
 
-        Reads client credentials from environment variables.
+        Uses a fallback chain:
+        1. service_oauth_config table (admin-managed, if db session provided)
+        2. Environment variables (legacy)
 
         Args:
             provider: The OAuth provider.
             service_id: Optional service identifier for multi-service providers
                 (e.g., "gdrive" for Google). Used for service-specific redirect
                 URIs and scopes.
+            db: Optional database session for DB-backed config lookup.
 
         Returns:
             OAuthConfig with provider-specific settings.
 
         Raises:
-            OAuthConfigError: If required environment variables are missing.
+            OAuthConfigError: If required configuration is missing from all sources.
         """
-        provider_name = provider.value.upper()
+        lookup_id = service_id or provider.value
 
-        # Required environment variables
-        client_id = os.environ.get(f"{provider_name}_CLIENT_ID")
-        client_secret = os.environ.get(f"{provider_name}_CLIENT_SECRET")
+        if db is not None:
+            db_config = self._get_config_from_db(provider, lookup_id, service_id, db)
+            if db_config is not None:
+                return db_config
+
+        logger.debug("Using env var OAuth config for '%s'", lookup_id)
+        return self._get_config_from_env(provider, service_id)
+
+    def _get_config_from_db(
+        self,
+        provider: OAuthProvider,
+        lookup_id: str,
+        service_id: str | None,
+        db: Session,
+    ) -> OAuthConfig | None:
+        """Try to load OAuth config from the service_oauth_config table.
+
+        Returns None if no matching row is found or decryption fails,
+        allowing the caller to fall back to env vars.
+        """
+        from app.core.kms import get_kms_client
+        from app.models.service_registry import ServiceOAuthConfig
+
+        config = (
+            db.query(ServiceOAuthConfig)
+            .filter(ServiceOAuthConfig.service_id == lookup_id)
+            .first()
+        )
+        if config is None:
+            return None
+
+        try:
+            kms = get_kms_client()
+            client_secret = kms.decrypt(config.client_secret_encrypted)
+        except Exception:
+            logger.warning(
+                "Failed to decrypt OAuth secret for '%s'; falling back to env vars",
+                lookup_id,
+                exc_info=True,
+            )
+            return None
+
+        urls = PROVIDER_URLS.get(provider, {})
+        auth_url = config.auth_url or urls.get("authorization_url", "")
+        token_url = config.token_url or urls.get("token_url", "")
+        uses_pkce = urls.get("uses_pkce", False)
+
+        if provider == OAuthProvider.CUSTOM and (not auth_url or not token_url):
+            raise OAuthConfigError(
+                f"Custom provider '{lookup_id}' requires auth_url and token_url in service_oauth_config"
+            )
+
+        scopes = config.scopes if config.scopes else (
+            SERVICE_DEFAULT_SCOPES.get(service_id)
+            if service_id and service_id in SERVICE_DEFAULT_SCOPES
+            else DEFAULT_SCOPES.get(provider, [])
+        )
+
+        redirect_base = os.environ.get(self.ENV_REDIRECT_BASE)
+        if not redirect_base:
+            logger.warning(
+                "DB OAuth config found for '%s' but %s not set; "
+                "falling back to env vars",
+                lookup_id,
+                self.ENV_REDIRECT_BASE,
+            )
+            return None
+
+        redirect_path = service_id or provider.value
+        redirect_uri = (
+            f"{redirect_base.rstrip('/')}/api/v1/oauth/{redirect_path}/callback"
+        )
+
+        logger.debug("Using DB OAuth config for service '%s'", lookup_id)
+
+        return OAuthConfig(
+            provider=provider,
+            client_id=config.client_id,
+            client_secret=client_secret,
+            authorization_url=auth_url,
+            token_url=token_url,
+            scopes=scopes,
+            redirect_uri=redirect_uri,
+            uses_pkce=uses_pkce,
+        )
+
+    def _get_config_from_env(
+        self, provider: OAuthProvider, service_id: str | None = None
+    ) -> OAuthConfig:
+        """Load OAuth config from environment variables (legacy path)."""
+        if provider == OAuthProvider.CUSTOM:
+            env_prefix = (service_id or "CUSTOM").upper().replace("-", "_")
+        else:
+            env_prefix = provider.value.upper()
+
+        client_id = os.environ.get(f"{env_prefix}_CLIENT_ID")
+        client_secret = os.environ.get(f"{env_prefix}_CLIENT_SECRET")
         redirect_base = os.environ.get(self.ENV_REDIRECT_BASE)
 
-        # Validate required config
         missing = []
         if not client_id:
-            missing.append(f"{provider_name}_CLIENT_ID")
+            missing.append(f"{env_prefix}_CLIENT_ID")
         if not client_secret:
-            missing.append(f"{provider_name}_CLIENT_SECRET")
+            missing.append(f"{env_prefix}_CLIENT_SECRET")
         if not redirect_base:
             missing.append(self.ENV_REDIRECT_BASE)
 
@@ -232,14 +338,19 @@ class OAuthService:
                 f"Missing required environment variables: {', '.join(missing)}"
             )
 
-        # Use service_id for redirect URI when provided (e.g., "gdrive" not "google")
         redirect_path = service_id or provider.value
         redirect_uri = f"{redirect_base.rstrip('/')}/api/v1/oauth/{redirect_path}/callback"
 
-        # Get provider-specific URLs
-        urls = PROVIDER_URLS[provider]
+        urls = PROVIDER_URLS.get(provider, {})
+        auth_url = urls.get("authorization_url", "")
+        token_url = urls.get("token_url", "")
 
-        # Use service-specific scopes if available, otherwise provider defaults
+        if provider == OAuthProvider.CUSTOM and (not auth_url or not token_url):
+            raise OAuthConfigError(
+                f"Custom provider '{service_id}' requires DB-stored auth_url and token_url. "
+                f"Configure via PUT /admin/services/{service_id}/oauth"
+            )
+
         scopes = (
             SERVICE_DEFAULT_SCOPES.get(service_id)
             if service_id and service_id in SERVICE_DEFAULT_SCOPES
@@ -250,15 +361,18 @@ class OAuthService:
             provider=provider,
             client_id=client_id,
             client_secret=client_secret,
-            authorization_url=urls["authorization_url"],
-            token_url=urls["token_url"],
+            authorization_url=auth_url,
+            token_url=token_url,
             scopes=scopes,
             redirect_uri=redirect_uri,
-            uses_pkce=urls["uses_pkce"],
+            uses_pkce=urls.get("uses_pkce", False),
         )
 
     async def get_authorization_url(
-        self, request: AuthorizationRequest, service_id: str | None = None
+        self,
+        request: AuthorizationRequest,
+        service_id: str | None = None,
+        db: Session | None = None,
     ) -> AuthorizationResponse:
         """Generate OAuth authorization URL.
 
@@ -279,7 +393,7 @@ class OAuthService:
         Raises:
             OAuthConfigError: If provider configuration is missing.
         """
-        config = self.get_provider_config(request.provider, service_id=service_id)
+        config = self.get_provider_config(request.provider, service_id=service_id, db=db)
 
         # Generate PKCE pair if needed
         code_verifier = None
@@ -340,7 +454,10 @@ class OAuthService:
         )
 
     async def exchange_code_for_tokens(
-        self, request: TokenExchangeRequest, service_id: str | None = None
+        self,
+        request: TokenExchangeRequest,
+        service_id: str | None = None,
+        db: Session | None = None,
     ) -> OAuthTokenResponse:
         """Exchange authorization code for OAuth tokens.
 
@@ -368,7 +485,7 @@ class OAuthService:
             )
 
         # Get provider config
-        config = self.get_provider_config(request.provider, service_id=service_id)
+        config = self.get_provider_config(request.provider, service_id=service_id, db=db)
 
         # Build token request
         data = {
@@ -379,16 +496,24 @@ class OAuthService:
 
         # Add client credentials (method varies by provider)
         if request.provider == OAuthProvider.NOTION:
-            # Notion uses Basic auth
             auth = (config.client_id, config.client_secret)
             headers = {"Content-Type": "application/json"}
-            # Notion expects JSON body
             json_data = data
             data = None
+        elif request.provider == OAuthProvider.GITHUB:
+            auth = None
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            }
+            data["client_id"] = config.client_id
+            data["client_secret"] = config.client_secret
+            json_data = None
         else:
-            # Slack and HubSpot use POST body
             auth = None
             headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            if request.provider == OAuthProvider.CUSTOM:
+                headers["Accept"] = "application/json"
             data["client_id"] = config.client_id
             data["client_secret"] = config.client_secret
             json_data = None
@@ -445,7 +570,10 @@ class OAuthService:
             raise OAuthExchangeError(f"HTTP error during token exchange: {e}") from e
 
     async def refresh_tokens(
-        self, request: TokenRefreshRequest, service_id: str | None = None
+        self,
+        request: TokenRefreshRequest,
+        service_id: str | None = None,
+        db: Session | None = None,
     ) -> OAuthTokenResponse:
         """Refresh OAuth tokens using a refresh token.
 
@@ -459,7 +587,7 @@ class OAuthService:
             OAuthRefreshError: If token refresh fails.
             OAuthConfigError: If provider configuration is missing.
         """
-        config = self.get_provider_config(request.provider, service_id=service_id)
+        config = self.get_provider_config(request.provider, service_id=service_id, db=db)
 
         # Build refresh request
         data = {
@@ -712,6 +840,13 @@ class OAuthService:
             expires_in = data.get("expires_in")
             token_type = data.get("token_type", "Bearer")
             scope = "read_content update_content insert_content"
+        elif provider == OAuthProvider.GITHUB:
+            access_token = data.get("access_token")
+            refresh_token = data.get("refresh_token")
+            expires_in = data.get("expires_in")
+            token_type = "Bearer"
+            raw_scope = data.get("scope", "")
+            scope = raw_scope.replace(",", " ") if raw_scope else None
         else:
             access_token = data.get("access_token")
             refresh_token = data.get("refresh_token")

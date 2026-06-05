@@ -31,6 +31,14 @@ interface AvailablePermissionsResponse {
   total_permissions: number;
 }
 
+interface PublicTemplate {
+  id: string;
+  agent_id: string;
+  max_permissions: string[];
+  blocked_permissions: string[];
+  default_ttl_days: number;
+}
+
 function parsePermissionString(permStr: string): Permission | null {
   const parts = permStr.split(":");
   if (parts.length !== 3) return null;
@@ -42,6 +50,7 @@ interface PageData {
   agents: Agent[];
   permissions: Permission[];
   totalServices: number;
+  templates: PublicTemplate[];
 }
 
 type PageState =
@@ -51,17 +60,26 @@ type PageState =
 
 export default function CreateDelegationPage() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
+  const [allowFreeform, setAllowFreeform] = useState<boolean>(true);
   const router = useRouter();
 
   const fetchData = useCallback(async () => {
     setState({ kind: "loading" });
     try {
-      const [agentsResp, permissionsResp] = await Promise.all([
+      const [agentsResp, permissionsResp, templatesResp, policyResp] = await Promise.all([
         apiClient<Agent[] | { agents: Agent[] }>("agents/"),
         apiClient<AvailablePermissionsResponse>(
           "users/me/available-permissions",
         ),
+        apiClient<{ templates: PublicTemplate[] }>(
+          "auth/delegation-templates",
+        ).catch(() => ({ templates: [] })),
+        apiClient<{ allow_freeform: boolean }>(
+          "settings/delegation-policy",
+        ).catch(() => ({ allow_freeform: true })),
       ]);
+
+      setAllowFreeform(policyResp.allow_freeform);
 
       const agents = Array.isArray(agentsResp)
         ? agentsResp
@@ -72,8 +90,9 @@ export default function CreateDelegationPage() {
         .filter((p): p is Permission => p !== null);
 
       const totalServices = permissionsResp.total_services ?? 0;
+      const templates = templatesResp.templates ?? [];
 
-      setState({ kind: "data", data: { agents, permissions, totalServices } });
+      setState({ kind: "data", data: { agents, permissions, totalServices, templates } });
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -97,7 +116,7 @@ export default function CreateDelegationPage() {
       <ErrorCard title="Create Delegation" message={state.message} retry={fetchData} />
     );
 
-  const { agents, permissions, totalServices } = state.data;
+  const { agents, permissions, totalServices, templates } = state.data;
 
   if (agents.length === 0) {
     return (
@@ -142,12 +161,19 @@ export default function CreateDelegationPage() {
           <Badge variant="outline">
             {permissions.length} permission{permissions.length !== 1 ? "s" : ""} available
           </Badge>
+          {templates.length > 0 && (
+            <Badge variant="outline">
+              {templates.length} template{templates.length !== 1 ? "s" : ""} available
+            </Badge>
+          )}
         </div>
       </div>
       <DelegationBuilder
         agents={agents}
         permissions={permissions}
+        templates={templates}
         onCreated={handleCreated}
+        requireTemplate={!allowFreeform}
       />
     </div>
   );

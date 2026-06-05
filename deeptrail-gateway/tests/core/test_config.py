@@ -410,11 +410,11 @@ class TestConnectionManagerIntegration:
             assert states["notion"]["base_url"] == "https://custom.notion.api/v1"
             assert states["slack"]["base_url"] == "https://custom.slack.api"
 
-    def test_create_connection_manager_returns_three_backends(self):
-        """Test connection manager has exactly three backends."""
+    def test_create_connection_manager_returns_all_backends(self):
+        """Test connection manager has all registered backends."""
         from app.backends.connection_manager import create_connection_manager
 
         manager = create_connection_manager()
         backend_ids = manager.get_backend_ids()
-        assert len(backend_ids) == 3
-        assert set(backend_ids) == {"notion", "slack", "hubspot"}
+        assert len(backend_ids) == 6
+        assert set(backend_ids) == {"notion", "slack", "hubspot", "gdrive", "gcalendar", "gmail"}

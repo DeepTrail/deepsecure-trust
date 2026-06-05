@@ -10,6 +10,12 @@ locals {
     "vpcaccess.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "servicenetworking.googleapis.com",
+    "cloudkms.googleapis.com",
+    "cloudtasks.googleapis.com",
+    "admin.googleapis.com",
+    "gmail.googleapis.com",
+    "calendar-json.googleapis.com",
+    "drive.googleapis.com",
   ]
 }
 

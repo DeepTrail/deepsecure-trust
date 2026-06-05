@@ -87,6 +87,29 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Error Counting (B10: Errors 24h tracking)
+# =============================================================================
+
+_error_counts: dict[str, int] = {}
+
+
+def increment_error_count(service_id: str) -> None:
+    """Record a backend call failure for the given service."""
+    _error_counts[service_id] = _error_counts.get(service_id, 0) + 1
+
+
+def drain_error_counts() -> dict[str, int]:
+    """Return accumulated error counts and reset to zero.
+
+    Called by the health report loop so each reporting interval starts fresh.
+    """
+    global _error_counts
+    counts = _error_counts.copy()
+    _error_counts = {}
+    return counts
+
+
+# =============================================================================
 # MCP Error Codes (extensions for tools/call)
 # =============================================================================
 
@@ -261,6 +284,21 @@ def get_session_manager() -> MCPSessionManager:
 # =============================================================================
 
 
+def _extract_user_id(params: dict[str, Any]) -> str | None:
+    """Extract per-call user_id from MCP _meta field.
+
+    MCP convention: params._meta contains per-call metadata.
+    When an agent serves multiple users, it specifies which user's
+    context to use via _meta.user_id.
+
+    Returns None if not present (falls back to JWT owner for backward compat).
+    """
+    meta = params.get("_meta", {})
+    if isinstance(meta, dict):
+        return meta.get("user_id")
+    return None
+
+
 async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     """
     Handle MCP tools/call request.
@@ -310,9 +348,9 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     constraints = context.get("constraints", {})  # E5: Delegation constraints
     agent_jwt_token = context.get("agent_jwt_token")  # H1: Raw JWT for vault API calls
 
-    # Build AgentContext for C6 DelegationValidator
+    # Build AgentContext from JWT claims (stateless — no session required, B2)
     agent_context: AgentContext | None = None
-    if agent_session_id and delegated_permissions:
+    if delegated_permissions:
         agent_context = AgentContext(
             agent_id=agent_id or "",
             owner=context.get("delegator", ""),
@@ -344,6 +382,23 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
     
     tool_name = call_params.name
     arguments = call_params.arguments
+
+    # P5.2: Extract per-call user_id from _meta for multi-user delegation
+    meta_user_id = _extract_user_id(params)
+    if meta_user_id and agent_context:
+        logger.debug(
+            "Multi-user tools/call: user_id=%s agent=%s",
+            meta_user_id,
+            agent_context.agent_id,
+        )
+        agent_context = AgentContext(
+            agent_id=agent_context.agent_id,
+            owner=meta_user_id,
+            delegation_id=agent_context.delegation_id,
+            session_id=agent_context.session_id,
+            delegated_permissions=agent_context.delegated_permissions,
+            organization_id=agent_context.organization_id,
+        )
     
     logger.debug(f"tools/call request: tool={tool_name}, session={agent_session_id}")
     
@@ -363,29 +418,22 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             "Server configuration error"
         )
     
-    # Get agent session
-    if not agent_session_id:
-        # E3: Log audit (minimal context since no session)
-        await _log_audit(
-            None, tool_name, arguments,
-            success=False,
-            error="No agent session"
-        )
-        raise MCPError(
-            ToolsCallErrorCode.SESSION_INVALID,
-            "No agent session. Call initialize first."
-        )
+    # Stateless (B2): Session lookup is optional — JWT is the source of truth.
+    agent_session = None
+    if agent_session_id:
+        agent_session = session_manager.get_agent_session(agent_session_id)
+        if agent_session:
+            logger.debug("Using session %s for tools/call", agent_session_id)
     
-    agent_session = session_manager.get_agent_session(agent_session_id)
-    if not agent_session:
+    if not agent_context:
         await _log_audit(
             None, tool_name, arguments,
             success=False,
-            error="Session not found"
+            error="No authenticated agent context"
         )
         raise MCPError(
             ToolsCallErrorCode.SESSION_INVALID,
-            "Session not found. Call initialize first."
+            "Authentication required. Provide a valid Bearer token."
         )
     
     # Step 1: Parse namespace
@@ -445,12 +493,18 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
                 backend=backend_id,
                 denial_reason=validation_result.denial_reason.value if validation_result.denial_reason else None,
             )
+        from ...mcp.oauth_scope_mapper import permission_to_scope
+
+        required_scopes = (
+            [permission_to_scope(required_perm)] if required_perm else []
+        )
         raise MCPError(
             ToolsCallErrorCode.PERMISSION_DENIED,
             error_message,
             data={
                 "tool": tool_name,
                 "required_permission": required_perm,
+                "required_scopes": required_scopes,
                 "delegated_permissions": agent_context.delegated_permissions if agent_context else []
             }
         )
@@ -531,29 +585,20 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
                 },
             )
 
-    # Step 4: Get backend session and credentials
-    backend_session = session_manager.get_backend_session(agent_session_id, backend_id)
+    # Step 4: Get backend session if available (optional for stateless, B2)
+    backend_session = None
+    if agent_session_id:
+        backend_session = session_manager.get_backend_session(agent_session_id, backend_id)
     
     if not backend_session:
-        duration_ms = int((time.perf_counter() - start_time) * 1000)
-        if agent_context:
-            await audit_middleware.log_tool_call(
-                agent_context=agent_context,
-                tool_name=tool_name,
-                arguments=arguments,
-                error=f"Backend {backend_id} not connected",
-                duration_ms=duration_ms,
-            )
-        else:
-            await _log_audit(
-                agent_session, tool_name, arguments,
-                success=False,
-                error=f"Backend {backend_id} not connected",
-                backend=backend_id
-            )
-        raise MCPError(
-            ToolsCallErrorCode.BACKEND_UNAVAILABLE,
-            f"Backend '{backend_id}' not connected for this session"
+        from ..session_manager import SessionState
+        backend_session = BackendMCPSession(
+            mcp_session_id=f"stateless-{backend_id}-{agent_id}",
+            parent_agent_session=agent_session_id or agent_id or "",
+            server_id=backend_id,
+            connection_state=SessionState.CONNECTED,
+            allowed_tools=[],
+            credential_ref=None,
         )
     
     # Step 5: Forward to backend with credential injection
@@ -567,9 +612,10 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
             agent_jwt_token=agent_jwt_token,  # H1: Raw JWT for vault API calls
         )
     except MCPError:
-        # Re-raise MCP errors (already logged by _forward_to_backend if credential error)
+        increment_error_count(backend_id)
         raise
     except Exception as e:
+        increment_error_count(backend_id)
         logger.error(f"Backend call failed: {e}", exc_info=True)
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         if agent_context:
@@ -634,8 +680,10 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
         )
     
     logger.info(
-        f"tools/call success: tool={tool_name}, agent={agent_session.agent_session_id}, "
-        f"on_behalf_of={agent_session.delegator}"
+        "tools/call success: tool=%s, agent=%s, on_behalf_of=%s",
+        tool_name,
+        agent_context.agent_id if agent_context else agent_id,
+        agent_context.owner if agent_context else "unknown",
     )
     
     # Step 7: Return result
@@ -790,12 +838,12 @@ async def _forward_to_backend(
 
 def _resolve_owner(
     agent_context: AgentContext,
-    session_manager: MCPSessionManager,
+    session_manager: MCPSessionManager | None = None,
 ) -> str:
     """Resolve the owner for credential injection.
 
-    Task tokens don't carry an ``owner`` claim. When one is missing, look up
-    the delegator from an existing agent session that shares the same agent_id.
+    Stateless path (B2): owner comes from JWT claims via AgentContext.
+    Legacy path: task tokens without ``owner`` fall back to session lookup.
     """
     if agent_context.owner:
         return agent_context.owner
@@ -803,9 +851,10 @@ def _resolve_owner(
     if agent_context.token_type != "task_token":
         return ""
 
-    for sess in session_manager._sessions.values():
-        if sess.delegator and sess.agent_session_id != agent_context.session_id:
-            return sess.delegator
+    if session_manager is not None:
+        for sess in session_manager._sessions.values():
+            if sess.delegator and sess.agent_session_id != agent_context.session_id:
+                return sess.delegator
 
     return ""
 

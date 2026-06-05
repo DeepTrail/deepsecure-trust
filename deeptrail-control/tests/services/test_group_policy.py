@@ -277,7 +277,7 @@ class TestShippedYaml:
 
     def test_domain_fallback_group(self, shipped_mapper: GroupPolicyMapper):
         result = shipped_mapper.resolve(["deeptrail.com"])
-        assert result.roles == ["admin"]
+        assert result.roles == ["employee"]
         assert "notion:pages:search" in result.default_permissions
 
     def test_keycloak_engineering_group(self, shipped_mapper: GroupPolicyMapper):

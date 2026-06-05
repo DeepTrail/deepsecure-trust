@@ -11,43 +11,69 @@ import {
   PermissionChecklist,
   type Permission,
 } from "./PermissionChecklist";
+import { TTLSelector } from "./TTLSelector";
 
 interface Agent {
   agent_id: string;
   name: string;
 }
 
+interface PublicTemplate {
+  id: string;
+  agent_id: string;
+  max_permissions: string[];
+  blocked_permissions: string[];
+  default_ttl_days: number;
+}
+
 interface DelegationBuilderProps {
   agents: Agent[];
   permissions: Permission[];
+  templates?: PublicTemplate[];
   onCreated?: () => void;
+  requireTemplate?: boolean;
 }
 
 interface DelegationResult {
   delegation_id: string;
 }
 
-const TTL_OPTIONS = [
-  { label: "15 minutes", value: 900 },
-  { label: "1 hour", value: 3600 },
-  { label: "8 hours", value: 28800 },
-  { label: "24 hours", value: 86400 },
-  { label: "7 days", value: 604800 },
-];
+const DEFAULT_TTL_DAYS = 1;
 
 export function DelegationBuilder({
   agents,
   permissions,
+  templates = [],
   onCreated,
+  requireTemplate = false,
 }: DelegationBuilderProps) {
   const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
-  const [ttl, setTtl] = useState<number>(3600);
+  const [ttlDays, setTtlDays] = useState<number>(DEFAULT_TTL_DAYS);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DelegationResult | null>(null);
+  const [activeTemplate, setActiveTemplate] = useState<PublicTemplate | null>(null);
+
+  function applyTemplate(template: PublicTemplate) {
+    setActiveTemplate(template);
+    setSelectedAgent(template.agent_id);
+    const allowed = new Set(template.max_permissions);
+    const blocked = new Set(template.blocked_permissions);
+    const preSelected = permissions
+      .filter((p) => allowed.has(p.id) && !blocked.has(p.id))
+      .map((p) => p.id);
+    setSelectedPermissions(preSelected);
+    setTtlDays(template.default_ttl_days);
+  }
 
   const handleTogglePermission = (permissionId: string) => {
+    if (activeTemplate) {
+      const blocked = new Set(activeTemplate.blocked_permissions);
+      if (blocked.has(permissionId)) return;
+      const allowed = new Set(activeTemplate.max_permissions);
+      if (!selectedPermissions.includes(permissionId) && !allowed.has(permissionId)) return;
+    }
     setSelectedPermissions((prev) =>
       prev.includes(permissionId)
         ? prev.filter((id) => id !== permissionId)
@@ -73,7 +99,7 @@ export function DelegationBuilder({
         body: JSON.stringify({
           agent_id: selectedAgent,
           permissions: permissionStrings,
-          constraints: { expires_in_hours: ttl / 3600 },
+          constraints: { expires_in_hours: ttlDays * 24 },
         }),
       });
       setResult(data);
@@ -93,8 +119,9 @@ export function DelegationBuilder({
     setResult(null);
     setSelectedAgent("");
     setSelectedPermissions([]);
-    setTtl(3600);
+    setTtlDays(DEFAULT_TTL_DAYS);
     setError(null);
+    setActiveTemplate(null);
   };
 
   if (result) {
@@ -117,98 +144,176 @@ export function DelegationBuilder({
     );
   }
 
+  const effectivePermissions = activeTemplate
+    ? (() => {
+        const blocked = new Set(activeTemplate.blocked_permissions);
+        return permissions.map((p) => ({
+          ...p,
+          locked: blocked.has(p.id) ? ("role" as const) : p.locked,
+          lockReason: blocked.has(p.id) ? "Blocked by admin template" : p.lockReason,
+        }));
+      })()
+    : permissions;
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Select Agent</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <select
-            value={selectedAgent}
-            onChange={(e) => setSelectedAgent(e.target.value)}
-            className="w-full rounded-md border px-3 py-2 text-sm"
-            aria-label="Select agent"
-            required
-          >
-            <option value="">Choose an agent...</option>
-            {agents.map((agent) => (
-              <option key={agent.agent_id} value={agent.agent_id}>
-                {agent.name || agent.agent_id}
-              </option>
-            ))}
-          </select>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Permissions
-            {selectedPermissions.length > 0 && (
-              <Badge variant="secondary" className="ml-2">
-                {selectedPermissions.length} selected
+      {templates.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Templates
+              <Badge variant="secondary" className="ml-2 text-xs">
+                {templates.length} available
               </Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <PermissionChecklist
-            permissions={permissions}
-            selected={selectedPermissions}
-            onToggle={handleTogglePermission}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Time-to-Live (TTL)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {TTL_OPTIONS.map((option) => (
-              <Button
-                key={option.value}
-                type="button"
-                variant={ttl === option.value ? "default" : "outline"}
-                size="sm"
-                onClick={() => setTtl(option.value)}
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {error && (
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-destructive flex-1">{error}</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => { setError(null); handleSubmit(new Event("submit") as unknown as React.FormEvent); }}>
-            Retry
-          </Button>
-        </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-3">
+              Start from an admin-approved template to pre-fill agent, permissions, and TTL.
+            </p>
+            <div className="grid gap-2">
+              {templates.map((tmpl) => {
+                const isActive = activeTemplate?.id === tmpl.id;
+                return (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => {
+                      if (isActive) {
+                        setActiveTemplate(null);
+                        setSelectedAgent("");
+                        setSelectedPermissions([]);
+                        setTtlDays(DEFAULT_TTL_DAYS);
+                      } else {
+                        applyTemplate(tmpl);
+                      }
+                    }}
+                    className={`flex items-center justify-between rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
+                      isActive
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "hover:bg-muted/50"
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium">{tmpl.agent_id}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        {tmpl.max_permissions.length} permissions
+                        {tmpl.blocked_permissions.length > 0 &&
+                          ` · ${tmpl.blocked_permissions.length} blocked`}
+                        {` · TTL: ${tmpl.default_ttl_days}d`}
+                      </span>
+                    </div>
+                    {isActive && (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      <Separator />
+      {requireTemplate && !activeTemplate ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              Select a template above to create a delegation. Contact your admin to enable free-form delegation.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Select Agent</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <select
+                value={selectedAgent}
+                onChange={(e) => {
+                  setSelectedAgent(e.target.value);
+                  if (activeTemplate && e.target.value !== activeTemplate.agent_id) {
+                    setActiveTemplate(null);
+                  }
+                }}
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                aria-label="Select agent"
+                required
+              >
+                <option value="">Choose an agent...</option>
+                {agents.map((agent) => (
+                  <option key={agent.agent_id} value={agent.agent_id}>
+                    {agent.name || agent.agent_id}
+                  </option>
+                ))}
+              </select>
+            </CardContent>
+          </Card>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {selectedAgent
-            ? `Delegating ${selectedPermissions.length} permission(s) to ${selectedAgent}`
-            : "Select an agent and permissions to create a delegation"}
-        </p>
-        <Button
-          type="submit"
-          disabled={
-            submitting || !selectedAgent || selectedPermissions.length === 0
-          }
-        >
-          <Send className="mr-2 h-4 w-4" />
-          {submitting ? "Creating..." : "Create Delegation"}
-        </Button>
-      </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Permissions
+                {selectedPermissions.length > 0 && (
+                  <Badge variant="secondary" className="ml-2">
+                    {selectedPermissions.length} selected
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PermissionChecklist
+                permissions={effectivePermissions}
+                selected={selectedPermissions}
+                onToggle={handleTogglePermission}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Time-to-Live (TTL)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TTLSelector
+                value={ttlDays}
+                onChange={setTtlDays}
+                unit="days"
+                maxDays={activeTemplate?.default_ttl_days}
+              />
+            </CardContent>
+          </Card>
+
+          {error && (
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-destructive flex-1">{error}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => { setError(null); handleSubmit(new Event("submit") as unknown as React.FormEvent); }}>
+                Retry
+              </Button>
+            </div>
+          )}
+
+          <Separator />
+
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              {selectedAgent
+                ? `Delegating ${selectedPermissions.length} permission(s) to ${selectedAgent}`
+                : "Select an agent and permissions to create a delegation"}
+            </p>
+            <Button
+              type="submit"
+              disabled={
+                submitting || !selectedAgent || selectedPermissions.length === 0
+              }
+            >
+              <Send className="mr-2 h-4 w-4" />
+              {submitting ? "Creating..." : "Create Delegation"}
+            </Button>
+          </div>
+        </>
+      )}
     </form>
   );
 }

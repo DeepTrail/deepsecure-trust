@@ -20,45 +20,51 @@ import {
   ExternalLink,
 } from "lucide-react";
 
+import { Plug } from "lucide-react";
+
 interface ServiceCatalogEntry {
   service_id: string;
   name: string;
   description: string;
   icon: React.ReactNode;
+  backend_type: "rest" | "mcp";
 }
 
-const SERVICE_CATALOG: ServiceCatalogEntry[] = [
-  {
-    service_id: "notion",
-    name: "Notion",
-    description: "Access workspace pages, databases, and documents",
-    icon: <FileText className="h-6 w-6" />,
-  },
-  {
-    service_id: "slack",
-    name: "Slack",
-    description: "Search messages and send notifications",
-    icon: <MessageSquare className="h-6 w-6" />,
-  },
-  {
-    service_id: "gmail",
-    name: "Gmail",
-    description: "Read and send emails on your behalf",
-    icon: <Mail className="h-6 w-6" />,
-  },
-  {
-    service_id: "gcalendar",
-    name: "Google Calendar",
-    description: "View and manage calendar events",
-    icon: <Calendar className="h-6 w-6" />,
-  },
-  {
-    service_id: "gdrive",
-    name: "Google Drive",
-    description: "Access files and folders in Drive",
-    icon: <HardDrive className="h-6 w-6" />,
-  },
-];
+const ICON_MAP: Record<string, React.ReactNode> = {
+  notion: <FileText className="h-6 w-6" />,
+  slack: <MessageSquare className="h-6 w-6" />,
+  gmail: <Mail className="h-6 w-6" />,
+  gcalendar: <Calendar className="h-6 w-6" />,
+  gdrive: <HardDrive className="h-6 w-6" />,
+};
+
+interface CatalogApiEntry {
+  service_id: string;
+  display_name: string;
+  description: string | null;
+  backend_type: string;
+  endpoint_url: string;
+  status: string;
+  health_status: string;
+  connected: boolean;
+  scopes_granted: string[];
+  connected_at: string | null;
+}
+
+interface CatalogApiResponse {
+  services: CatalogApiEntry[];
+  total: number;
+}
+
+function catalogApiToEntry(entry: CatalogApiEntry): ServiceCatalogEntry {
+  return {
+    service_id: entry.service_id,
+    name: entry.display_name,
+    description: entry.description ?? "",
+    icon: ICON_MAP[entry.service_id] ?? <Plug className="h-6 w-6" />,
+    backend_type: entry.backend_type as "rest" | "mcp",
+  };
+}
 
 interface ConnectedServiceInfo {
   connected: boolean;
@@ -71,7 +77,7 @@ type ConnectedMap = Record<string, ConnectedServiceInfo>;
 type PageState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; connected: ConnectedMap };
+  | { kind: "ready"; catalog: ServiceCatalogEntry[]; connected: ConnectedMap };
 
 export default function ServicesPage() {
   return (
@@ -88,19 +94,24 @@ function ServicesPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const fetchConnectedServices = useCallback(async () => {
+  const fetchServices = useCallback(async () => {
     try {
-      const data = await apiClient<{
-        services?: Record<string, ConnectedServiceInfo>;
-      }>("users/me/available-permissions");
+      const data = await apiClient<CatalogApiResponse>("services/catalog");
+
+      const catalog: ServiceCatalogEntry[] = data.services.map(catalogApiToEntry);
 
       const connected: ConnectedMap = {};
-      if (data?.services) {
-        for (const [id, svc] of Object.entries(data.services)) {
-          connected[id] = svc;
+      for (const entry of data.services) {
+        if (entry.connected) {
+          connected[entry.service_id] = {
+            connected: true,
+            scopes_granted: entry.scopes_granted,
+            connected_at: entry.connected_at ?? undefined,
+          };
         }
       }
-      setState({ kind: "ready", connected });
+
+      setState({ kind: "ready", catalog, connected });
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -123,8 +134,8 @@ function ServicesPageInner() {
   }, [searchParams, router]);
 
   useEffect(() => {
-    fetchConnectedServices();
-  }, [fetchConnectedServices]);
+    fetchServices();
+  }, [fetchServices]);
 
   const handleConnect = async (serviceId: string) => {
     setConnecting(serviceId);
@@ -152,7 +163,7 @@ function ServicesPageInner() {
     if (!window.confirm(`Disconnect from ${serviceName}? This will revoke access.`)) return;
     try {
       await apiClient(`users/me/services/${serviceId}`, { method: "DELETE" });
-      await fetchConnectedServices();
+      await fetchServices();
     } catch {
       alert("Failed to disconnect service. Please try again.");
     }
@@ -164,11 +175,14 @@ function ServicesPageInner() {
       <ErrorCard
         title="Services"
         message={state.message}
-        retry={fetchConnectedServices}
+        retry={fetchServices}
       />
     );
 
-  const { connected } = state;
+  const { catalog, connected } = state;
+
+  const restServices = catalog.filter((s) => s.backend_type === "rest");
+  const mcpServices = catalog.filter((s) => s.backend_type === "mcp");
 
   return (
     <div className="space-y-6">
@@ -185,7 +199,7 @@ function ServicesPageInner() {
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           <span>
             <strong>
-              {SERVICE_CATALOG.find((s) => s.service_id === successService)?.name ?? successService}
+              {catalog.find((s) => s.service_id === successService)?.name ?? successService}
             </strong>{" "}
             connected successfully.
           </span>
@@ -193,7 +207,7 @@ function ServicesPageInner() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {SERVICE_CATALOG.map((svc) => {
+        {restServices.map((svc) => {
           const info = connected[svc.service_id];
           const isConnected = info?.connected === true;
           const isConnecting = connecting === svc.service_id;
@@ -271,6 +285,46 @@ function ServicesPageInner() {
           );
         })}
       </div>
+
+      {mcpServices.length > 0 && (
+        <>
+          <div>
+            <h2 className="text-lg font-semibold">MCP Services</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              These services are managed by your admin via MCP protocol and are
+              available to your agents automatically.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {mcpServices.map((svc) => (
+              <Card key={svc.service_id} className="flex flex-col">
+                <CardHeader className="flex flex-row items-start gap-3 space-y-0 pb-2">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-muted/50">
+                    {svc.icon}
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <CardTitle className="text-base font-semibold">
+                      {svc.name}
+                    </CardTitle>
+                    <Badge variant="outline" className="text-xs">
+                      Available
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col justify-between space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    {svc.description}
+                  </p>
+                  <Badge variant="secondary" className="w-fit text-xs">
+                    <Plug className="mr-1 h-3 w-3" />
+                    MCP Protocol
+                  </Badge>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

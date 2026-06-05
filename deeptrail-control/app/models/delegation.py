@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Column, DateTime, Index, String, func
+from sqlalchemy import Column, DateTime, ForeignKey, Index, String, func
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy import JSON
@@ -122,6 +122,20 @@ class DelegationToken(Base):
         nullable=True,
         index=True,
         comment="Organization identifier for multi-tenant deployments",
+    )
+
+    template_id = Column(
+        String(36),
+        ForeignKey("delegation_templates.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Delegation template that constrained this delegation",
+    )
+
+    source = Column(
+        String(20),
+        nullable=False,
+        server_default="manual",
+        comment="How this delegation was created: 'manual', 'template', 'invite', 'admin'",
     )
 
     # Lifecycle timestamps
