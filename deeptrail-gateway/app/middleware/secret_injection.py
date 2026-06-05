@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 
 from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp
 from starlette.datastructures import MutableHeaders
 
@@ -92,9 +93,14 @@ class SecretInjectionMiddleware(BaseHTTPMiddleware):
             
         except Exception as e:
             logger.error(f"Secret injection error: {e}", exc_info=True)
-            # Continue without secrets (let the target service handle auth errors)
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": "secret_injection_failed",
+                    "detail": "Unable to inject credentials for upstream service",
+                },
+            )
         
-        # Continue with request processing
         return await call_next(request)
     
     async def _inject_secrets(self, request: Request, target_url: str, agent_id: str, secret_name: Optional[str] = None):

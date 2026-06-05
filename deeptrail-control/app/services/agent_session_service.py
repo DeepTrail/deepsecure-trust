@@ -143,7 +143,7 @@ class AgentSessionService:
     CHALLENGE_BYTES = 32  # 256-bit nonce
     CHALLENGE_TTL_SECONDS = 300  # 5 minutes
     SESSION_TTL_HOURS = 8
-    JWT_ALGORITHM = "HS256"  # MVP: Use symmetric key; Production: RS256 or EdDSA
+    JWT_ALGORITHM = "HS256"  # Fallback; overridden by JWTSigningService when available
     JWT_ISSUER = "deeptrail-control"
     JWT_AUDIENCE = "deeptrail-gateway"
 
@@ -430,9 +430,10 @@ class AgentSessionService:
         )
 
     def _generate_mvp_jwt(self, agent_id: str, session: "MVPSession") -> str:
-        """Generate a simplified JWT for MVP.
-        
-        Uses HS256 symmetric signing with claims matching Gateway expectations.
+        """Generate a JWT for an MVP session.
+
+        Delegates to JWTSigningService (RS256) when available, falling
+        back to HS256 symmetric signing for backward compatibility.
         """
         now = datetime.now(timezone.utc)
         payload = {
@@ -447,8 +448,13 @@ class AgentSessionService:
             "delegation_id": session.delegation_id,
             "organization_id": session.organization_id,
         }
-        
-        return jwt.encode(payload, self.jwt_secret, algorithm=self.JWT_ALGORITHM)
+
+        try:
+            from app.core.jwt_signing import get_jwt_signing_service
+            svc = get_jwt_signing_service()
+            return svc.sign(payload)
+        except Exception:
+            return jwt.encode(payload, self.jwt_secret, algorithm=self.JWT_ALGORITHM)
 
     def _get_valid_delegation(
         self,
@@ -521,25 +527,17 @@ class AgentSessionService:
     def _generate_jwt(self, session: AgentSession) -> str:
         """Generate JWT token for an agent session.
 
-        Args:
-            session: The AgentSession to encode
-
-        Returns:
-            Signed JWT token string
+        Delegates to JWTSigningService when available.
         """
         claims = session.to_jwt_claims()
-
-        # Add standard JWT claims
         claims["iss"] = self.JWT_ISSUER
         claims["aud"] = self.JWT_AUDIENCE
 
-        token = jwt.encode(
-            claims,
-            self.jwt_secret,
-            algorithm=self.JWT_ALGORITHM,
-        )
-
-        return token
+        try:
+            from app.core.jwt_signing import get_jwt_signing_service
+            return get_jwt_signing_service().sign(claims)
+        except Exception:
+            return jwt.encode(claims, self.jwt_secret, algorithm=self.JWT_ALGORITHM)
 
     # ─────────────────────────────────────────────────────────────────
     # Session Management

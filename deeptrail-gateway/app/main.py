@@ -51,6 +51,8 @@ from .core.share_storage import ShareStorageManager
 
 # Core PEP: Essential middleware imports
 from .middleware.jwt_validation import JWTValidationMiddleware
+from .middleware.oauth_validation import configure_oauth_validator
+from .security.session_revocation import configure_session_revocation_checker
 from .middleware.policy_enforcement import PolicyEnforcementMiddleware
 from .middleware.secret_injection import SecretInjectionMiddleware
 
@@ -60,6 +62,7 @@ from .mcp.handlers import (
     handle_initialize, 
     handle_tools_list, 
     handle_tools_call,
+    handle_discover,
     configure_initialize_handler,
     configure_tools_list_handler,
     configure_tools_call_handler,
@@ -78,6 +81,9 @@ from .security.token_exchange import configure_token_exchange_client, TokenExcha
 from .backends.adapter import create_backend_adapter
 from .backends.dynamic_registry import DynamicBackendLoader
 from .services.cache_subscriber import start_cache_subscriber, stop_cache_subscriber
+
+# C6: Protected Resource Metadata (RFC 9728)
+from .api.well_known import router as well_known_router
 
 # Configure basic logging
 logging.basicConfig(
@@ -169,15 +175,27 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-_cors_env = os.getenv("CORS_ALLOWED_ORIGINS", "*")
-_allowed_origins = [o.strip() for o in _cors_env.split(",")]
+# C6: Mount .well-known routes (no JWT required — public discovery endpoints)
+app.include_router(well_known_router)
+
+_cors_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
+if _cors_env:
+    _allowed_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+else:
+    _allowed_origins = []
+
+if not _allowed_origins:
+    logger.warning(
+        "CORS_ALLOWED_ORIGINS is empty — no cross-origin requests will be allowed. "
+        "Set CORS_ALLOWED_ORIGINS to a comma-separated list of permitted origins."
+    )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["POST", "GET", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Mcp-Session-Id", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name", "X-Request-ID"],
 )
 
 # Configure basic logging (not enterprise-grade structured logging)
@@ -208,6 +226,12 @@ configure_request_logging(logging_config)
 app.add_middleware(SecretInjectionMiddleware, control_plane_url=config.control_plane_url)
 app.add_middleware(PolicyEnforcementMiddleware, enforcement_mode=config.policy.enforcement_mode)
 app.add_middleware(JWTValidationMiddleware, control_plane_url=config.control_plane_url)
+
+configure_oauth_validator()
+logger.info("OAuth token validator configured for Keycloak MCP realm")
+
+configure_session_revocation_checker(redis_url=config.redis_url)
+logger.info("Session revocation checker configured (Redis)")
 
 # =============================================================================
 # MCP Protocol Handler Setup
@@ -318,6 +342,7 @@ mcp_protocol_handler = MCPProtocolHandler()
 mcp_protocol_handler.register_handler(MCPMethod.INITIALIZE, handle_initialize)
 mcp_protocol_handler.register_handler(MCPMethod.TOOLS_LIST, handle_tools_list)
 mcp_protocol_handler.register_handler(MCPMethod.TOOLS_CALL, handle_tools_call)
+mcp_protocol_handler.register_handler(MCPMethod.DISCOVER, handle_discover)
 
 # Global exception handlers
 @app.exception_handler(ValidationError)
@@ -624,6 +649,31 @@ async def mcp_endpoint(request: Request):
             if k.lower() in ("accept", "content-type", "mcp-session-id", "authorization")
         }
         logger.info("MCP IN: method=%s headers=%s", req_method, mcp_headers)
+
+        # B4: Read and validate MCP headers (MCP 2026-07-28)
+        mcp_protocol_version = request.headers.get("MCP-Protocol-Version")
+        mcp_method_header = request.headers.get("Mcp-Method")
+        mcp_name_header = request.headers.get("Mcp-Name")
+
+        # B4: Reject Mcp-Method / JSON-RPC body mismatches with HTTP 400
+        if isinstance(parsed_body, dict):
+            from .mcp.header_validation import mcp_method_header_mismatch
+
+            if mcp_method_header_mismatch(mcp_method_header, req_method):
+                logger.warning(
+                    "Mcp-Method mismatch: header=%s body=%s",
+                    mcp_method_header,
+                    req_method,
+                )
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "detail": "Mcp-Method header does not match JSON-RPC method",
+                        "error_code": "header_body_mismatch",
+                        "mcp_method_header": mcp_method_header,
+                        "jsonrpc_method": req_method,
+                    },
+                )
         
         # Extract context from request state (populated by JWTValidationMiddleware)
         agent_context = getattr(request.state, "agent_context", None)
@@ -631,6 +681,9 @@ async def mcp_endpoint(request: Request):
         # Build context for MCP handlers
         context = {
             "request_id": request.headers.get("X-Request-ID"),
+            "mcp_protocol_version": mcp_protocol_version,
+            "mcp_method": mcp_method_header,
+            "mcp_name": mcp_name_header,
         }
         
         # Accept Mcp-Session-Id from client (stateless — JWT is source of truth)
@@ -674,15 +727,22 @@ async def mcp_endpoint(request: Request):
             media_type="application/json"
         )
         
+        # B5: Set MCP-Protocol-Version response header (2026-07-28 spec)
+        negotiated_version = mcp_protocol_version or "2025-11-25"
+        if response.result and isinstance(response.result, dict):
+            negotiated_version = response.result.get("protocolVersion", negotiated_version)
+        response_obj.headers["MCP-Protocol-Version"] = negotiated_version
+        
         # Echo Mcp-Session-Id on InitializeResult per Streamable HTTP spec
         if req_method == "initialize" and agent_context and agent_context.session_id:
             response_obj.headers["Mcp-Session-Id"] = agent_context.session_id
             logger.info(
-                "MCP OUT: 200 initialize (Mcp-Session-Id: %s)",
+                "MCP OUT: 200 initialize (Mcp-Session-Id: %s, protocol: %s)",
                 agent_context.session_id,
+                negotiated_version,
             )
         else:
-            logger.info("MCP OUT: 200 %s", req_method)
+            logger.info("MCP OUT: 200 %s (protocol: %s)", req_method, negotiated_version)
         
         return response_obj
         

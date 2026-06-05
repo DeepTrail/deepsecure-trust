@@ -267,21 +267,21 @@ class TestToolsCallPermissionDenied:
         assert exc_info.value.code == ToolsCallErrorCode.PERMISSION_DENIED
 
     @pytest.mark.asyncio
-    async def test_empty_permissions_denied(self, session_manager, agent_session, mock_fail_closed):
-        """Test that empty permissions denies all tools."""
+    async def test_empty_permissions_returns_auth_error(self, session_manager, agent_session, mock_fail_closed):
+        """Test that empty permissions returns auth error (B2: no agent_context)."""
         params = {
             "name": "notion.search_pages",
             "arguments": {},
             "_context": {
                 "agent_session_id": "agent-sdr-001",
-                "delegated_permissions": [],  # No permissions
+                "delegated_permissions": [],  # No permissions → no agent_context
             },
         }
 
         with pytest.raises(MCPError) as exc_info:
             await handle_tools_call_standalone(params, session_manager)
 
-        assert exc_info.value.code == ToolsCallErrorCode.PERMISSION_DENIED
+        assert exc_info.value.code == ToolsCallErrorCode.SESSION_INVALID
 
     @pytest.mark.asyncio
     async def test_permission_denied_includes_verbose_data(self, session_manager, agent_session, mock_fail_closed):
@@ -311,8 +311,8 @@ class TestToolsCallPermissionDenied:
         assert data["delegated_permissions"] == ["notion:pages:search", "notion:pages:read"]
 
     @pytest.mark.asyncio
-    async def test_permission_denied_data_empty_permissions(self, session_manager, agent_session, mock_fail_closed):
-        """Test data object with empty delegated_permissions list."""
+    async def test_empty_permissions_returns_auth_required(self, session_manager, agent_session, mock_fail_closed):
+        """Test that empty permissions returns auth required (B2: stateless)."""
         params = {
             "name": "notion.search_pages",
             "arguments": {},
@@ -325,9 +325,8 @@ class TestToolsCallPermissionDenied:
         with pytest.raises(MCPError) as exc_info:
             await handle_tools_call_standalone(params, session_manager)
 
-        # Verify data object present even with empty permissions
-        assert exc_info.value.data is not None
-        assert exc_info.value.data["delegated_permissions"] == []
+        assert exc_info.value.code == ToolsCallErrorCode.SESSION_INVALID
+        assert "Authentication required" in exc_info.value.message
 
 
 # =============================================================================
@@ -436,8 +435,8 @@ class TestToolsCallBackend:
     """Tests for backend session handling."""
     
     @pytest.mark.asyncio
-    async def test_missing_backend_returns_error(self, session_manager, agent_session, mock_fail_closed):
-        """Test error when backend not connected."""
+    async def test_missing_backend_creates_stateless_stub(self, session_manager, agent_session, mock_fail_closed):
+        """Test that missing backend session creates a stateless stub (B2)."""
         params = {
             "name": "hubspot.get_contact",
             "arguments": {"id": "123"},
@@ -447,11 +446,9 @@ class TestToolsCallBackend:
             },
         }
         
-        with pytest.raises(MCPError) as exc_info:
-            await handle_tools_call_standalone(params, session_manager)
-        
-        assert exc_info.value.code == ToolsCallErrorCode.BACKEND_UNAVAILABLE
-        assert "hubspot" in exc_info.value.message
+        # Should not raise — stateless stub is created for the backend
+        result = await handle_tools_call_standalone(params, session_manager)
+        assert "content" in result
     
     @pytest.mark.asyncio
     async def test_credential_ref_accessible(self, session_manager, agent_session):
@@ -489,8 +486,8 @@ class TestToolsCallSessionErrors:
         assert exc_info.value.code == ToolsCallErrorCode.SESSION_INVALID
     
     @pytest.mark.asyncio
-    async def test_invalid_session_id_raises_error(self, session_manager, mock_fail_closed):
-        """Test error when session ID doesn't exist."""
+    async def test_invalid_session_falls_through_to_stateless(self, session_manager, mock_fail_closed):
+        """Test that invalid session ID falls through to stateless path (B2)."""
         params = {
             "name": "notion.search_pages",
             "arguments": {},
@@ -500,10 +497,9 @@ class TestToolsCallSessionErrors:
             },
         }
         
-        with pytest.raises(MCPError) as exc_info:
-            await handle_tools_call_standalone(params, session_manager)
-        
-        assert exc_info.value.code == ToolsCallErrorCode.SESSION_INVALID
+        # B2: Should not raise — JWT permissions drive the stateless path
+        result = await handle_tools_call_standalone(params, session_manager)
+        assert "content" in result
     
     @pytest.mark.asyncio
     async def test_handler_not_configured_raises_error(self, mock_fail_closed):
@@ -592,14 +588,14 @@ class TestToolsCallAudit:
         assert "notion:pages:create" in call_kwargs["required_permission"]
     
     @pytest.mark.asyncio
-    async def test_backend_error_logged(self, session_manager, agent_session, mock_fail_closed):
-        """Test that backend errors are logged via AuditMiddleware."""
+    async def test_stateless_backend_call_logged(self, session_manager, agent_session, mock_fail_closed):
+        """Test that stateless backend calls are logged via AuditMiddleware (B2)."""
         mock_audit_mw = MagicMock()
         mock_audit_mw.log_tool_call = AsyncMock()
         mock_audit_mw.log_permission_denied = AsyncMock()
         
         params = {
-            "name": "hubspot.get_contact",  # Backend not connected
+            "name": "hubspot.get_contact",
             "arguments": {},
             "_context": {
                 "agent_session_id": "agent-sdr-001",
@@ -611,12 +607,12 @@ class TestToolsCallAudit:
             "app.mcp.handlers.tools_call.get_audit_middleware",
             return_value=mock_audit_mw,
         ):
-            with pytest.raises(MCPError):
-                await handle_tools_call_standalone(params, session_manager)
+            result = await handle_tools_call_standalone(params, session_manager)
         
+        # Stateless stub allows the call through; audit logs success
         mock_audit_mw.log_tool_call.assert_called_once()
         call_kwargs = mock_audit_mw.log_tool_call.call_args[1]
-        assert "not connected" in call_kwargs["error"]
+        assert call_kwargs["tool_name"] == "hubspot.get_contact"
 
 
 # =============================================================================

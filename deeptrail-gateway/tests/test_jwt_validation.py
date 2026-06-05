@@ -79,12 +79,18 @@ class TestJWTValidationMiddleware:
         return jose_jwt.encode(payload, TEST_SECRET, algorithm=TEST_ALGORITHM)
 
     def create_valid_jwt_payload(self, agent_id: str = "agent-test-123") -> Dict[str, Any]:
-        """Create a valid legacy JWT payload for testing."""
+        """Create a valid JWT payload with all required claims."""
         current_time = datetime.now(timezone.utc)
         return {
             "sub": agent_id,
             "agent_id": agent_id,
             "scope": "read write",
+            "iss": "deeptrail-control",
+            "aud": "deeptrail-gateway",
+            "owner": "testuser@example.com",
+            "delegated_permissions": ["notion:pages:search"],
+            "delegation_id": "deleg-test-001",
+            "session_id": "sess-test-001",
             "iat": int(current_time.timestamp()),
             "exp": int((current_time + timedelta(hours=1)).timestamp()),
         }
@@ -124,19 +130,11 @@ class TestJWTValidationMiddleware:
         assert response.status_code == 200
         data = response.json()
         assert data["agent_id"] == agent_id
-        assert "read" in data["permissions"]
-        assert "write" in data["permissions"]
+        assert "notion:pages:search" in data["permissions"]
 
     def test_jwt_token_expiration_validation(self):
         """Test that JWT token expiration is properly validated."""
-        current_time = datetime.now(timezone.utc)
-        payload = {
-            "sub": "agent-test-789",
-            "agent_id": "agent-test-789",
-            "scope": "read",
-            "iat": int(current_time.timestamp()),
-            "exp": int((current_time + timedelta(hours=1)).timestamp()),
-        }
+        payload = self.create_valid_jwt_payload("agent-test-789")
         token = self.create_test_jwt(payload)
 
         response = self.client.get(
@@ -182,6 +180,8 @@ class TestJWTValidationMiddleware:
         """Test that JWT tokens missing required claims are rejected."""
         current_time = datetime.now(timezone.utc)
         payload = {
+            "iss": "deeptrail-control",
+            "aud": "deeptrail-gateway",
             "iat": int(current_time.timestamp()),
             "exp": int((current_time + timedelta(hours=1)).timestamp()),
         }
@@ -193,7 +193,7 @@ class TestJWTValidationMiddleware:
         )
 
         assert response.status_code == 401
-        assert "missing" in response.json()["detail"].lower()
+        assert "missing" in response.json()["detail"].lower() or "claim" in response.json()["detail"].lower()
 
     def test_missing_authorization_header_rejected(self):
         """Test that requests without Authorization header are rejected."""
@@ -313,13 +313,13 @@ class TestJWTValidationMiddleware:
 
     # Test 8: Error Response Format
     def test_jwt_validation_error_response_format(self):
-        """Test that JWT validation errors return proper response format."""
+        """Test that JWT validation errors return proper response format (A5)."""
         response = self.client.get("/proxy/test")
 
         assert response.status_code == 401
         assert "detail" in response.json()
         assert "WWW-Authenticate" in response.headers
-        assert response.headers["WWW-Authenticate"] == "Bearer"
+        assert 'realm="deeptrail-gateway"' in response.headers["WWW-Authenticate"]
 
     # Test 9: Request State Management
     def test_jwt_payload_added_to_request_state(self):

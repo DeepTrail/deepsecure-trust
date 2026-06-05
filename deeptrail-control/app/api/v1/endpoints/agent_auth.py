@@ -21,7 +21,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -48,6 +48,37 @@ from app.services.delegation_service import DelegationService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _decode_agent_bearer_token(token: str, *, verify_exp: bool = True) -> dict:
+    """Decode an agent session JWT (RS256 or legacy HS256)."""
+    import jwt as pyjwt
+
+    from app.core.config import settings
+    from app.core.jwt_signing import get_jwt_signing_service
+
+    options: dict = {"verify_aud": False}
+    if not verify_exp:
+        options["verify_exp"] = False
+
+    signing = get_jwt_signing_service()
+    if signing.algorithm.startswith("RS"):
+        try:
+            return pyjwt.decode(
+                token,
+                signing.get_verification_key(),
+                algorithms=[signing.algorithm],
+                options=options,
+            )
+        except pyjwt.InvalidTokenError:
+            pass
+
+    return pyjwt.decode(
+        token,
+        settings.SECRET_KEY,
+        algorithms=[settings.ALGORITHM],
+        options=options,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -235,11 +266,15 @@ async def verify_and_create_session(
             result.session.id,
         )
 
+        import secrets as _secrets
+        refresh_token = _secrets.token_urlsafe(48)
+
         return AgentVerifyResponse(
             access_token=result.token,
             token_type="Bearer",
             expires_in=result.expires_in,
             session_id=result.session.id,
+            refresh_token=refresh_token,
         )
 
     except AgentNotFoundError as e:
@@ -471,4 +506,170 @@ def issue_delegation_token(
         session_id=str(session.id),
         delegation_id=str(delegation.id),
         owner=delegation.delegator or "",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# D4: Agent Session Refresh
+# ─────────────────────────────────────────────────────────────────────
+
+class AgentRefreshResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = Field(description="TTL in seconds")
+    session_id: str
+
+
+@router.post(
+    "/refresh",
+    response_model=AgentRefreshResponse,
+    summary="Refresh an agent session JWT",
+    responses={401: {"model": AgentAuthError}},
+)
+def agent_refresh(
+    authorization: str | None = Header(None),
+    db: Session = Depends(deps.get_db),
+):
+    """Issue a new JWT for an existing agent session.
+
+    Accepts JWTs that are still valid OR expired within a 1-hour grace
+    window.  The session must still be active (not revoked).
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+
+    token = authorization.split(" ", 1)[1]
+
+    REFRESH_GRACE_SECONDS = 3600
+    try:
+        claims = _decode_agent_bearer_token(token, verify_exp=False)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    exp = claims.get("exp")
+    if exp:
+        expired_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+        grace_deadline = expired_at + timedelta(seconds=REFRESH_GRACE_SECONDS)
+        if datetime.now(timezone.utc) > grace_deadline:
+            raise HTTPException(
+                status_code=401,
+                detail="Token expired beyond refresh grace window",
+            )
+
+    session_id = claims.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Token missing session_id")
+
+    session = db.query(AgentSession).filter(AgentSession.id == session_id).first()
+    if session and hasattr(session, "is_valid") and not session.is_valid:
+        raise HTTPException(status_code=401, detail="Session revoked or expired")
+
+    agent_id = claims.get("sub", "")
+    new_exp = datetime.now(timezone.utc) + timedelta(hours=8)
+
+    new_claims = {
+        "sub": agent_id,
+        "iss": "deeptrail-control",
+        "aud": "deeptrail-gateway",
+        "owner": claims.get("owner", ""),
+        "delegated_permissions": claims.get("delegated_permissions", []),
+        "delegation_id": claims.get("delegation_id", ""),
+        "session_id": session_id,
+        "organization_id": claims.get("organization_id"),
+        "exp": new_exp,
+        "iat": datetime.now(timezone.utc),
+    }
+
+    try:
+        from app.core.jwt_signing import get_jwt_signing_service
+        new_token = get_jwt_signing_service().sign(new_claims)
+    except Exception:
+        new_token = pyjwt.encode(new_claims, settings.SECRET_KEY, algorithm="HS256")
+
+    logger.info("Agent session refreshed: agent=%s session=%s", agent_id, session_id)
+
+    return AgentRefreshResponse(
+        access_token=new_token,
+        expires_in=28800,
+        session_id=session_id,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# D5: Agent Session Revocation
+# ─────────────────────────────────────────────────────────────────────
+
+class AgentRevokeRequest(BaseModel):
+    session_id: str = Field(description="Session ID to revoke")
+    reason: str | None = Field(None, description="Optional revocation reason")
+
+
+class AgentRevokeResponse(BaseModel):
+    revoked: bool
+    session_id: str
+    message: str
+
+
+@router.post(
+    "/revoke",
+    response_model=AgentRevokeResponse,
+    summary="Revoke an agent session",
+    responses={401: {"model": AgentAuthError}, 404: {"model": AgentAuthError}},
+)
+def agent_revoke(
+    body: AgentRevokeRequest,
+    authorization: str | None = Header(None),
+    db: Session = Depends(deps.get_db),
+):
+    """Revoke an agent session, immediately invalidating its JWT.
+
+    The caller must present a valid Bearer token.  The session is
+    marked as revoked in the database so future validation fails.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+
+    token = authorization.split(" ", 1)[1]
+
+    try:
+        caller = _decode_agent_bearer_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    caller_sub = caller.get("sub", "unknown")
+
+    session = db.query(AgentSession).filter(
+        AgentSession.id == body.session_id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if hasattr(session, "revoke"):
+        session.revoke(revoked_by=caller_sub, reason=body.reason)
+    else:
+        session.is_active = False
+
+    db.commit()
+
+    from app.services.token_revocation import (
+        revoke_agent_session,
+        ttl_seconds_until,
+    )
+
+    revoke_agent_session(
+        body.session_id,
+        ttl_seconds_until(session.expires_at),
+    )
+
+    logger.info(
+        "Session %s revoked by %s: %s",
+        body.session_id,
+        caller_sub,
+        body.reason or "no reason",
+    )
+
+    return AgentRevokeResponse(
+        revoked=True,
+        session_id=body.session_id,
+        message=f"Session revoked by {caller_sub}",
     )

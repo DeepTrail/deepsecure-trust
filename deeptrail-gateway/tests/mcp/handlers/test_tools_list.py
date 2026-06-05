@@ -259,22 +259,22 @@ class TestHandleToolsList:
         assert result["tools"] == []
     
     @pytest.mark.asyncio
-    async def test_no_session_returns_empty_list(self, configured_handler, mock_fail_closed):
-        """Test that missing session returns empty tools."""
+    async def test_no_session_derives_tools_from_permissions(self, configured_handler, mock_fail_closed):
+        """Stateless (B1): missing session derives tools from JWT permissions."""
         params = {
             "_context": {
-                # No agent_session_id
                 "delegated_permissions": ["notion:pages:search"],
             },
         }
         
         result = await handle_tools_list(params)
         
-        assert result["tools"] == []
+        tool_names = [t["name"] for t in result["tools"]]
+        assert "notion.search_pages" in tool_names
     
     @pytest.mark.asyncio
-    async def test_invalid_session_raises_error(self, configured_handler, mock_fail_closed):
-        """Test that invalid session ID raises error."""
+    async def test_invalid_session_falls_through_to_stateless(self, configured_handler, mock_fail_closed):
+        """Stateless (B1): invalid session falls through to permission-based derivation."""
         params = {
             "_context": {
                 "agent_session_id": "nonexistent-session",
@@ -282,12 +282,10 @@ class TestHandleToolsList:
             },
         }
         
-        from app.mcp.protocol import MCPError
+        result = await handle_tools_list(params)
         
-        with pytest.raises(MCPError) as exc_info:
-            await handle_tools_list(params)
-        
-        assert "Session not found" in str(exc_info.value)
+        tool_names = [t["name"] for t in result["tools"]]
+        assert "notion.search_pages" in tool_names
     
     @pytest.mark.asyncio
     async def test_next_cursor_is_null(

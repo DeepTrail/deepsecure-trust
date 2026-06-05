@@ -109,6 +109,10 @@ class AgentVerifyResponse(BaseModel):
         ...,
         description="Agent session identifier",
     )
+    refresh_token: str | None = Field(
+        default=None,
+        description="Opaque refresh token for obtaining new access tokens",
+    )
 
 
 class AgentAuthError(BaseModel):

@@ -167,6 +167,11 @@ services:
       - GATEWAY_INTERNAL_API_TOKEN=gateway-internal-secret-token
       # Pass the current DeepSecure version to the container
       - DEEPSECURE_VERSION=0.1.12
+      # OAuth / MCP realm (internal JWKS URL vs public issuer for token validation)
+      - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_ISSUER_URL=http://localhost:8080
+      - KEYCLOAK_MCP_REALM=mcp
+      - OAUTH_AUDIENCE=mcp-gateway
     networks:
       - deepsecure_network
 

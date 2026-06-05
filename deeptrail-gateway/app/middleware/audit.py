@@ -58,6 +58,11 @@ class AuditEventType(str, Enum):
     PERMISSION_DENIED = "permission_denied"
     CREDENTIAL_ERROR = "credential_error"
     TOOL_ERROR = "tool_error"
+    AUTH_SUCCESS = "auth_success"
+    AUTH_FAILURE = "auth_failure"
+    SESSION_CREATED = "session_created"
+    SESSION_TERMINATED = "session_terminated"
+    MCP_REQUEST = "mcp_request"
     DELEGATION_REVOKED = "delegation_revoked"
 
 
@@ -357,6 +362,42 @@ class AuditMiddleware:
         
         await self._send_event_async(event)
     
+    async def log_auth_event(
+        self,
+        event_type: AuditEventType,
+        *,
+        agent_id: str = "",
+        owner: str = "",
+        token_type: str = "",
+        success: bool = True,
+        error: str = "",
+        source_ip: str = "",
+        method: str = "",
+        path: str = "",
+    ) -> None:
+        """Log an authentication or session lifecycle event.
+
+        Covers: AUTH_SUCCESS, AUTH_FAILURE, SESSION_CREATED,
+        SESSION_TERMINATED, MCP_REQUEST.
+        """
+        if not self.enabled:
+            return
+
+        event = AuditEvent(
+            event_type=event_type,
+            agent_id=agent_id,
+            on_behalf_of=owner,
+            tool=f"{method} {path}",
+            success=success,
+            error=error,
+            extra_data={
+                "token_type": token_type,
+                "source_ip": source_ip,
+            },
+        )
+
+        await self._send_event_async(event)
+
     async def _send_event_async(self, event: AuditEvent) -> None:
         """
         Send audit event asynchronously.

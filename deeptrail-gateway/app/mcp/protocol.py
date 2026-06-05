@@ -74,6 +74,7 @@ class MCPMethod(StrEnum):
     INITIALIZE = "initialize"
     TOOLS_LIST = "tools/list"
     TOOLS_CALL = "tools/call"
+    DISCOVER = "server/discover"
     
     # Notifications (no response expected)
     INITIALIZED = "notifications/initialized"
