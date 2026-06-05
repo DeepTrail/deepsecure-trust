@@ -117,11 +117,11 @@ const MOCK_RESPONSE: IdentityStackResponse = {
 };
 
 function setupSuccessMock(data: IdentityStackResponse = MOCK_RESPONSE) {
-  (mockApiClient as unknown as { get: ReturnType<typeof vi.fn> }).get = vi.fn().mockResolvedValue({ data });
+  mockApiClient.mockResolvedValue(data as never);
 }
 
 function setupErrorMock() {
-  (mockApiClient as unknown as { get: ReturnType<typeof vi.fn> }).get = vi.fn().mockRejectedValue(new Error("Network error"));
+  mockApiClient.mockRejectedValue(new Error("Network error"));
 }
 
 describe("IdentityStackPanel", () => {
@@ -130,7 +130,7 @@ describe("IdentityStackPanel", () => {
   });
 
   it("renders loading state", () => {
-    (mockApiClient as unknown as { get: ReturnType<typeof vi.fn> }).get = vi.fn().mockReturnValue(new Promise(() => {}));
+    mockApiClient.mockReturnValue(new Promise(() => {}) as never);
     render(<IdentityStackPanel agentId="agent-1" />);
     expect(screen.getByText(/Loading identity stack/)).toBeInTheDocument();
   });

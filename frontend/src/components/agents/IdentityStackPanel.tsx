@@ -49,8 +49,10 @@ export function IdentityStackPanel({ agentId }: IdentityStackPanelProps) {
     setLoading(true);
     setError(null);
     try {
-      const resp = await apiClient.get(`/api/v1/admin/agents/${agentId}/identity-stack`);
-      setData(resp.data);
+      const data = await apiClient<IdentityStackResponse>(
+        `admin/agents/${agentId}/identity-stack`
+      );
+      setData(data);
       setFetched(true);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to load identity stack";

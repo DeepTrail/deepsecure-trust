@@ -253,37 +253,31 @@ export default function AdminAgentFleetPage() {
                     {/* Details */}
                     <div className="space-y-3">
                       <h4 className="text-sm font-semibold">Details</h4>
-                      <dl className="space-y-1 text-sm max-w-md">
-                        <div className="flex justify-between">
-                          <dt className="text-muted-foreground">Auth</dt>
-                          <dd className={agent.public_key ? "font-mono text-xs" : "text-xs"}>
-                            {truncateKey(agent.public_key)}
-                          </dd>
-                        </div>
-                        {agent.platform && (
-                          <div className="flex justify-between">
+                      <dl className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-8 gap-y-1.5 text-sm">
+                        <dt className="text-muted-foreground">Auth Method</dt>
+                        <dd className="text-xs">
+                          {agent.public_key
+                            ? <><span>Ed25519</span>{" "}<span className="font-mono text-muted-foreground">({truncateKey(agent.public_key)})</span></>
+                            : "Workload Identity"}
+                        </dd>
+                        {agent.platform ? (
+                          <>
                             <dt className="text-muted-foreground">Platform</dt>
                             <dd className="text-xs uppercase">{agent.platform}</dd>
-                          </div>
-                        )}
+                          </>
+                        ) : <><dt /><dd /></>}
+
+                        <dt className="text-muted-foreground">Created</dt>
+                        <dd>{formatDate(agent.created_at)}</dd>
+                        <dt className="text-muted-foreground">Last Active</dt>
+                        <dd>{formatDate(agent.last_active_at)}</dd>
+
                         {agent.selector && (
-                          <div className="flex justify-between">
-                            <dt className="text-muted-foreground">Selector</dt>
-                            <dd className="font-mono text-xs">{agent.selector}</dd>
-                          </div>
+                          <>
+                            <dt className="text-muted-foreground">Service Account</dt>
+                            <dd className="col-span-3 font-mono text-xs break-all">{agent.selector}</dd>
+                          </>
                         )}
-                        <div className="flex justify-between">
-                          <dt className="text-muted-foreground">Auth Method</dt>
-                          <dd className="text-xs capitalize">{agent.auth_method.replace("_", " ")}</dd>
-                        </div>
-                        <div className="flex justify-between">
-                          <dt className="text-muted-foreground">Created</dt>
-                          <dd>{formatDate(agent.created_at)}</dd>
-                        </div>
-                        <div className="flex justify-between">
-                          <dt className="text-muted-foreground">Last Active</dt>
-                          <dd>{formatDate(agent.last_active_at)}</dd>
-                        </div>
                       </dl>
                     </div>
 
