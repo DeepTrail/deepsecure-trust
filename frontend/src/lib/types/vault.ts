@@ -63,6 +63,15 @@ export interface AgentSessionsVaultResponse {
   total: number;
 }
 
+export interface LinkedAgent {
+  agent_id: string;
+  agent_name: string;
+}
+
+export interface AgentLinkageResponse {
+  linkage: Record<string, LinkedAgent[]>;
+}
+
 export interface EncryptionStatus {
   service_credentials: "gcp-kms" | "fernet" | "none";
   vault_tokens: "kms" | "fernet";

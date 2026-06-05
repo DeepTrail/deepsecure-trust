@@ -1261,6 +1261,87 @@ def list_user_vault_tokens(
     return {"tokens": items, "count": len(items)}
 
 
+@router.get("/user-tokens/agent-linkage", status_code=status.HTTP_200_OK)
+def get_user_token_agent_linkage(
+    db: deps.DbDep,
+    auth: Any = deps.FlexibleAuthDep,
+):
+    """Map each of the user's OAuth-connected services to agents with active delegations.
+
+    For each service the user has a vault token for, returns agents that have
+    active (non-expired, non-revoked) delegations from this user containing
+    permissions for that service.
+    """
+    from app.models.vault_token import VaultToken
+    from app.models.delegation import DelegationToken
+    from app.models.agent import Agent
+
+    user_id = _extract_user_id_from_auth(auth)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not determine user identity",
+        )
+
+    now = datetime.now(timezone.utc)
+
+    user_services = (
+        db.query(VaultToken.service_id)
+        .filter(VaultToken.user_id == user_id)
+        .distinct()
+        .all()
+    )
+    service_ids = {row[0] for row in user_services}
+
+    if not service_ids:
+        return {"linkage": {}}
+
+    active_delegations = (
+        db.query(DelegationToken.agent_id, DelegationToken.delegated_permissions)
+        .filter(
+            DelegationToken.delegator == user_id,
+            DelegationToken.revoked_at.is_(None),
+            DelegationToken.expires_at > now,
+        )
+        .all()
+    )
+
+    if not active_delegations:
+        return {"linkage": {sid: [] for sid in service_ids}}
+
+    service_agents: dict[str, set[str]] = {sid: set() for sid in service_ids}
+    for agent_id, perms in active_delegations:
+        if not isinstance(perms, list):
+            continue
+        for perm in perms:
+            parts = perm.split(":")
+            if parts and parts[0] in service_agents:
+                service_agents[parts[0]].add(agent_id)
+
+    all_agent_ids: set[str] = set()
+    for aids in service_agents.values():
+        all_agent_ids.update(aids)
+
+    agent_names: dict[str, str] = {}
+    if all_agent_ids:
+        rows = (
+            db.query(Agent.agent_id, Agent.name)
+            .filter(Agent.agent_id.in_(all_agent_ids))
+            .all()
+        )
+        agent_names = {r[0]: r[1] for r in rows}
+
+    linkage = {}
+    for sid in service_ids:
+        agents = sorted(service_agents.get(sid, set()))
+        linkage[sid] = [
+            {"agent_id": aid, "agent_name": agent_names.get(aid, aid)}
+            for aid in agents
+        ]
+
+    return {"linkage": linkage}
+
+
 @router.get("/user-credentials", status_code=status.HTTP_200_OK)
 def list_user_credentials(
     db: deps.DbDep,

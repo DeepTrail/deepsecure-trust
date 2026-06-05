@@ -18,6 +18,8 @@ import type {
   EncryptionStatus,
   AgentSessionVaultItem,
   AgentSessionsVaultResponse,
+  LinkedAgent,
+  AgentLinkageResponse,
 } from "@/lib/types/vault";
 
 type Tab = "oauth-tokens" | "secrets" | "split-key-credentials" | "agent-sessions" | "service-credentials";
@@ -99,6 +101,7 @@ export default function VaultPage() {
 
 function OAuthTokensTab({ encBadge }: { encBadge: React.ReactNode }) {
   const [tokens, setTokens] = useState<VaultTokenItem[]>([]);
+  const [linkage, setLinkage] = useState<Record<string, LinkedAgent[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedRef, setExpandedRef] = useState<string | null>(null);
@@ -106,8 +109,16 @@ function OAuthTokensTab({ encBadge }: { encBadge: React.ReactNode }) {
   const fetch_ = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiClient<{ tokens: VaultTokenItem[] }>("vault/user-tokens");
-      setTokens(data.tokens ?? []);
+      const [tokenData, linkageData] = await Promise.allSettled([
+        apiClient<{ tokens: VaultTokenItem[] }>("vault/user-tokens"),
+        apiClient<AgentLinkageResponse>("vault/user-tokens/agent-linkage"),
+      ]);
+      setTokens(tokenData.status === "fulfilled" ? tokenData.value.tokens ?? [] : []);
+      setLinkage(linkageData.status === "fulfilled" ? linkageData.value.linkage ?? {} : {});
+      if (tokenData.status === "rejected") {
+        const err = tokenData.reason;
+        throw err;
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? `Error ${err.status}` : "Failed to load tokens");
@@ -121,7 +132,7 @@ function OAuthTokensTab({ encBadge }: { encBadge: React.ReactNode }) {
   if (loading) return <PageSkeleton />;
   if (error) return <ErrorCard title="OAuth Tokens" message={error} retry={fetch_} />;
 
-  const colCount = 8;
+  const colCount = 9;
 
   return (
     <div className="space-y-4">
@@ -140,6 +151,7 @@ function OAuthTokensTab({ encBadge }: { encBadge: React.ReactNode }) {
                 <th className="px-4 py-3 text-left font-medium">Service</th>
                 <th className="px-4 py-3 text-left font-medium">Status</th>
                 <th className="px-4 py-3 text-left font-medium">Scopes</th>
+                <th className="px-4 py-3 text-left font-medium">Used by</th>
                 <th className="px-4 py-3 text-left font-medium">Connected</th>
                 <th className="px-4 py-3 text-left font-medium">Expires</th>
                 <th className="px-4 py-3 text-left font-medium">Last Refreshed</th>
@@ -178,6 +190,9 @@ function OAuthTokensTab({ encBadge }: { encBadge: React.ReactNode }) {
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <AgentBadges agents={linkage[t.service_id] ?? []} />
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{fmtDate(t.created_at)}</td>
                       <td className="px-4 py-3 text-muted-foreground">{fmtDate(t.expires_at)}</td>
@@ -601,6 +616,28 @@ function ServiceCredentialsTab({ encBadge }: { encBadge: React.ReactNode }) {
 }
 
 // ─── Shared components ───────────────────────────────────────────────────────
+
+function AgentBadges({ agents }: { agents: LinkedAgent[] }) {
+  if (agents.length === 0) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  const shown = agents.slice(0, 2);
+  const overflow = agents.length - shown.length;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {shown.map((a) => (
+        <Badge key={a.agent_id} variant="secondary" className="text-[10px]">
+          {a.agent_name}
+        </Badge>
+      ))}
+      {overflow > 0 && (
+        <Badge variant="outline" className="text-[10px]" title={agents.map(a => a.agent_name).join(", ")}>
+          +{overflow}
+        </Badge>
+      )}
+    </div>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
