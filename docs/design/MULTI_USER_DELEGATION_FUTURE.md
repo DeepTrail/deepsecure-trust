@@ -14,7 +14,7 @@ It also tracks **current P5.3 implementation gaps** (runtime + UI) and proposes 
 
 ## P5.3 Implementation Status (June 2026)
 
-> **Updated June 4, 2026:** Phase 0 (per-delegation JWT with round-robin execution) is **complete and deployed to production**. The runtime gap ("1 JWT → 1 owner") is resolved. All 3 agent jobs now cycle through delegations, get per-owner scoped JWTs, and run service-matched prompts. Remaining gaps are **UI visibility** (Phases 1–4) and the `_meta.user_id` per-call path (future interactive agents).
+> **Updated June 4, 2026:** Phase 0 (per-delegation JWT with round-robin execution), Phase 1 (fleet user→services mapping), and Phase 2 (identity stack panel) are **complete and deployed to production**. The runtime gap ("1 JWT → 1 owner") is resolved. Admin Agent Fleet now shows cross-user service mapping, enriched delegations with service badges, foldable sessions with lazy-loaded tool call detail, and a 5-layer identity stack panel. Remaining gaps are **UI clarity** (Phases 3–4) and the `_meta.user_id` per-call path (future interactive agents).
 
 ### Gap Analysis: Runtime & Data Model
 
@@ -24,7 +24,7 @@ It also tracks **current P5.3 implementation gaps** (runtime + UI) and proposes 
 | **User-scoped token selection in gateway** | **Done (via round-robin)** | Each delegation-scoped JWT has a single `owner` → vault resolves that owner's OAuth tokens. Gateway handles this natively — no code changes needed. | `_meta.user_id` **per-call** path still incomplete (not needed for round-robin; future path for interactive multi-user agents). |
 | **Per-user permission levels** | **Done** | Each delegation-scoped JWT carries only that delegation's permissions. Gateway enforces per-JWT. User B's github-only delegation → agent gets github-only JWT → gateway shows only github tools. Smart prompt selection in entrypoint matches prompts to permissions. | — |
 | **Admin registers agent, users self-delegate** | **Done** | Admin registers agents; users create their own delegations independently. | — |
-| **Agent → Users → Tokens mapping UI** | Partial | Fleet shows delegating users, delegations (permission count), sessions. | Does not show connected services per user, OAuth token refs, Agent JWT metadata, or identity-layer visualization. |
+| **Agent → Users → Tokens mapping UI** | **Done (Phase 1+2)** | Fleet shows cross-user mapping with connected services per user, enriched delegations with service badges, foldable sessions with lazy-loaded tool call detail, 5-layer identity stack panel. Details section redesigned with two-column grid. | OAuth token contribution mapping (Phase 4), Vault tab clarification (Phase 3). |
 | **`user_id` in `tools/call`** | Partial (infra only) | `_meta.user_id` hook exists in gateway. Round-robin uses per-delegation JWT (different approach, same outcome). | No agent runtime uses `_meta.user_id` yet. Vault `_meta` path incomplete. |
 | **Multi-user demo** | **Done (production)** | Round-robin entrypoint **is** the multi-user demo — runs in production on 3 agent jobs (gemini-deepsecure-agent, thunderbolt-deepsecure-agent, engineering-audit). | Standalone `demos/demo_admin_multi_user.py` not updated for round-robin flow yet. |
 | **One SA per customer** | Partial (pattern) | GCP agents use one SA per agent (`agents.selector` = SA email). | Not documented/enforced as a company-level pattern in UI. |
@@ -78,6 +78,7 @@ From [Technical Architecture §5.1](../TECHNICAL_ARCHITECTURE_AND_DESIGN.md#51-i
 | Layer | What it is | Backend | UI today |
 |-------|-----------|---------|----------|
 | **L0** User ID-Token | Google/OIDC login | IdP flow | Not shown |
+| ~~**L1**~~ ~~Organization Key~~ | Never implemented — see [§5.1 note](../TECHNICAL_ARCHITECTURE_AND_DESIGN.md#51-identity-layer-stack) | — | — |
 | **L2** User Session JWT | Console/API session | Issued on login | Not shown |
 | **L3** Agent Session JWT | Agent MCP session token | `create_access_token()` on bootstrap; `agent_sessions` metadata | Sessions listed in Fleet (IDs/timestamps only), **not the JWT** |
 | **L4** Task Token JWT | Per-task scoped token | `task_service.issue_task_token()` | No UI |
@@ -98,16 +99,22 @@ The P5.3 item `agent-user-token-ui` requires: *"UI shows one agent with multiple
 - Session count and recent session IDs/timestamps
 - Lifecycle state (Registered → Delegated → Authenticated → Active)
 
-### Not implemented
+### Implemented (Phase 1 + Phase 2 — June 4, 2026)
 
-| Gap | Detail |
-|-----|--------|
-| **Per-user connected services** | Which services (Notion, Slack, GitHub, etc.) each delegator has OAuth-connected |
-| **OAuth token contribution mapping** | Which user's vault tokens the agent can reach for each service (token_ref, status, scopes — metadata only) |
-| **Active Agent JWT metadata** | Per session: issued_at, expires_at, owner (delegator), delegation_id — without showing the JWT string |
-| **Cross-user token mapping** | Visual: `Agent → User A → [notion, slack]` / `User B → [github]` |
-| **Identity layer stack view** | Read-only panel showing which layers are active for this agent (L3 session, L5 delegation, L4 task if any) |
-| **Workload identity display** | Fleet API does not return `platform` or `selector` (GCP SA email). UI cannot show SA email even though agents use it |
+| Item | Status | Delivered in |
+|------|--------|--------------|
+| **Per-user connected services** | ✅ Done | Phase 1 — `CrossUserMappingTable` with per-user connected services and scopes |
+| **Active Agent JWT metadata** | ✅ Done | Phase 1+2 — sessions show delegator, delegation_id, tool_calls, status; identity stack shows Agent Session layer |
+| **Cross-user token mapping** | ✅ Done | Phase 1 — `DelegatorSummary` with `connected_services[]` per delegator |
+| **Identity layer stack view** | ✅ Done | Phase 2 — `IdentityStackPanel` showing all 5 layers (User ID-Token, User Session, Delegation, Agent Session, Task Token) |
+| **Workload identity display** | ✅ Done | Phase 1 — `platform`, `selector` (renamed to "Service Account" in UI), `auth_method` in fleet response + Details section |
+
+### Not yet implemented
+
+| Gap | Detail | Plan Phase |
+|-----|--------|------------|
+| **OAuth token contribution mapping** | Which user's vault tokens the agent can reach for each service (token_ref, status, scopes — metadata only) | Phase 4 |
+| **Vault tab clarification** | Rename "Agent Credentials" tab for GCP agents; add Agent Sessions link | Phase 3 |
 
 ### API gaps blocking UI
 
@@ -148,16 +155,33 @@ Implemented [round-robin plan](../../plans/multi-user-delegation-roundrobin_0fca
 | Round-robin entrypoint | `agents/gemini/entrypoint.sh` | ✅ Two-phase bootstrap, delegation cycling, smart prompt selection, discovery JWT refresh |
 | Problem 5 in outage doc | `AGENT_OUTAGE_INVESTIGATION.md` | ✅ Documented single-delegation JWT root cause and fix |
 
-### Phase 1: Agent Fleet — User → Services mapping (M)
+### Phase 1: Agent Fleet — User → Services mapping (M) — ✅ COMPLETE (June 4, 2026)
+
+> **Implemented:** Backend API extended with `platform`, `selector`, `auth_method`, `delegators[]` with `connected_services[]`, enriched `sessions[]` with `delegator`, `delegation_id`, `tool_calls`, `status`. New endpoint `GET /agents/{id}/sessions/{sid}/events` for lazy-loaded session detail. Frontend: `CrossUserMappingTable`, `DelegationsTable`, `SessionsTable` components. Details section redesigned with two-column grid, merged Auth/Auth Method field, Service Account full-width display. Plan: [`fleet-user-services-mapping_2c53a09e.plan.md`](../../plans/fleet-user-services-mapping_2c53a09e.plan.md).
 
 **API:** Extend `AgentFleetEntry` in `admin_fleet.py`:
 
 ```python
+class ConnectedServiceSummary(BaseModel):
+    service_id: str
+    display_name: str         # "Notion", "Slack", "GitHub"
+    status: str               # "connected" | "token_expired" | "not_connected"
+    scopes_granted: List[str] # OAuth scopes the user granted
+
 class DelegatorSummary(BaseModel):
     email: str
-    connected_services: List[ConnectedServiceSummary]  # name, status, scopes
+    connected_services: List[ConnectedServiceSummary]
     active_delegation: Optional[DelegationSummary]
     delegation_count: int
+
+class SessionSummary(BaseModel):
+    session_id: str
+    created_at: Optional[str]
+    last_activity_at: Optional[str]
+    delegator: Optional[str]       # which user's delegation this session was for
+    delegation_id: Optional[str]   # which delegation triggered this session
+    tool_calls: int                # count of tool calls in this session
+    status: str                    # "active" | "expired"
 
 class AgentFleetEntry(BaseModel):
     ...
@@ -169,13 +193,215 @@ class AgentFleetEntry(BaseModel):
 
 **UI:** `frontend/.../admin/agents/page.tsx`
 
-- Details panel: show `platform`, `selector` (Workload Identity), `auth_method`
-- Per-delegator expandable row: connected services badges + permission list + delegation expiry
-- Cross-user mapping diagram (simple table, not graph): User | Services | Permissions | Delegation Status
+The expanded agent panel has three table sections below the Details/Delegating Users header. All three use a **fold/expand** pattern consistent with the Activity Feed's expandable rows.
 
-**Acceptance:** Admin opens Debugging Agent → sees demo@ and mahendra@ each with their connected services and permission scopes.
+#### Table 1: Cross-User Mapping (replaces flat "Delegating Users" badges)
 
-### Phase 2: Identity Stack panel (M)
+Replaces the current flat `Badge` list (`mahendra@deeptrail.com`, `demo@deeptrail.com`) with a structured table. Each user row is **expandable** — click the chevron to reveal per-service detail.
+
+**Collapsed view (default):**
+
+| | User | Services | Permissions | Active Delegation |
+|---|------|----------|-------------|-------------------|
+| ▶ | mahendra@deeptrail.com | `Notion` `Slack` `GitHub` `GCal` | 24 permissions | Active (expires 7/3) |
+| ▶ | demo@deeptrail.com | `Notion` `Slack` `GitHub` `GCal` | 24 permissions | Active (expires 7/3) |
+
+**Expanded view (click ▶ on mahendra row):**
+
+| | User | Services | Permissions | Active Delegation |
+|---|------|----------|-------------|-------------------|
+| ▼ | **mahendra@deeptrail.com** | `Notion` `Slack` `GitHub` `GCal` | 24 permissions | Active (expires 7/3) |
+| | | `Notion` | notion:pages:read, notion:pages:search, notion:pages:create, notion:databases:read | ● connected |
+| | | `Slack` | slack:channels:list, slack:channels:read, slack:messages:send, slack:messages:read | ● connected |
+| | | `GitHub` | github:repos:read, github:repos:list, github:pulls:read, github:pulls:create | ● connected |
+| | | `GCal` | gcalendar:events:list, gcalendar:events:read | ● token expired |
+| ▶ | demo@deeptrail.com | `Notion` `Slack` `GitHub` `GCal` | 24 permissions | Active (expires 7/3) |
+
+Service status badges are color-coded: green dot = connected, amber dot = token expired, gray dot = not connected. This tells the admin at a glance whether the agent can actually use each service for each user.
+
+#### Table 2: Delegations — enriched with service context
+
+Same table structure as today (Delegator | Permissions | Created | Expires | Status), but the Permissions column adds **service badges** next to the count, and each row is **expandable** to show the full permission list grouped by service.
+
+**Collapsed view (default — same density as today plus service badges):**
+
+| | Delegator | Permissions | Created | Expires | Status |
+|---|-----------|-------------|---------|---------|--------|
+| ▶ | demo@deeptrail.com | 24 permissions · `Notion` `Slack` `GitHub` `GCal` | 6/3/2026 | 7/3/2026 | Active |
+| ▶ | mahendra@deeptrail.com | 24 permissions · `Notion` `Slack` `GitHub` `GCal` | 6/3/2026 | 7/3/2026 | Active |
+| ▶ | mahendra@deeptrail.com | 5 permissions · `Notion` | 5/16/2026 | 5/17/2026 | Expired |
+
+**Expanded view (click ▶ on first row):**
+
+Shows the full permission list grouped by service, with each permission on its own line:
+
+```
+▼ demo@deeptrail.com | 24 permissions | 6/3/2026 | 7/3/2026 | Active
+  ┌─────────────────────────────────────────────────┐
+  │ Notion (6)                                      │
+  │  notion:pages:read  notion:pages:search         │
+  │  notion:pages:create  notion:databases:read     │
+  │  notion:databases:query  notion:blocks:read     │
+  │                                                 │
+  │ Slack (6)                                       │
+  │  slack:channels:list  slack:channels:read        │
+  │  slack:messages:send  slack:messages:read        │
+  │  slack:users:list  slack:users:read             │
+  │                                                 │
+  │ GitHub (8)                                      │
+  │  github:repos:read  github:repos:list           │
+  │  github:pulls:read  github:pulls:create         │
+  │  github:issues:read  github:issues:create       │
+  │  github:actions:read  github:actions:trigger     │
+  │                                                 │
+  │ Google Calendar (4)                              │
+  │  gcalendar:events:list  gcalendar:events:read   │
+  │  gcalendar:events:create  gcalendar:freebusy:read│
+  └─────────────────────────────────────────────────┘
+```
+
+#### Table 3: Sessions — folded by default, expandable per row
+
+The current sessions table shows 149 rows flat — overwhelming and not actionable. The new design **folds the table by default** (showing only the header with count), and when opened, each session row is individually expandable to show detail.
+
+**Folded view (default):**
+
+```
+▶ Sessions (149)                                    [View All]
+  Latest: asess-cfea4544e756417d — 6/4/2026, 2:02 PM — mahendra@deeptrail.com
+```
+
+Shows only the section header with count and the most recent session as a preview line. Clicking the chevron opens the table.
+
+**Opened view (click ▶ on section header):**
+
+| | Session ID | Delegator | Created | Last Activity | Tool Calls | Status |
+|---|------------|-----------|---------|---------------|------------|--------|
+| ▶ | asess-cfea4544e756417d | mahendra@deeptrail.com | 6/4, 2:02 PM | 6/4, 2:08 PM | 12 calls | Active |
+| ▶ | asess-9e58420247d84751 | demo@deeptrail.com | 6/4, 12:03 PM | 6/4, 12:09 PM | 8 calls | Expired |
+| ▶ | asess-f37f462fb2d34ab1 | mahendra@deeptrail.com | 6/4, 10:01 AM | 6/4, 10:07 AM | 15 calls | Expired |
+
+New columns vs today: **Delegator** (which user's delegation triggered this session), **Tool Calls** (count), **Status** (active/expired based on JWT TTL).
+
+**Expanded view (click ▶ on a session row):**
+
+Shows the session's activity timeline — tool calls made during this session, similar to the Activity Feed component pattern:
+
+```
+▼ asess-cfea4544e756417d | mahendra@ | 6/4, 2:02 PM | 12 calls | Active
+  ┌─────────────────────────────────────────────────┐
+  │ Delegation: del-abc123 (24 permissions)          │
+  │ JWT issued: 6/4/2026 2:02:28 PM                 │
+  │ JWT expires: 6/4/2026 3:02:28 PM                │
+  │                                                  │
+  │ Tool calls:                                      │
+  │  ✓ notion.search_pages        2:03:01 PM         │
+  │  ✓ notion.read_page           2:03:14 PM         │
+  │  ✓ slack.list_channels        2:04:02 PM         │
+  │  ✓ slack.post_message         2:04:18 PM         │
+  │  ✗ github.create_issue        2:05:01 PM  denied │
+  │  ... 7 more                                      │
+  └─────────────────────────────────────────────────┘
+```
+
+This reuses the Activity Feed's `statusIcon()` and `statusBadgeVariant()` patterns from `ActivityFeed.tsx`, applied inline per tool call.
+
+#### Fold/Expand Pattern — Implementation
+
+All three tables use the **same accordion pattern** already used for the agent list in `page.tsx` (line 57): a `string | null` state where clicking one row closes the previously expanded one. This is consistent across every level of nesting.
+
+**Existing pattern (agent-level accordion — no change):**
+
+```typescript
+const [expandedId, setExpandedId] = useState<string | null>(null);
+// Click Debugging Agent → expands. Click Thunderbolt Agent → Debugging closes, Thunderbolt opens.
+```
+
+**Same pattern applied inside each expanded agent panel:**
+
+```typescript
+// Within the expanded agent detail, each table section is an accordion:
+const [expandedUserRow, setExpandedUserRow] = useState<string | null>(null);
+const [expandedDelegationRow, setExpandedDelegationRow] = useState<string | null>(null);
+const [expandedSessionRow, setExpandedSessionRow] = useState<string | null>(null);
+```
+
+Each uses `ChevronDown`/`ChevronRight` + the `border-t bg-muted/20` reveal pattern. Clicking one row closes the previously expanded row in that table. The three tables are independent — expanding a user row doesn't collapse a delegation row.
+
+**Visual hierarchy (all using the same chevron accordion):**
+
+```
+▶ Debugging Agent (agent-494fb...)          ← expandedId (existing, agent-level)
+▼ Thunderbolt Agent (agent-7b2a...)         ← expanded agent card
+  ┌──────────────────────────────────────────────────────┐
+  │ Details: Auth | Platform | Selector | Created | ...  │
+  │                                                      │
+  │ Cross-User Mapping (2)                               │
+  │  ▶ mahendra@deeptrail.com  Notion Slack ...          │ ← expandedUserRow
+  │  ▼ demo@deeptrail.com      Notion Slack ...          │
+  │    └ Notion: notion:pages:read, notion:pages:search  │
+  │    └ Slack: slack:channels:list, slack:messages:read  │
+  │                                                      │
+  │ Delegations (8)                                      │
+  │  ▶ demo@ · 24 perms · Notion Slack GitHub GCal       │ ← expandedDelegationRow
+  │  ▶ mahendra@ · 5 perms · Notion                     │
+  │                                                      │
+  │ ▶ Sessions (149)                                     │ ← folded section header
+  └──────────────────────────────────────────────────────┘
+```
+
+**Sessions section fold behavior:**
+
+The Sessions section itself is a fold/expand at the section level (not per-row initially). Clicking `▶ Sessions (149)` opens the table. Then within the opened table, each session row follows the same `expandedSessionRow` accordion pattern.
+
+```
+  │ ▼ Sessions (149)                                     │ ← section opened
+  │  ▶ asess-cfea...  mahendra@  6/4 2:02 PM  12 calls  │ ← expandedSessionRow
+  │  ▼ asess-9e58...  demo@      6/4 12:03 PM  8 calls  │
+  │    └ Delegation: del-abc123 (24 permissions)          │
+  │    └ JWT issued: 6/4/2026 12:03:17 PM                │
+  │    └ ✓ notion.search_pages  12:04:01 PM              │
+  │    └ ✓ slack.list_channels  12:04:18 PM              │
+  │  ▶ asess-f37f...  mahendra@  6/4 10:01 AM  15 calls  │
+```
+
+**Default states:**
+
+| Section | Default | Why |
+|---------|---------|-----|
+| Cross-User Mapping | **Open** (rows collapsed) | Primary view — replaces the flat badges, admin needs to see users at a glance |
+| Delegations | **Open** (rows collapsed) | Same as today — already open, rows just gain expand capability |
+| Sessions | **Folded** (section collapsed) | 149 rows is overwhelming; admin opens on demand |
+
+#### Details panel — new fields
+
+| Field | Source | Display |
+|-------|--------|---------|
+| Auth | `public_key` presence | "Workload Identity" or truncated key (existing) |
+| **Platform** | `platform` field (new) | "GCP" / "AWS" / "Local" |
+| **Selector** | `selector` field (new) | Full SA email or role ARN, monospace font |
+| Created | `created_at` | Date (existing) |
+| Last Active | `last_active_at` | Date (existing) |
+
+#### API data requirements
+
+The enriched tables need data that doesn't exist in the current `GET /api/v1/admin/agents` response:
+
+| New field | Source | Join required |
+|-----------|--------|---------------|
+| `platform`, `selector` | `agent_platforms` table | agent_id |
+| Per-delegator `connected_services` | `connected_services` + `vault_tokens` | delegation.delegator → user_id → connected_services |
+| Per-session `delegator` | `agent_sessions.delegation_id` → `delegation_tokens.delegator` | session → delegation → delegator |
+| Per-session `tool_calls` count | `audit_events` where `session_id` matches | session_id |
+| Per-session tool call detail (expanded) | `audit_events` where `session_id` matches | session_id (lazy-loaded on expand) |
+
+Tool call details for session expansion should be **lazy-loaded** — only fetch `GET /api/v1/admin/agents/{agent_id}/sessions/{session_id}/events` when the user expands a specific session row, not on initial page load.
+
+**Acceptance:** Admin opens Debugging Agent → sees (1) cross-user mapping with per-user connected services, (2) delegations with service badges and expandable permission details, (3) sessions folded by default with delegator attribution and expandable tool call history.
+
+### Phase 2: Identity Stack panel (M) — ✅ COMPLETE (June 4, 2026)
+
+> **Implemented:** New endpoint `GET /api/v1/admin/agents/{agent_id}/identity-stack` returning 5-layer identity model. Frontend: `IdentityStackPanel` component with color-coded layer badges, accordion-expandable details per layer, pagination for Agent Sessions, and empty states for unused layers. All layers use descriptive names (no L-numbering in UI). Plan: [`identity-stack-panel_c00d4161.plan.md`](../../plans/identity-stack-panel_c00d4161.plan.md).
 
 **API:** New endpoint `GET /api/v1/admin/agents/{agent_id}/identity-stack`:
 
@@ -196,7 +422,7 @@ class AgentFleetEntry(BaseModel):
 
 **UI:** Collapsible "Identity Stack" section in Agent Fleet expanded panel. Each layer shows count, active status, and expandable item list (metadata only).
 
-**Acceptance:** Admin sees L5 delegations and L3 sessions labeled by layer. No JWT strings displayed.
+**Acceptance:** ✅ Admin sees all 5 identity layers (User ID-Token, User Session JWT, Delegation Token, Agent Session JWT, Task Token JWT) labeled by name — not by L-number. Each layer shows count, active status, and expandable item list (metadata only). No JWT strings displayed.
 
 ### Phase 3: Vault tab clarification + session metadata (S)
 
@@ -241,23 +467,27 @@ flowchart LR
   P2 --> P3
 ```
 
-| Phase | Complexity | Depends on | Delivers |
-|-------|------------|------------|----------|
-| 0 | L | — | Correct per-delegation runtime |
-| 1 | M | Phase 0 | `agent-user-token-ui` core |
-| 2 | M | Phase 0 | Identity layer visibility |
-| 3 | S | Phase 2 | Vault confusion resolved |
-| 4 | S | Phase 1 | User-side agent linkage |
-| 5 | L | Tasks in prod | L4 Task Token UI |
+| Phase | Complexity | Depends on | Delivers | Status |
+|-------|------------|------------|----------|--------|
+| 0 | L | — | Correct per-delegation runtime | ✅ Done — June 4, 2026 |
+| 1 | L | Phase 0 | `agent-user-token-ui` core: cross-user mapping, enriched delegations, foldable sessions | ✅ Done — June 4, 2026 |
+| 2 | M | Phase 0 | Identity layer visibility | ✅ Done — June 4, 2026 |
+| 3 | S | Phase 2 | Vault confusion resolved | 🔲 Not started |
+| 4 | S | Phase 1 | User-side agent linkage | 🔲 Not started |
+| 5 | L | Tasks in prod | L4 Task Token UI | 🔲 Deferred |
 
 ### Files to Create/Modify (UI plan)
 
 | File | Action | Phase |
 |------|--------|-------|
-| `deeptrail-control/app/api/v1/endpoints/admin_fleet.py` | Extend response with platform, selector, delegators+services | 1 |
+| `deeptrail-control/app/api/v1/endpoints/admin_fleet.py` | Extend `AgentFleetEntry` response: add `platform`, `selector`, `delegators[]` with `connected_services[]`; enrich `sessions[]` with `delegator`, `delegation_id`, `tool_calls`, `status`; add service badges to delegations | 1 |
+| `deeptrail-control/app/api/v1/endpoints/admin_fleet.py` | Add `GET /agents/{id}/sessions/{session_id}/events` for lazy-loaded session tool call detail | 1 |
 | `deeptrail-control/app/api/v1/endpoints/admin_fleet.py` | Add `GET /agents/{id}/identity-stack` | 2 |
-| `frontend/src/lib/types/admin.ts` | Add `DelegatorSummary`, `IdentityStackLayer` types | 1–2 |
-| `frontend/src/app/(dashboard)/dashboard/admin/agents/page.tsx` | User→services mapping, identity stack panel | 1–2 |
+| `frontend/src/lib/types/admin.ts` | Add `ConnectedServiceSummary`, `DelegatorSummary` types; extend `SessionSummary` with `delegator`, `delegation_id`, `tool_calls`, `status`; add `IdentityStackLayer` | 1–2 |
+| `frontend/src/components/agents/CrossUserMappingTable.tsx` | **New component**: expandable per-user rows with service badges, permission detail, delegation status | 1 |
+| `frontend/src/components/agents/DelegationsTable.tsx` | **New component**: enriched delegations with service badges + expandable permission groups | 1 |
+| `frontend/src/components/agents/SessionsTable.tsx` | **New component**: folded-by-default section, expandable rows with delegator attribution + lazy-loaded tool call detail | 1 |
+| `frontend/src/app/(dashboard)/dashboard/admin/agents/page.tsx` | Replace flat badges + flat tables with the three new components; add `expandedSections`/`expandedRows` state | 1 |
 | `frontend/src/app/(dashboard)/dashboard/vault/page.tsx` | Rename Agent Credentials tab, add sessions link | 3 |
 | `deeptrail-control/app/api/v1/endpoints/vault.py` | Add agent-session metadata endpoint for delegators | 3–4 |
 
