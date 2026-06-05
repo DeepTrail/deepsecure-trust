@@ -201,6 +201,60 @@ def get_current_agent_claims(
 AgentClaimsDep = Annotated[dict, Depends(get_current_agent_claims)]
 
 
+# --- Agent Identity Dependency (lightweight, no owner required) ---
+
+
+def get_agent_identity(
+    token: str = Depends(agent_oauth2_scheme),
+) -> dict:
+    """Extract agent_id from an Agent JWT without requiring owner/delegation claims.
+
+    Used for agent-facing endpoints where the agent needs to identify itself
+    (e.g., listing its own delegations) but doesn't need delegation-scoped
+    claims. Accepts both discovery JWTs (from initial bootstrap) and
+    delegation-scoped JWTs.
+
+    Returns:
+        dict with agent_id (and any other claims present)
+
+    Raises:
+        HTTPException 401: If JWT is missing, invalid, or has no agent_id
+    """
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "unauthorized", "message": "Missing authorization token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    payload = security.decode_token(token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "unauthorized", "message": "Invalid or expired token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    agent_id = payload.get("sub") or payload.get("agent_id")
+    if not agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "unauthorized", "message": "Token missing agent identity"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return {
+        "agent_id": agent_id,
+        "owner": payload.get("owner"),
+        "delegation_id": payload.get("delegation_id"),
+        "delegated_permissions": payload.get("delegated_permissions", []),
+        "session_id": payload.get("session_id"),
+    }
+
+
+AgentIdentityDep = Annotated[dict, Depends(get_agent_identity)]
+
+
 # --- Internal Token Authentication (Gateway-to-Control) ---
 
 # Header scheme for internal API token

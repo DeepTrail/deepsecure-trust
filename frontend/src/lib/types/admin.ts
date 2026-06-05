@@ -136,6 +136,7 @@ export interface DelegationSummary {
   id: string;
   delegator: string;
   permissions: string[];
+  services: string[];
   created_at: string | null;
   expires_at: string | null;
   is_expired: boolean;
@@ -145,6 +146,38 @@ export interface SessionSummary {
   session_id: string;
   created_at: string | null;
   last_activity_at: string | null;
+  delegator: string | null;
+  delegation_id: string | null;
+  tool_calls: number;
+  status: "active" | "expired";
+}
+
+export interface ConnectedServiceSummary {
+  service_id: string;
+  display_name: string;
+  status: "connected" | "token_expired" | "not_connected";
+  scopes_granted: string[];
+}
+
+export interface DelegatorSummary {
+  email: string;
+  connected_services: ConnectedServiceSummary[];
+  active_delegation: DelegationSummary | null;
+  delegation_count: number;
+}
+
+export interface SessionEventSummary {
+  id: string;
+  tool: string | null;
+  event_type: string;
+  success: boolean | null;
+  timestamp: string;
+  result_summary: string | null;
+}
+
+export interface SessionEventsResponse {
+  events: SessionEventSummary[];
+  total: number;
 }
 
 export interface AdminAgent {
@@ -152,6 +185,9 @@ export interface AdminAgent {
   name: string;
   status: "active" | "suspended" | "inactive";
   public_key: string | null;
+  platform: string | null;
+  selector: string | null;
+  auth_method: string;
   created_at: string;
   last_active_at: string | null;
   delegation_count: number;
@@ -159,6 +195,7 @@ export interface AdminAgent {
   active_sessions: number;
   delegations: DelegationSummary[];
   sessions: SessionSummary[];
+  delegators: DelegatorSummary[];
 }
 
 export interface AdminAgentListResponse {
@@ -334,4 +371,58 @@ export interface CatalogEntry {
   connected: boolean;
   scopes_granted: string[];
   connected_at: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Identity Stack (Phase 2)
+// ---------------------------------------------------------------------------
+
+export interface IdentityStackItem {
+  id: string;
+  status: "active" | "expired" | "revoked";
+  created_at: string | null;
+  expires_at: string | null;
+}
+
+export interface UserSessionStackItem extends IdentityStackItem {
+  user: string;
+  idp: string | null;
+}
+
+export interface DelegationStackItem extends IdentityStackItem {
+  delegator: string;
+  permissions_count: number;
+  services: string[];
+}
+
+export interface AgentSessionStackItem extends IdentityStackItem {
+  session_id: string;
+  delegator: string;
+  delegation_id: string;
+}
+
+export interface TaskTokenStackItem extends IdentityStackItem {
+  agent_session_id: string | null;
+  scoped_permissions_count: number;
+  task_status: string;
+}
+
+export type IdentityLayerType =
+  | "User ID-Token"
+  | "User Session"
+  | "Delegation"
+  | "Agent Session"
+  | "Task Token";
+
+export interface IdentityStackLayer {
+  type: IdentityLayerType;
+  description: string;
+  count: number;
+  active: number;
+  items: IdentityStackItem[];
+}
+
+export interface IdentityStackResponse {
+  agent_id: string;
+  layers: IdentityStackLayer[];
 }

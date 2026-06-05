@@ -4,6 +4,10 @@ Implements the Ed25519 challenge-response authentication flow:
 1. POST /challenge - Generate challenge nonce
 2. POST /verify - Verify signature and issue JWT (C2)
 
+Agent delegation management (round-robin multi-user support):
+3. GET /delegations - Agent lists its active delegations
+4. POST /delegation-token - Exchange agent JWT + delegation_id for scoped JWT
+
 These endpoints enable Step 5 of Sarah's journey: Agent Authenticates.
 
 Security:
@@ -14,11 +18,17 @@ Security:
 """
 
 import logging
-from typing import Annotated
+from datetime import datetime, timedelta, timezone
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.api import deps
+from app.core.security import create_access_token
+from app.models.agent_session import AgentSession
+from app.models.delegation import DelegationToken
 from app.schemas.agent_auth import (
     AgentAuthError,
     AgentChallengeRequest,
@@ -283,3 +293,182 @@ async def verify_and_create_session(
                 "message": str(e),
             },
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent Delegation Listing & Scoped Token Exchange
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class AgentDelegationEntry(BaseModel):
+    """A single delegation visible to the agent."""
+
+    delegation_id: str
+    delegator: str
+    delegated_permissions: List[str]
+    expires_at: str
+    created_at: str
+
+
+class DelegationTokenRequest(BaseModel):
+    """Request to exchange a delegation_id for a scoped JWT."""
+
+    delegation_id: str = Field(..., description="ID of the delegation to activate")
+
+
+class DelegationTokenResponse(BaseModel):
+    """Response with a JWT scoped to a single delegation."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    session_id: str
+    delegation_id: str
+    owner: str
+
+
+@router.get(
+    "/delegations",
+    response_model=List[AgentDelegationEntry],
+    summary="List active delegations for this agent",
+    description="""
+    Returns all active (non-revoked, non-expired) delegations granted to the
+    calling agent. Used during round-robin execution to discover which users
+    have delegated to this agent and what permissions are available.
+
+    Auth: Any valid Agent JWT (discovery or delegation-scoped).
+    """,
+)
+def list_agent_delegations(
+    identity: deps.AgentIdentityDep,
+    db: Session = Depends(deps.get_db),
+) -> List[AgentDelegationEntry]:
+    """List active delegations for the authenticated agent."""
+    agent_id = identity["agent_id"]
+
+    rows = (
+        db.query(DelegationToken)
+        .filter(
+            DelegationToken.agent_id == agent_id,
+            DelegationToken.revoked_at.is_(None),
+            DelegationToken.expires_at > datetime.now(timezone.utc),
+        )
+        .order_by(DelegationToken.created_at.desc())
+        .all()
+    )
+
+    logger.info(
+        "Agent %s listed delegations: %d active",
+        agent_id,
+        len(rows),
+    )
+
+    return [
+        AgentDelegationEntry(
+            delegation_id=d.id,
+            delegator=d.delegator,
+            delegated_permissions=d.delegated_permissions or [],
+            expires_at=d.expires_at.isoformat() if d.expires_at else "",
+            created_at=d.created_at.isoformat() if d.created_at else "",
+        )
+        for d in rows
+    ]
+
+
+@router.post(
+    "/delegation-token",
+    response_model=DelegationTokenResponse,
+    summary="Get a JWT scoped to a specific delegation",
+    description="""
+    Exchange a valid Agent JWT and a delegation_id for a new JWT that is
+    scoped to that single delegation's owner and permissions. This avoids
+    re-doing OIDC exchange when switching between delegations during
+    round-robin execution.
+
+    Auth: Any valid Agent JWT (discovery or delegation-scoped).
+    """,
+)
+def issue_delegation_token(
+    request: DelegationTokenRequest,
+    identity: deps.AgentIdentityDep,
+    db: Session = Depends(deps.get_db),
+) -> DelegationTokenResponse:
+    """Issue a scoped JWT for a specific delegation."""
+    agent_id = identity["agent_id"]
+
+    delegation = (
+        db.query(DelegationToken)
+        .filter(DelegationToken.id == request.delegation_id)
+        .first()
+    )
+
+    if not delegation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "delegation_not_found",
+                "message": f"Delegation {request.delegation_id} not found",
+            },
+        )
+
+    if delegation.agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "delegation_not_owned",
+                "message": "This delegation does not belong to your agent",
+            },
+        )
+
+    if delegation.is_revoked:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "delegation_revoked",
+                "message": "This delegation has been revoked",
+            },
+        )
+
+    if delegation.is_expired:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "delegation_expired",
+                "message": "This delegation has expired",
+            },
+        )
+
+    session = AgentSession.from_delegation(
+        delegation=delegation,
+        agent_id=agent_id,
+    )
+    db.add(session)
+    db.commit()
+
+    access_token = create_access_token(
+        subject=agent_id,
+        expires_delta=timedelta(hours=1),
+        extra_claims={
+            "sub": agent_id,
+            "owner": delegation.delegator or "",
+            "delegation_id": str(delegation.id),
+            "delegated_permissions": delegation.delegated_permissions or [],
+            "session_id": str(session.id),
+        },
+    )
+
+    logger.info(
+        "Issued delegation-scoped JWT for agent %s, delegation %s (owner=%s), session %s",
+        agent_id,
+        delegation.id,
+        delegation.delegator,
+        session.id,
+    )
+
+    return DelegationTokenResponse(
+        access_token=access_token,
+        expires_in=3600,
+        session_id=str(session.id),
+        delegation_id=str(delegation.id),
+        owner=delegation.delegator or "",
+    )

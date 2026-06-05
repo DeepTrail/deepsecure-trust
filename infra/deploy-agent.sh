@@ -54,7 +54,7 @@ if gcloud run jobs describe "${JOB_NAME}" --region="${REGION}" --project="${PROJ
     --project="${PROJECT_ID}" \
     --image="${LATEST}" \
     --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" \
-    --set-env-vars="DEEPSECURE_CONTROL_URL=${CONTROL_URL},DEEPSECURE_GATEWAY_URL=${GATEWAY_URL},AGENT_ID=${AGENT_ID},AGENT_MAX_ITERATIONS=6,AGENT_INTERVAL_SECONDS=60,GEMINI_CLI_TRUST_WORKSPACE=true,GEMINI_MODEL=gemini-2.5-flash" \
+    --set-env-vars="DEEPSECURE_CONTROL_URL=${CONTROL_URL},DEEPSECURE_GATEWAY_URL=${GATEWAY_URL},AGENT_ID=${AGENT_ID},AGENT_MAX_ROUNDS=3,AGENT_PROMPTS_PER_DELEGATION=2,AGENT_INTERVAL_SECONDS=60,GEMINI_CLI_TRUST_WORKSPACE=true,GEMINI_MODEL=gemini-2.5-flash" \
     --service-account="${SA_EMAIL}" \
     --task-timeout=1800 \
     --max-retries=1 \
@@ -67,7 +67,7 @@ else
     --project="${PROJECT_ID}" \
     --image="${LATEST}" \
     --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" \
-    --set-env-vars="DEEPSECURE_CONTROL_URL=${CONTROL_URL},DEEPSECURE_GATEWAY_URL=${GATEWAY_URL},AGENT_ID=${AGENT_ID},AGENT_MAX_ITERATIONS=6,AGENT_INTERVAL_SECONDS=60,GEMINI_CLI_TRUST_WORKSPACE=true,GEMINI_MODEL=gemini-2.5-flash" \
+    --set-env-vars="DEEPSECURE_CONTROL_URL=${CONTROL_URL},DEEPSECURE_GATEWAY_URL=${GATEWAY_URL},AGENT_ID=${AGENT_ID},AGENT_MAX_ROUNDS=3,AGENT_PROMPTS_PER_DELEGATION=2,AGENT_INTERVAL_SECONDS=60,GEMINI_CLI_TRUST_WORKSPACE=true,GEMINI_MODEL=gemini-2.5-flash" \
     --service-account="${SA_EMAIL}" \
     --task-timeout=1800 \
     --max-retries=1 \

@@ -32,7 +32,16 @@ from app.models.agent_session import AgentSession
 from app.models.delegation import DelegationToken
 from app.models.delegation_template import DelegationTemplate
 from app.models.audit_event import AuditEvent
+from app.models.user_session import UserSession
+from app.models.task_token import Task, TaskStatus
 from app.services.lifecycle_service import LifecycleService
+
+
+def _ensure_tz(dt: Optional[datetime]) -> Optional[datetime]:
+    """Ensure a datetime is timezone-aware (SQLite returns naive datetimes)."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +54,7 @@ class DelegationSummary(BaseModel):
     id: str
     delegator: str
     permissions: List[str]
+    services: List[str] = Field(default_factory=list)
     created_at: Optional[str] = None
     expires_at: Optional[str] = None
     is_expired: bool = False
@@ -54,6 +64,38 @@ class SessionSummary(BaseModel):
     session_id: str
     created_at: Optional[str] = None
     last_activity_at: Optional[str] = None
+    delegator: Optional[str] = None
+    delegation_id: Optional[str] = None
+    tool_calls: int = 0
+    status: str = "active"
+
+
+class ConnectedServiceSummary(BaseModel):
+    service_id: str
+    display_name: str
+    status: str = "connected"
+    scopes_granted: List[str] = Field(default_factory=list)
+
+
+class DelegatorSummary(BaseModel):
+    email: str
+    connected_services: List[ConnectedServiceSummary] = Field(default_factory=list)
+    active_delegation: Optional[DelegationSummary] = None
+    delegation_count: int = 0
+
+
+class SessionEventSummary(BaseModel):
+    id: str
+    tool: Optional[str] = None
+    event_type: str
+    success: Optional[bool] = None
+    timestamp: str
+    result_summary: Optional[str] = None
+
+
+class SessionEventsResponse(BaseModel):
+    events: List[SessionEventSummary]
+    total: int
 
 
 class AgentFleetEntry(BaseModel):
@@ -61,6 +103,9 @@ class AgentFleetEntry(BaseModel):
     name: str = ""
     status: str = "active"
     public_key: Optional[str] = None
+    platform: Optional[str] = None
+    selector: Optional[str] = None
+    auth_method: str = "ed25519"
     created_at: Optional[str] = None
     last_active_at: Optional[str] = None
     delegation_count: int = 0
@@ -68,6 +113,7 @@ class AgentFleetEntry(BaseModel):
     active_sessions: int = 0
     delegations: List[DelegationSummary] = Field(default_factory=list)
     sessions: List[SessionSummary] = Field(default_factory=list)
+    delegators: List[DelegatorSummary] = Field(default_factory=list)
 
 
 class AgentFleetResponse(BaseModel):
@@ -167,6 +213,8 @@ def list_agents_fleet(
 ):
     """List all agents cross-user with delegation and session counts."""
     import base64
+    from sqlalchemy import func as sa_func
+    from app.models.connected_service import ConnectedService
 
     agents = db.query(Agent).all()
     lifecycle_svc = LifecycleService(db)
@@ -203,16 +251,20 @@ def list_agents_fleet(
         last_active = lifecycle_svc.get_last_active_at(agent.agent_id)
         state = lifecycle_states.get(agent.agent_id, "registered")
 
+        auth_method = "workload_identity" if agent.platform else ("ed25519" if agent.public_key else "unknown")
+
         now = datetime.now(timezone.utc)
         delegation_summaries = []
         for d in delegations:
-            exp = d.expires_at
+            exp = _ensure_tz(d.expires_at)
             is_exp = bool(exp and now > exp)
             perms = d.delegated_permissions if isinstance(d.delegated_permissions, list) else []
+            services = sorted({p.split(":")[0] for p in perms if ":" in p})
             delegation_summaries.append(DelegationSummary(
                 id=d.id,
                 delegator=d.delegator or "",
                 permissions=perms,
+                services=services,
                 created_at=d.created_at.isoformat() if d.created_at else None,
                 expires_at=exp.isoformat() if exp else None,
                 is_expired=is_exp,
@@ -228,20 +280,91 @@ def list_agents_fleet(
             .limit(10)
             .all()
         )
-        session_summaries = [
-            SessionSummary(
+
+        session_ids = [s.id for s in sessions]
+        tool_call_counts: Dict[str, int] = {}
+        if session_ids:
+            rows = (
+                db.query(AuditEvent.agent_session_id, sa_func.count(AuditEvent.id))
+                .filter(AuditEvent.agent_session_id.in_(session_ids))
+                .group_by(AuditEvent.agent_session_id)
+                .all()
+            )
+            tool_call_counts = dict(rows)
+
+        session_summaries = []
+        for s in sessions:
+            s_expired = bool(s.expires_at and now > _ensure_tz(s.expires_at))
+            session_summaries.append(SessionSummary(
                 session_id=s.id,
                 created_at=s.created_at.isoformat() if s.created_at else None,
                 last_activity_at=s.last_activity_at.isoformat() if s.last_activity_at else None,
+                delegator=s.owner_email,
+                delegation_id=s.delegation_id,
+                tool_calls=tool_call_counts.get(s.id, 0),
+                status="expired" if s_expired else "active",
+            ))
+
+        # Build delegators with connected services (batched query)
+        delegator_summaries: List[DelegatorSummary] = []
+        if delegating_users:
+            all_connected = (
+                db.query(ConnectedService)
+                .filter(
+                    ConnectedService.user_id.in_(delegating_users),
+                    ConnectedService.disconnected_at.is_(None),
+                )
+                .all()
             )
-            for s in sessions
-        ]
+            connected_by_user: Dict[str, List[ConnectedService]] = {}
+            for cs in all_connected:
+                connected_by_user.setdefault(cs.user_id, []).append(cs)
+
+            for email in sorted(delegating_users):
+                user_delegations = [d for d in delegations if d.delegator == email]
+                active_del = next(
+                    (d for d in user_delegations if not (_ensure_tz(d.expires_at) and now > _ensure_tz(d.expires_at))),
+                    None,
+                )
+                user_connected = connected_by_user.get(email, [])
+                cs_summaries = [
+                    ConnectedServiceSummary(
+                        service_id=cs.service_id,
+                        display_name=cs.service_name or cs.service_id,
+                        status="connected",
+                        scopes_granted=cs.scopes_granted if isinstance(cs.scopes_granted, list) else [],
+                    )
+                    for cs in user_connected
+                ]
+
+                active_del_summary = None
+                if active_del:
+                    perms = active_del.delegated_permissions if isinstance(active_del.delegated_permissions, list) else []
+                    active_del_summary = DelegationSummary(
+                        id=active_del.id,
+                        delegator=active_del.delegator or "",
+                        permissions=perms,
+                        services=sorted({p.split(":")[0] for p in perms if ":" in p}),
+                        created_at=active_del.created_at.isoformat() if active_del.created_at else None,
+                        expires_at=active_del.expires_at.isoformat() if active_del.expires_at else None,
+                        is_expired=False,
+                    )
+
+                delegator_summaries.append(DelegatorSummary(
+                    email=email,
+                    connected_services=cs_summaries,
+                    active_delegation=active_del_summary,
+                    delegation_count=len(user_delegations),
+                ))
 
         entries.append(AgentFleetEntry(
             agent_id=agent.agent_id,
             name=agent.name or agent.agent_id,
             status=state,
             public_key=pub_key_str,
+            platform=agent.platform,
+            selector=agent.selector,
+            auth_method=auth_method,
             created_at=agent.created_at.isoformat() if agent.created_at else None,
             last_active_at=last_active.isoformat() if last_active else None,
             delegation_count=len(delegations),
@@ -249,6 +372,7 @@ def list_agents_fleet(
             active_sessions=session_count,
             delegations=delegation_summaries,
             sessions=session_summaries,
+            delegators=delegator_summaries,
         ))
     return AgentFleetResponse(agents=entries, total=len(entries))
 
@@ -290,6 +414,275 @@ def suspend_agent(
         executed_by=admin_claims.get("sub", "admin"),
         timestamp=now.isoformat(),
         message=f"Agent '{agent_id}' suspended. {sessions_revoked} sessions, {delegations_revoked} delegations revoked.",
+    )
+
+
+# --- Session Events Endpoint ---
+
+@router.get("/agents/{agent_id}/sessions/{session_id}/events", response_model=SessionEventsResponse)
+def get_session_events(
+    agent_id: str,
+    session_id: str,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_admin),
+):
+    """Get audit events for a specific agent session (lazy-loaded on UI expand)."""
+    events = (
+        db.query(AuditEvent)
+        .filter(
+            AuditEvent.agent_id == agent_id,
+            AuditEvent.agent_session_id == session_id,
+        )
+        .order_by(AuditEvent.timestamp.asc())
+        .limit(50)
+        .all()
+    )
+    items = [
+        SessionEventSummary(
+            id=e.id,
+            tool=e.tool,
+            event_type=e.event_type,
+            success=e.success,
+            timestamp=e.timestamp.isoformat() if e.timestamp else "",
+            result_summary=e.result_summary,
+        )
+        for e in events
+    ]
+    return SessionEventsResponse(events=items, total=len(items))
+
+
+# --- Identity Stack Endpoint ---
+
+class IdentityStackItem(BaseModel):
+    id: str
+    status: str
+    created_at: Optional[str] = None
+    expires_at: Optional[str] = None
+
+
+class UserSessionStackItem(IdentityStackItem):
+    user: str
+    idp: Optional[str] = None
+
+
+class DelegationStackItem(IdentityStackItem):
+    delegator: str
+    permissions_count: int
+    services: List[str]
+
+
+class AgentSessionStackItem(IdentityStackItem):
+    session_id: str
+    delegator: str
+    delegation_id: str
+
+
+class TaskTokenStackItem(IdentityStackItem):
+    agent_session_id: Optional[str] = None
+    scoped_permissions_count: int = 0
+    task_status: str = "pending"
+
+
+class IdentityStackLayer(BaseModel):
+    type: str
+    description: str
+    count: int
+    active: int
+    items: List[dict] = Field(default_factory=list)
+
+
+class IdentityStackResponse(BaseModel):
+    agent_id: str
+    layers: List[IdentityStackLayer]
+
+
+@router.get("/agents/{agent_id}/identity-stack", response_model=IdentityStackResponse)
+def get_identity_stack(
+    agent_id: str,
+    session_limit: int = 10,
+    session_offset: int = 0,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_admin),
+):
+    """Get the 5-layer identity stack for an agent."""
+    now = datetime.now(timezone.utc)
+
+    # Layer 1: User ID-Token (always empty — external IdP tokens not stored)
+    layer_id_token = IdentityStackLayer(
+        type="User ID-Token",
+        description="OIDC JWT from identity provider (Google, Keycloak). Consumed during login, not stored by DeepSecure.",
+        count=0,
+        active=0,
+        items=[],
+    )
+
+    # Layer 2: User Session — sessions for users who delegated to this agent
+    delegations = (
+        db.query(DelegationToken)
+        .filter(
+            DelegationToken.agent_id == agent_id,
+            DelegationToken.revoked_at.is_(None),
+        )
+        .all()
+    )
+    delegator_emails = list({d.delegator for d in delegations if d.delegator})
+
+    user_sessions_items = []
+    if delegator_emails:
+        u_sessions = (
+            db.query(UserSession)
+            .filter(UserSession.user_id.in_(delegator_emails))
+            .order_by(UserSession.created_at.desc())
+            .all()
+        )
+        for us in u_sessions:
+            exp = _ensure_tz(us.expires_at)
+            is_exp = bool(exp and now > exp)
+            is_rev = us.revoked_at is not None
+            st = "revoked" if is_rev else ("expired" if is_exp else "active")
+            user_sessions_items.append(UserSessionStackItem(
+                id=us.session_id,
+                user=us.user_id,
+                idp=us.idp_issuer.split("/")[-1] if us.idp_issuer and "/" in us.idp_issuer else us.idp_issuer,
+                created_at=us.created_at.isoformat() if us.created_at else None,
+                expires_at=exp.isoformat() if exp else None,
+                status=st,
+            ).model_dump())
+
+    active_user_sessions = sum(1 for i in user_sessions_items if i["status"] == "active")
+    layer_user_session = IdentityStackLayer(
+        type="User Session",
+        description="Console/API session for delegating users",
+        count=len(user_sessions_items),
+        active=active_user_sessions,
+        items=user_sessions_items,
+    )
+
+    # Layer 3: Delegation
+    delegation_items = []
+    for d in delegations:
+        exp = _ensure_tz(d.expires_at)
+        is_exp = bool(exp and now > exp)
+        perms = d.delegated_permissions if isinstance(d.delegated_permissions, list) else []
+        services = sorted({p.split(":")[0] for p in perms if ":" in p})
+        delegation_items.append(DelegationStackItem(
+            id=d.id,
+            delegator=d.delegator or "",
+            permissions_count=len(perms),
+            services=services,
+            created_at=d.created_at.isoformat() if d.created_at else None,
+            expires_at=exp.isoformat() if exp else None,
+            status="expired" if is_exp else "active",
+        ).model_dump())
+
+    active_delegations = sum(1 for i in delegation_items if i["status"] == "active")
+    layer_delegation = IdentityStackLayer(
+        type="Delegation",
+        description="User → agent permission grants",
+        count=len(delegation_items),
+        active=active_delegations,
+        items=delegation_items,
+    )
+
+    # Layer 4: Agent Session — with pagination
+    total_agent_sessions = (
+        db.query(AgentSession)
+        .filter(
+            AgentSession.agent_id == agent_id,
+            AgentSession.revoked_at.is_(None),
+        )
+        .count()
+    )
+    a_sessions = (
+        db.query(AgentSession)
+        .filter(
+            AgentSession.agent_id == agent_id,
+            AgentSession.revoked_at.is_(None),
+        )
+        .order_by(AgentSession.created_at.desc())
+        .offset(session_offset)
+        .limit(session_limit)
+        .all()
+    )
+    agent_session_items = []
+    for s in a_sessions:
+        exp = _ensure_tz(s.expires_at)
+        is_exp = bool(exp and now > exp)
+        is_act = bool(s.is_active) and not is_exp
+        agent_session_items.append(AgentSessionStackItem(
+            id=s.id,
+            session_id=s.id,
+            delegator=s.owner_email or "",
+            delegation_id=s.delegation_id or "",
+            created_at=s.created_at.isoformat() if s.created_at else None,
+            expires_at=exp.isoformat() if exp else None,
+            status="active" if is_act else "expired",
+        ).model_dump())
+
+    active_agent_sessions = (
+        db.query(AgentSession)
+        .filter(
+            AgentSession.agent_id == agent_id,
+            AgentSession.revoked_at.is_(None),
+            AgentSession.is_active.is_(True),
+        )
+        .count()
+    )
+    layer_agent_session = IdentityStackLayer(
+        type="Agent Session",
+        description="Authenticated agent sessions with delegated permissions",
+        count=total_agent_sessions,
+        active=active_agent_sessions,
+        items=agent_session_items,
+    )
+
+    # Layer 5: Task Token
+    try:
+        tasks = (
+            db.query(Task)
+            .filter(
+                Task.agent_id == agent_id,
+                Task.status.notin_(list(TaskStatus.TERMINAL)),
+            )
+            .order_by(Task.created_at.desc())
+            .all()
+        )
+        total_tasks = len(tasks)
+        task_items = []
+        for t in tasks:
+            perms = t.scoped_permissions if isinstance(t.scoped_permissions, list) else []
+            task_items.append(TaskTokenStackItem(
+                id=t.id,
+                agent_session_id=t.delegation_id,
+                scoped_permissions_count=len(perms),
+                task_status=t.status,
+                created_at=t.created_at.isoformat() if t.created_at else None,
+                expires_at=t.deadline.isoformat() if t.deadline else None,
+                status="active" if t.status in TaskStatus.ACTIVE_STATES else "expired",
+            ).model_dump())
+        active_tasks = sum(1 for t in tasks if t.status in TaskStatus.ACTIVE_STATES)
+    except Exception:
+        task_items = []
+        total_tasks = 0
+        active_tasks = 0
+
+    layer_task_token = IdentityStackLayer(
+        type="Task Token",
+        description="Per-task scoped permissions (narrowest scope)",
+        count=total_tasks,
+        active=active_tasks,
+        items=task_items,
+    )
+
+    return IdentityStackResponse(
+        agent_id=agent_id,
+        layers=[
+            layer_id_token,
+            layer_user_session,
+            layer_delegation,
+            layer_agent_session,
+            layer_task_token,
+        ],
     )
 
 

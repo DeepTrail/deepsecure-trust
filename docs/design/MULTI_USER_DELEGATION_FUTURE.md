@@ -2,9 +2,264 @@
 
 > **Related plan:** [multi-user-delegation-roundrobin](../../plans/multi-user-delegation-roundrobin_0fca7fec.plan.md) — the foundational per-delegation JWT with round-robin execution plan that these capabilities build on top of.
 
+> **Related docs:** [PRIORITY_MASTER §5.3 — tracking tables](../../plans/PRIORITY_MASTER.md) (implementation status + UI phase sequence), [Technical Architecture §5.1 Identity Layer Stack](../TECHNICAL_ARCHITECTURE_AND_DESIGN.md#51-identity-layer-stack)
+
 ## Overview
 
 The round-robin plan solves the immediate problem: 1 agent with N delegations from N users can cycle through each delegation, get a scoped JWT, and call tools on each user's behalf. This document describes four future capabilities that extend that foundation for more advanced multi-user scenarios.
+
+It also tracks **current P5.3 implementation gaps** (runtime + UI) and proposes a phased UI plan to close them.
+
+---
+
+## P5.3 Implementation Status (June 2026)
+
+> **Updated June 4, 2026:** Phase 0 (per-delegation JWT with round-robin execution) is **complete and deployed to production**. The runtime gap ("1 JWT → 1 owner") is resolved. All 3 agent jobs now cycle through delegations, get per-owner scoped JWTs, and run service-matched prompts. Remaining gaps are **UI visibility** (Phases 1–4) and the `_meta.user_id` per-call path (future interactive agents).
+
+### Gap Analysis: Runtime & Data Model
+
+| Item | Status | What exists today | What's still missing |
+|------|--------|-------------------|----------------------|
+| **Multi-user delegation support** | **Done** | N users can delegate to the same agent. **Per-delegation round-robin deployed (June 4).** New endpoints: `GET /auth/agent/delegations` + `POST /auth/agent/delegation-token`. Entrypoint cycles through delegations with scoped JWTs and service-matched prompts. | UI does not yet surface which delegation is "active now" or show per-round execution status. |
+| **User-scoped token selection in gateway** | **Done (via round-robin)** | Each delegation-scoped JWT has a single `owner` → vault resolves that owner's OAuth tokens. Gateway handles this natively — no code changes needed. | `_meta.user_id` **per-call** path still incomplete (not needed for round-robin; future path for interactive multi-user agents). |
+| **Per-user permission levels** | **Done** | Each delegation-scoped JWT carries only that delegation's permissions. Gateway enforces per-JWT. User B's github-only delegation → agent gets github-only JWT → gateway shows only github tools. Smart prompt selection in entrypoint matches prompts to permissions. | — |
+| **Admin registers agent, users self-delegate** | **Done** | Admin registers agents; users create their own delegations independently. | — |
+| **Agent → Users → Tokens mapping UI** | Partial | Fleet shows delegating users, delegations (permission count), sessions. | Does not show connected services per user, OAuth token refs, Agent JWT metadata, or identity-layer visualization. |
+| **`user_id` in `tools/call`** | Partial (infra only) | `_meta.user_id` hook exists in gateway. Round-robin uses per-delegation JWT (different approach, same outcome). | No agent runtime uses `_meta.user_id` yet. Vault `_meta` path incomplete. |
+| **Multi-user demo** | **Done (production)** | Round-robin entrypoint **is** the multi-user demo — runs in production on 3 agent jobs (gemini-deepsecure-agent, thunderbolt-deepsecure-agent, engineering-audit). | Standalone `demos/demo_admin_multi_user.py` not updated for round-robin flow yet. |
+| **One SA per customer** | Partial (pattern) | GCP agents use one SA per agent (`agents.selector` = SA email). | Not documented/enforced as a company-level pattern in UI. |
+
+### What Cloud Agents Actually Receive (Credential Confusion)
+
+A common question: "We run 3 GCP Cloud Run agents — why is Vault → Agent Credentials empty?"
+
+Three different credential concepts exist in the platform. They are **not interchangeable**:
+
+| Credential type | Layer | Used by GCP cloud agents? | Stored in DB? | Shown in Vault UI? |
+|-----------------|-------|---------------------------|---------------|-------------------|
+| **GCP OIDC token** | Platform attestation | Yes — once per bootstrap | No | No |
+| **Agent Session JWT** | L3 | Yes — every bootstrap (~1h TTL) | Metadata only (`agent_sessions`); JWT string **not persisted** | No (by design — secret) |
+| **Delegation record** | L5 | Yes — permission grant | Yes (`delegation_tokens`) | Partially — as "Delegations" in Agent Fleet |
+| **User OAuth tokens** | Vault | Yes — per delegator, via gateway | Yes (`vault_tokens` + `connected_services`) | Yes — **OAuth Tokens** tab (per logged-in user) |
+| **Split-key credentials** | Legacy Ed25519 flow | **No** — SDK/challenge-response agents only | Yes (`credentials` table) | Yes — **Agent Credentials** tab |
+
+**Why Agent Credentials is empty for GCP agents:** That tab reads `GET /vault/user-credentials`, which queries the `credentials` table (ephemeral Ed25519/X25519 split-key credentials from `POST /vault/credentials`). GCP workload-identity agents bootstrap via `POST /auth/bootstrap/gcp` and receive an **Agent Session JWT (L3)** — a different credential path entirely. Empty is **expected**, not a bug.
+
+**Bootstrap flow for cloud agents (round-robin, deployed June 4):**
+
+```
+Cloud Scheduler → Cloud Run Job
+  Phase 1: Bootstrap
+    → GCP OIDC token (Google SA)              ← one-time platform proof, not stored
+    → POST /auth/bootstrap/gcp
+    → Discovery JWT (L3)                      ← scoped to newest delegation's owner
+  Phase 2: Discover delegations
+    → GET /auth/agent/delegations             ← returns all active delegations
+  Phase 3: Round-robin loop (per round, per delegation)
+    → POST /auth/agent/delegation-token       ← exchange delegation_id for scoped JWT
+    → Delegation-scoped JWT (L3)              ← owner=this delegator, perms=this delegation
+    → AgentSession row in DB                  ← new session per delegation exchange
+    → configure MCP client with scoped JWT
+    → warm gateway (initialize MCP session)
+    → select prompts matching delegation's services
+    → MCP tools/call with scoped JWT
+    → Gateway fetches USER OAuth tokens from vault_tokens (keyed by JWT owner)
+    → (next delegation...)
+  → sleep(interval)
+  → (next round... re-fetch delegations to pick up changes)
+```
+
+---
+
+## Identity Layer Stack — Backend vs UI
+
+From [Technical Architecture §5.1](../TECHNICAL_ARCHITECTURE_AND_DESIGN.md#51-identity-layer-stack). The architecture describes a multi-layer identity model; the UI only partially reflects delegations and sessions.
+
+| Layer | What it is | Backend | UI today |
+|-------|-----------|---------|----------|
+| **L0** User ID-Token | Google/OIDC login | IdP flow | Not shown |
+| **L2** User Session JWT | Console/API session | Issued on login | Not shown |
+| **L3** Agent Session JWT | Agent MCP session token | `create_access_token()` on bootstrap; `agent_sessions` metadata | Sessions listed in Fleet (IDs/timestamps only), **not the JWT** |
+| **L4** Task Token JWT | Per-task scoped token | `task_service.issue_task_token()` | No UI |
+| **L5** Delegation Token | User → agent permission grant | `delegation_tokens` table | Shown as delegations (permissions, expiry), **not labeled as L5 / no JWT view** |
+
+**Security principle:** Raw JWT strings and OAuth access tokens must **never** be displayed in the UI. The gap is **metadata visibility** (layer, type, status, issued/expiry, delegator, linked services) — not token inspection.
+
+---
+
+## Agent → Users → Tokens UI Gaps
+
+The P5.3 item `agent-user-token-ui` requires: *"UI shows one agent with multiple delegating users, each with their own connected services and permission levels."*
+
+### Implemented (Agent Fleet today)
+
+- Multiple delegating users per agent
+- Delegation list with permission counts and expiry status
+- Session count and recent session IDs/timestamps
+- Lifecycle state (Registered → Delegated → Authenticated → Active)
+
+### Not implemented
+
+| Gap | Detail |
+|-----|--------|
+| **Per-user connected services** | Which services (Notion, Slack, GitHub, etc.) each delegator has OAuth-connected |
+| **OAuth token contribution mapping** | Which user's vault tokens the agent can reach for each service (token_ref, status, scopes — metadata only) |
+| **Active Agent JWT metadata** | Per session: issued_at, expires_at, owner (delegator), delegation_id — without showing the JWT string |
+| **Cross-user token mapping** | Visual: `Agent → User A → [notion, slack]` / `User B → [github]` |
+| **Identity layer stack view** | Read-only panel showing which layers are active for this agent (L3 session, L5 delegation, L4 task if any) |
+| **Workload identity display** | Fleet API does not return `platform` or `selector` (GCP SA email). UI cannot show SA email even though agents use it |
+
+### API gaps blocking UI
+
+Current `GET /api/v1/admin/agents` (`admin_fleet.py`) returns:
+
+- `delegating_users`, `delegations[]`, `sessions[]`, `public_key`, lifecycle state
+
+Missing fields needed for full mapping UI:
+
+- `platform` (e.g., `gcp`, `aws`, `local`)
+- `selector` (e.g., `debugging-agent-sa@deepsecure-saas.iam.gserviceaccount.com`)
+- Per-delegator: `connected_services[]` (service name, status, scopes_granted, token_ref prefix)
+- Per-session: `delegator`, `delegation_id`, `expires_at`, `is_active`
+
+---
+
+## UI Design & Implementation Plan
+
+> **Goal:** Close `agent-user-token-ui` and identity-stack visibility gaps without exposing secrets. Depends on round-robin runtime (Phase 0) for accurate per-delegation session metadata.
+
+### Design Principles
+
+1. **Metadata only** — Show token *existence*, *layer*, *status*, *expiry*, *owner* — never raw JWT or OAuth access token values.
+2. **Agent-centric admin view** — Admin sees `Agent → Users → Services → Permissions` in one expandable panel.
+3. **User-centric vault view** — Non-admin users see their own OAuth tokens (existing) plus which agents have active delegations using those tokens.
+4. **Clarify credential types** — Rename or annotate Vault tabs so "Agent Credentials" vs "Agent Sessions" is unambiguous.
+
+### Phase 0: Runtime prerequisite (backend, not UI) — ✅ COMPLETE (June 4, 2026)
+
+Implemented [round-robin plan](../../plans/multi-user-delegation-roundrobin_0fca7fec.plan.md). Each delegation gets its own scoped JWT and session. Deployed to all 3 production agent jobs.
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| Revert merged permissions in bootstrap | `bootstrap_service.py` | ✅ Discovery JWT scoped to single newest delegation |
+| Add `AgentIdentityDep` | `deps.py` | ✅ Lightweight JWT validation without requiring owner claims |
+| Add `GET /auth/agent/delegations` | `agent_auth.py` | ✅ Agent lists active delegations |
+| Add `POST /auth/agent/delegation-token` | `agent_auth.py` | ✅ Exchange delegation_id for scoped JWT + AgentSession |
+| Round-robin entrypoint | `agents/gemini/entrypoint.sh` | ✅ Two-phase bootstrap, delegation cycling, smart prompt selection, discovery JWT refresh |
+| Problem 5 in outage doc | `AGENT_OUTAGE_INVESTIGATION.md` | ✅ Documented single-delegation JWT root cause and fix |
+
+### Phase 1: Agent Fleet — User → Services mapping (M)
+
+**API:** Extend `AgentFleetEntry` in `admin_fleet.py`:
+
+```python
+class DelegatorSummary(BaseModel):
+    email: str
+    connected_services: List[ConnectedServiceSummary]  # name, status, scopes
+    active_delegation: Optional[DelegationSummary]
+    delegation_count: int
+
+class AgentFleetEntry(BaseModel):
+    ...
+    platform: Optional[str]
+    selector: Optional[str]  # GCP SA email or AWS role ARN
+    auth_method: str  # "workload_identity" | "ed25519"
+    delegators: List[DelegatorSummary]  # replaces flat delegating_users list
+```
+
+**UI:** `frontend/.../admin/agents/page.tsx`
+
+- Details panel: show `platform`, `selector` (Workload Identity), `auth_method`
+- Per-delegator expandable row: connected services badges + permission list + delegation expiry
+- Cross-user mapping diagram (simple table, not graph): User | Services | Permissions | Delegation Status
+
+**Acceptance:** Admin opens Debugging Agent → sees demo@ and mahendra@ each with their connected services and permission scopes.
+
+### Phase 2: Identity Stack panel (M)
+
+**API:** New endpoint `GET /api/v1/admin/agents/{agent_id}/identity-stack`:
+
+```json
+{
+  "agent_id": "agent-494fb073-...",
+  "layers": [
+    {"layer": "L5", "type": "Delegation", "count": 2, "active": 1, "items": [
+      {"id": "del-...", "delegator": "demo@...", "expires_at": "...", "status": "active"}
+    ]},
+    {"layer": "L3", "type": "Agent Session", "count": 137, "active": 1, "items": [
+      {"session_id": "asess-...", "delegator": "demo@...", "created_at": "...", "expires_at": "...", "status": "active"}
+    ]},
+    {"layer": "L4", "type": "Task Token", "count": 0, "active": 0, "items": []}
+  ]
+}
+```
+
+**UI:** Collapsible "Identity Stack" section in Agent Fleet expanded panel. Each layer shows count, active status, and expandable item list (metadata only).
+
+**Acceptance:** Admin sees L5 delegations and L3 sessions labeled by layer. No JWT strings displayed.
+
+### Phase 3: Vault tab clarification + session metadata (S)
+
+**UI changes:**
+
+| Tab | Current label | Proposed change |
+|-----|--------------|-----------------|
+| Agent Credentials | "No agent credentials" | Rename to **"Split-Key Credentials"** with subtitle: "Ed25519 agents only. GCP/AWS workload-identity agents use Agent Sessions — see Agent Fleet." |
+| (new sub-section or tab) | — | **"Agent Sessions"** under Vault or link from Agent Fleet: lists L3 session metadata for agents the user has delegated to |
+
+**API:** Reuse extended fleet endpoint or add `GET /vault/agent-sessions` scoped to current user's delegated agents.
+
+**Acceptance:** Admin no longer confused why Agent Credentials is empty for GCP agents.
+
+### Phase 4: OAuth token ↔ agent linkage (S)
+
+**UI:** On Vault → OAuth Tokens tab, add column or badge: "Used by agents: Debugging Agent, Thunderbolt Agent" (agents with active delegations from this user that include permissions for that service).
+
+**API:** Join `delegation_tokens` + `delegated_permissions` + `connected_services` for current user.
+
+**Acceptance:** User sees which agents can access each of their OAuth-connected services.
+
+### Phase 5: Task Token UI (L, optional)
+
+When Tasks feature is in active use, add L4 to Identity Stack panel and a Tasks page section showing active task tokens (metadata: task_id, scoped_permissions, expires_at).
+
+Deferred until Task Token usage is production-relevant.
+
+### Implementation Sequence
+
+```mermaid
+flowchart LR
+  P0["Phase 0<br/>Round-robin runtime"]
+  P1["Phase 1<br/>Fleet user→services"]
+  P2["Phase 2<br/>Identity stack panel"]
+  P3["Phase 3<br/>Vault clarification"]
+  P4["Phase 4<br/>OAuth↔agent linkage"]
+
+  P0 --> P1
+  P0 --> P2
+  P1 --> P4
+  P2 --> P3
+```
+
+| Phase | Complexity | Depends on | Delivers |
+|-------|------------|------------|----------|
+| 0 | L | — | Correct per-delegation runtime |
+| 1 | M | Phase 0 | `agent-user-token-ui` core |
+| 2 | M | Phase 0 | Identity layer visibility |
+| 3 | S | Phase 2 | Vault confusion resolved |
+| 4 | S | Phase 1 | User-side agent linkage |
+| 5 | L | Tasks in prod | L4 Task Token UI |
+
+### Files to Create/Modify (UI plan)
+
+| File | Action | Phase |
+|------|--------|-------|
+| `deeptrail-control/app/api/v1/endpoints/admin_fleet.py` | Extend response with platform, selector, delegators+services | 1 |
+| `deeptrail-control/app/api/v1/endpoints/admin_fleet.py` | Add `GET /agents/{id}/identity-stack` | 2 |
+| `frontend/src/lib/types/admin.ts` | Add `DelegatorSummary`, `IdentityStackLayer` types | 1–2 |
+| `frontend/src/app/(dashboard)/dashboard/admin/agents/page.tsx` | User→services mapping, identity stack panel | 1–2 |
+| `frontend/src/app/(dashboard)/dashboard/vault/page.tsx` | Rename Agent Credentials tab, add sessions link | 3 |
+| `deeptrail-control/app/api/v1/endpoints/vault.py` | Add agent-session metadata endpoint for delegators | 3–4 |
 
 ---
 
@@ -463,6 +718,7 @@ flowchart TB
 
 - [Round-Robin Plan](../../plans/multi-user-delegation-roundrobin_0fca7fec.plan.md) — the foundational plan this document extends
 - [Agent Provisioning Pool Plan](../../plans/agent-provisioning-pool_30fa2403.plan.md) — pre-provisioned GCP infrastructure for agents
+- [Technical Architecture §5.1 Identity Layer Stack](../TECHNICAL_ARCHITECTURE_AND_DESIGN.md#51-identity-layer-stack) — L0–L5 token layer definitions
+- [PRIORITY_MASTER §5.3](../../plans/PRIORITY_MASTER.md) — Multi-User Agent Delegation Model (Scale Agentic requirement)
 - [MCP Debugging Log](../workstreams/gcp-background-agent/MCP_DEBUGGING_LOG.md) — documents the Gemini CLI MCP integration and rate limit issues
 - [Agent Outage Investigation](../workstreams/gcp-background-agent/AGENT_OUTAGE_INVESTIGATION.md) — documents the delegation selection bug that motivated the round-robin design
-- [PRIORITY_MASTER](../../plans/PRIORITY_MASTER.md) — P5.2 multi-user delegation model (Scale Agentic requirement)
