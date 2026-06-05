@@ -159,9 +159,17 @@ class BaseClient:
             raise DeepSecureError(f"Failed to sign challenge: {e}") from e
 
         try:
-            # The token request must also be unauthenticated.
+            # C7: Include resource parameter (RFC 8707) for audience-restricted tokens
             token_url = f"{self._api_url}/api/v1/auth/token"
-            token_response = self.client.post(token_url, json={"agent_id": agent_id, "nonce": nonce, "signature": signature})
+            token_payload: Dict[str, Any] = {
+                "agent_id": agent_id,
+                "nonce": nonce,
+                "signature": signature,
+            }
+            resource_url = os.environ.get("DEEPSECURE_GATEWAY_RESOURCE_URL") or self._gateway_url
+            if resource_url:
+                token_payload["resource"] = resource_url
+            token_response = self.client.post(token_url, json=token_payload)
             token_response.raise_for_status()
             token_data = token_response.json()
             access_token = token_data["access_token"]

@@ -48,7 +48,7 @@ def get_session_manager() -> MCPSessionManager | None:
 
 # Supported MCP protocol versions
 # https://spec.modelcontextprotocol.io/specification/basic/lifecycle/#version-negotiation
-SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2024-11-05", "2024-10-07"]
+SUPPORTED_PROTOCOL_VERSIONS = ["2026-07-28", "2025-11-25", "2024-11-05", "2024-10-07"]
 
 # Server metadata returned in initialize response
 SERVER_INFO = {
@@ -141,10 +141,11 @@ class InitializeResult(BaseModel):
 
 async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
     """
-    Handle MCP initialize request.
+    Handle MCP initialize request (B7: optional for MCP 2026-07-28).
     
-    This is the first message in the MCP protocol handshake. The client sends
-    its capabilities and protocol version, and we respond with ours.
+    For 2025-11-25 clients this is the first message in the MCP handshake.
+    For 2026-07-28 clients this is optional — tools/list and tools/call work
+    without it because JWT claims provide all necessary context.
     
     Args:
         params: Initialize request parameters containing:
@@ -207,7 +208,8 @@ async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
         f"protocol={init_params.protocolVersion}"
     )
     
-    # Create agent session if session manager is configured and we have agent context
+    # B6: Session creation is an optional optimization — JWT is the source of truth.
+    # Handlers (tools/list, tools/call) work without sessions via stateless paths.
     agent_session_id = context.get("agent_session_id")
     delegated_permissions = context.get("delegated_permissions", [])
     delegator = context.get("delegator", "")

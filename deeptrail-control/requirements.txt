@@ -22,3 +22,4 @@ docker
 PyNaCl
 google-cloud-kms>=2.21.0
 google-cloud-tasks>=2.14.0
+redis>=4.0.0  # Session revocation markers + cache pub/sub

@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # JWT settings (Keep for potential future use, but not used by current auth)
     SECRET_KEY: str = os.getenv("SECRET_KEY", os.getenv("JWT_SECRET", "a_very_insecure_default_secret_key_replace_me"))
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
 
     # Static API Key for backend access
     # Load from environment variable, provide a default for local dev/testing ONLY

@@ -401,8 +401,8 @@ class TestSecretInjectionErrorHandling:
         assert result["result"]["status"] == "processed"
 
     @pytest.mark.asyncio
-    async def test_inject_secrets_exception_handled(self, secret_tester):
-        """Test that exceptions in _inject_secrets are caught gracefully."""
+    async def test_inject_secrets_exception_returns_502(self, secret_tester):
+        """Test that exceptions in _inject_secrets return 502 (fail-closed, P0-B1/A7)."""
         request = MockRequest(
             method="POST",
             url="/proxy/api/test",
@@ -415,7 +415,7 @@ class TestSecretInjectionErrorHandling:
         with patch.object(secret_tester.middleware, '_inject_secrets', new_callable=AsyncMock, side_effect=Exception("test error")):
             result = await secret_tester.test_injection(request)
 
-        assert result["result"]["status"] == "processed"
+        assert result["result"].status_code == 502
 
 
 class TestSecretInjectionIntegration:

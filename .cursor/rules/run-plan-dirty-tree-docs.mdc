@@ -1,0 +1,21 @@
+---
+description: When /run-plan or /run-batch encounters uncommitted changes limited to docs/, do not stop or block — proceed with execution
+alwaysApply: true
+---
+
+# Do Not Block on Docs-Only Dirty Working Tree
+
+When executing `/run-plan` or `/run-batch` (including auto-chain from `--skip-checkpoint`):
+
+1. If the working tree has uncommitted changes, check **which paths** are dirty:
+   ```bash
+   git status --short | awk '{print $2}'
+   ```
+2. If **all** uncommitted changes are under `docs/`, `plans/`, `scripts/mp_configs/`, or are untracked markdown/config files:
+   - **Do NOT stop, warn-and-wait, or require a stash/commit.**
+   - Treat the tree as clean for branch-creation and execution purposes.
+   - When creating a feature branch, use `git checkout -b <branch>` directly (uncommitted docs carry over).
+3. If uncommitted changes include **source code** outside `docs/` (e.g., `deeptrail-gateway/app/`, `deeptrail-control/app/`, `deepsecure/`, `frontend/`):
+   - Follow the normal dirty-tree warning and block behavior.
+
+This ensures `/run-plan ... --auto-heal --skip-checkpoint` can auto-chain into `/run-batch` without manual intervention when the only dirty files are planning artifacts.

@@ -86,8 +86,13 @@ class ToolsListResult(BaseModel):
     """
     tools: list[dict[str, Any]] = Field(default_factory=list, description="Available tools")
     nextCursor: str | None = Field(default=None, alias="nextCursor", description="Pagination cursor")
-    
+
     model_config = {"populate_by_name": True}
+
+
+# B9: Default cache metadata for tool list responses (MCP 2026-07-28)
+DEFAULT_TOOL_TTL_MS = 300_000  # 5 minutes
+DEFAULT_CACHE_SCOPE = "agent"  # Tool list is agent-specific (permission-filtered)
 
 
 # =============================================================================
@@ -227,45 +232,53 @@ async def handle_tools_list(params: dict[str, Any]) -> dict[str, Any]:
             "Server configuration error"
         )
     
-    # Get agent session
-    if not agent_session_id:
-        # No session context - return empty tools (unauthenticated)
-        # C5: Fail-closed behavior
-        logger.warning("tools/list called without agent session - returning empty (fail-closed)")
-        return ToolsListResult(tools=[]).model_dump(by_alias=True)
+    # Stateless path (P1-B1): derive tool list from JWT permissions directly.
+    # Session-based lookup is an optional optimization, not a requirement.
+    allowed_tools: list[str] | None = None
     
-    agent_session = session_manager.get_agent_session(agent_session_id)
-    if not agent_session:
-        logger.warning(f"Agent session not found: {agent_session_id}")
-        raise MCPError(
-            JsonRpcErrorCode.INVALID_REQUEST,
-            "Session not found. Call initialize first."
+    if agent_session_id:
+        agent_session = session_manager.get_agent_session(agent_session_id)
+        if agent_session:
+            allowed_tools = session_manager.get_allowed_tools(agent_session_id)
+            logger.debug("Session has %d pre-computed tools", len(allowed_tools))
+    
+    if allowed_tools is None:
+        # Stateless: derive tools from permissions via PermissionMapper
+        allowed_tools = [
+            tool_name
+            for tool_name in PermissionMapper.get_all_tools()
+            if PermissionMapper.is_tool_permitted(tool_name, delegated_permissions)
+        ]
+        logger.debug(
+            "Stateless tools/list: derived %d tools from %d permissions",
+            len(allowed_tools),
+            len(delegated_permissions),
         )
-    
-    # Get tools from session (pre-computed during session creation)
-    allowed_tools = session_manager.get_allowed_tools(agent_session_id)
-    
-    logger.debug(f"Session has {len(allowed_tools)} allowed tools")
     
     # Build tool schemas for response with permission filtering (C5)
     tools = await _build_tool_schemas(allowed_tools, delegated_permissions, agent_id)
     
-    # C5: Log reduction metrics for Demo 2 verification
-    original_count = len(allowed_tools)
+    # C5: Log reduction metrics
+    total_known_tools = len(PermissionMapper.get_all_tools())
     filtered_count = len(tools)
-    reduction = PermissionFilter.calculate_reduction(original_count, filtered_count)
+    reduction = PermissionFilter.calculate_reduction(total_known_tools, filtered_count)
     
     logger.info(
         "tools/list returning %d/%d tools (%.1f%% reduction) for agent %s",
         filtered_count,
-        original_count,
+        total_known_tools,
         reduction,
         agent_id,
     )
     
-    # Build response
+    # Build response with cache metadata (B9: MCP 2026-07-28)
     result = ToolsListResult(tools=tools)
-    return result.model_dump(by_alias=True, exclude_none=True)
+    response = result.model_dump(by_alias=True, exclude_none=True)
+    response["_meta"] = {
+        "ttlMs": DEFAULT_TOOL_TTL_MS,
+        "cacheScope": DEFAULT_CACHE_SCOPE,
+    }
+    return response
 
 
 async def _build_tool_schemas(

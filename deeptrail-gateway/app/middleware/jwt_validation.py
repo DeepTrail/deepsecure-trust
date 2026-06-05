@@ -1,17 +1,22 @@
 """
 JWT Validation Middleware for DeepTrail Gateway
 
-Validates Agent Session JWTs (Layer 3) issued by the Control Plane.
-This is Step 6 of Sarah's journey: Agent Connects to Virtual MCP.
+Validates Bearer tokens from two issuers:
+  1. DeepSecure Agent Session JWTs (HS256, Layer 3) — issued by Control Plane
+  2. OAuth 2.1 tokens from Keycloak (RS256) — external authorization server
+
+Token routing uses a header-inspection heuristic: RS256/RS384/RS512 tokens
+are delegated to the OAuthTokenValidator; HS256 tokens are validated locally.
 
 Key Features:
+- Dual-token detection via JWT header algorithm
 - Validates JWT signature (HS256 with shared secret - MVP)
 - Validates issuer (deeptrail-control) and audience (deeptrail-gateway)
 - Extracts delegated_permissions for downstream permission filtering
 - Stores validated claims in request.state for middleware chain
 - Fail-closed: denies access if validation fails
 
-JWT Claims (Layer 3):
+JWT Claims (Layer 3 — DeepSecure):
 - sub: Agent ID
 - owner: Delegator email
 - delegated_permissions: Array of permission strings
@@ -19,6 +24,12 @@ JWT Claims (Layer 3):
 - session_id: Unique session identifier
 - iss: deeptrail-control
 - aud: deeptrail-gateway
+
+JWT Claims (OAuth 2.1 — Keycloak):
+- sub: User/client ID
+- scope: Space-separated scopes (mcp_tools, mcp_resources, etc.)
+- iss: Keycloak realm URL
+- aud: mcp-gateway
 """
 
 import logging
@@ -211,8 +222,8 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
         "scoped_permissions",
     ]
 
-    # Legacy required claims (for backward compatibility)
-    LEGACY_REQUIRED_CLAIMS = ["agent_id"]
+    # Legacy JWT fallback removed (MCP Auth Spec Compliance P0-B1/A1).
+    # All tokens must now include iss/aud claims.
 
     def __init__(
         self,
@@ -302,17 +313,38 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
                 error_code="invalid_header_format",
             )
 
-        # Validate JWT token
+        # Route token to the correct validator based on algorithm + issuer
         try:
-            jwt_payload = await self._validate_jwt_token(token)
+            from .oauth_validation import get_oauth_validator
 
-            # Create agent context from validated payload
-            agent_context = AgentContext.from_jwt_payload(jwt_payload)
+            token_route = self._classify_token(token)
+
+            if token_route == "oauth":
+                oauth_validator = get_oauth_validator()
+                if oauth_validator:
+                    agent_context = await self._validate_oauth_token(
+                        token, oauth_validator
+                    )
+                    request.state.token_type = "oauth"
+                else:
+                    jwt_payload = await self._validate_jwt_token(token)
+                    agent_context = AgentContext.from_jwt_payload(jwt_payload)
+                    request.state.jwt_payload = jwt_payload
+                    request.state.token_type = "deepsecure"
+            elif token_route == "deepsecure_rs256":
+                jwt_payload = await self._validate_jwt_token_rs256(token)
+                agent_context = AgentContext.from_jwt_payload(jwt_payload)
+                request.state.jwt_payload = jwt_payload
+                request.state.token_type = "deepsecure_rs256"
+            else:
+                jwt_payload = await self._validate_jwt_token(token)
+                agent_context = AgentContext.from_jwt_payload(jwt_payload)
+                request.state.jwt_payload = jwt_payload
+                request.state.token_type = "deepsecure"
 
             # Store in request state for downstream middleware
             request.state.agent_context = agent_context
-            request.state.jwt_payload = jwt_payload
-            request.state.agent_jwt_token = token  # Raw JWT for vault API calls
+            request.state.agent_jwt_token = token
 
             # Legacy compatibility: also set individual fields
             request.state.agent_id = agent_context.agent_id
@@ -320,8 +352,27 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
             request.state.delegation_id = agent_context.delegation_id
             request.state.session_id = agent_context.session_id
 
+            # D5: Reject revoked DeepSecure agent sessions (Redis marker from control)
+            if request.state.token_type in ("deepsecure", "deepsecure_rs256"):
+                from ..security.session_revocation import (
+                    get_session_revocation_checker,
+                )
+
+                checker = get_session_revocation_checker()
+                if checker and await checker.is_revoked(agent_context.session_id):
+                    logger.warning(
+                        "Rejected revoked session %s for agent %s",
+                        agent_context.session_id,
+                        agent_context.agent_id,
+                    )
+                    return self._unauthorized_response(
+                        detail="Session revoked",
+                        error_code="session_revoked",
+                    )
+
             logger.info(
-                "JWT validated for agent %s, session %s, permissions: %d",
+                "JWT validated [%s] for agent %s, session %s, permissions: %d",
+                request.state.token_type,
                 agent_context.agent_id,
                 agent_context.session_id,
                 len(agent_context.delegated_permissions),
@@ -341,6 +392,78 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
         # Continue with request processing
         return await call_next(request)
 
+    def _classify_token(self, token: str) -> str:
+        """Classify a Bearer token for routing to the right validator.
+
+        Returns one of: ``"deepsecure"`` (HS256), ``"deepsecure_rs256"``
+        (RS256 from control plane), or ``"oauth"`` (RS256 from Keycloak).
+        """
+        try:
+            header = jwt.get_unverified_header(token)
+            alg = header.get("alg", "")
+            if not alg.startswith("RS"):
+                return "deepsecure"
+
+            claims = jwt.get_unverified_claims(token)
+            iss = claims.get("iss", "")
+            if iss == self.EXPECTED_ISSUER:
+                return "deepsecure_rs256"
+            return "oauth"
+        except Exception:
+            return "deepsecure"
+
+    async def _validate_jwt_token_rs256(self, token: str) -> dict[str, Any]:
+        """Validate a DeepSecure RS256 JWT via the control plane's JWKS.
+
+        Fetches ``/.well-known/jwks.json`` from the control plane,
+        verifies the signature, and validates standard claims.
+        """
+        import httpx
+
+        jwks_url = f"{self.control_plane_url}/.well-known/jwks.json"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(jwks_url)
+                resp.raise_for_status()
+                jwks = resp.json()
+        except Exception as e:
+            logger.warning("Cannot fetch control-plane JWKS from %s: %s", jwks_url, e)
+            raise JWTValidationError(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Cannot verify RS256 token: JWKS unavailable",
+                error_code="jwks_unavailable",
+            )
+
+        from jose import jwt as jose_jwt, JWTError as JoseJWTError
+
+        try:
+            payload = jose_jwt.decode(
+                token,
+                jwks,
+                algorithms=["RS256", "RS384", "RS512"],
+                audience=self.EXPECTED_AUDIENCE,
+                issuer=self.EXPECTED_ISSUER,
+            )
+        except JoseJWTError as e:
+            raise JWTValidationError(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"RS256 token validation failed: {e}",
+                error_code="rs256_validation_failed",
+            )
+
+        token_type = payload.get("token_type")
+        if token_type == "task_token":
+            self._validate_required_claims(payload, self.TASK_TOKEN_REQUIRED_CLAIMS)
+        else:
+            self._validate_required_claims(payload, self.REQUIRED_CLAIMS)
+
+        self._validate_timing_claims(payload)
+
+        if "delegated_permissions" in payload:
+            self._validate_permissions(payload)
+
+        return payload
+
     async def _validate_jwt_token(self, token: str) -> dict[str, Any]:
         """
         Validate Agent Session JWT (Layer 3).
@@ -359,54 +482,21 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
             JWTValidationError: If validation fails
         """
         try:
-            # First try to decode with issuer/audience validation (Layer 3 format)
-            try:
-                payload = jwt.decode(
-                    token,
-                    self.jwt_secret_key,
-                    algorithms=[self.jwt_algorithm],
-                    audience=self.EXPECTED_AUDIENCE,
-                    issuer=self.EXPECTED_ISSUER,
+            payload = jwt.decode(
+                token,
+                self.jwt_secret_key,
+                algorithms=[self.jwt_algorithm],
+                audience=self.EXPECTED_AUDIENCE,
+                issuer=self.EXPECTED_ISSUER,
+            )
+
+            token_type = payload.get("token_type")
+            if token_type == "task_token":
+                self._validate_required_claims(
+                    payload, self.TASK_TOKEN_REQUIRED_CLAIMS
                 )
-
-                token_type = payload.get("token_type")
-                if token_type == "task_token":
-                    self._validate_required_claims(
-                        payload, self.TASK_TOKEN_REQUIRED_CLAIMS
-                    )
-                else:
-                    self._validate_required_claims(payload, self.REQUIRED_CLAIMS)
-
-            except jwt.JWTClaimsError:
-                # Fallback: Try without issuer/audience for legacy tokens
-                payload = jwt.decode(
-                    token,
-                    self.jwt_secret_key,
-                    algorithms=[self.jwt_algorithm],
-                    options={
-                        "verify_aud": False,
-                        "verify_iss": False,
-                    },
-                )
-
-                # For legacy tokens, require agent_id
-                self._validate_required_claims(payload, self.LEGACY_REQUIRED_CLAIMS)
-
-                # Map legacy claims to new format for AgentContext
-                if "sub" not in payload and "agent_id" in payload:
-                    payload["sub"] = payload["agent_id"]
-                if "delegated_permissions" not in payload:
-                    # Legacy tokens use 'scope' as space-separated string
-                    scope = payload.get("scope", "")
-                    payload["delegated_permissions"] = (
-                        scope.split() if scope else []
-                    )
-                # Set defaults for missing Layer 3 claims
-                payload.setdefault("owner", "")
-                payload.setdefault("delegation_id", "")
-                payload.setdefault("session_id", "")
-
-                logger.debug("Using legacy JWT format for agent %s", payload.get("sub"))
+            else:
+                self._validate_required_claims(payload, self.REQUIRED_CLAIMS)
 
             # Validate timing claims
             self._validate_timing_claims(payload)
@@ -473,6 +563,59 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
                 detail="Invalid JWT token format",
                 error_code="invalid_format",
             )
+
+    async def _validate_oauth_token(
+        self, token: str, validator: "OAuthTokenValidator"
+    ) -> AgentContext:
+        """Validate an OAuth 2.1 token and build an AgentContext from its claims.
+
+        Maps OAuth scopes (e.g. ``mcp_tools``) to DeepSecure permission
+        URNs so downstream middleware can reuse the same permission-checking
+        logic regardless of token origin.
+        """
+        from .oauth_validation import OAuthValidationError
+
+        try:
+            claims = await validator.validate_token(token)
+        except OAuthValidationError as e:
+            raise JWTValidationError(
+                status_code=401,
+                detail=str(e),
+                error_code="oauth_validation_failed",
+            ) from e
+
+        permissions = self._oauth_scopes_to_permissions(claims.scopes)
+
+        return AgentContext(
+            agent_id=claims.sub,
+            owner=claims.preferred_username or claims.email or claims.sub,
+            delegation_id=None,
+            session_id=f"oauth-{claims.sub}",
+            delegated_permissions=permissions,
+            token_type="oauth",
+            idp_issuer=claims.iss,
+        )
+
+    @staticmethod
+    def _oauth_scopes_to_permissions(scopes: list[str]) -> list[str]:
+        """Map OAuth scopes to DeepSecure permission strings.
+
+        The mapping is intentionally broad — OAuth scopes grant capability
+        categories, while DeepSecure permissions are fine-grained.  The
+        gateway's PermissionMapper further restricts what tools are
+        accessible within these categories.
+        """
+        scope_map: dict[str, list[str]] = {
+            "mcp_tools": ["mcp:tools:list", "mcp:tools:call"],
+            "mcp_resources": ["mcp:resources:list", "mcp:resources:read"],
+            "mcp_prompts": ["mcp:prompts:list", "mcp:prompts:get"],
+        }
+
+        permissions: list[str] = []
+        for scope in scopes:
+            if scope in scope_map:
+                permissions.extend(scope_map[scope])
+        return permissions
 
     def _validate_required_claims(
         self, payload: dict[str, Any], required_claims: list[str]
@@ -553,6 +696,49 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
                 )
                 # Don't fail - just warn for MVP
 
+    def _www_authenticate_header(self, error_code: str = "", error_description: str = "") -> str:
+        """Build RFC 6750 §3 + RFC 9728 WWW-Authenticate header value.
+
+        Includes ``resource_metadata`` pointing to the PRM endpoint so
+        clients can discover how to obtain a valid token.
+        """
+        import os
+
+        parts = ['Bearer realm="deeptrail-gateway"']
+        if error_code:
+            parts.append(f'error="{error_code}"')
+        if error_description:
+            safe_desc = error_description.replace('"', "'")
+            parts.append(f'error_description="{safe_desc}"')
+
+        gateway_url = os.environ.get(
+            "GATEWAY_CANONICAL_URL", "https://gateway.deepsecure.one"
+        )
+        parts.append(
+            f'resource_metadata="{gateway_url}/.well-known/oauth-protected-resource"'
+        )
+        return ", ".join(parts)
+
+    def _build_error_body(
+        self,
+        error_code: str,
+        detail: str,
+        status_code: int,
+    ) -> dict[str, Any]:
+        """Build a structured RFC 9728-enriched error response body."""
+        import os
+
+        gateway_url = os.environ.get(
+            "GATEWAY_CANONICAL_URL", "https://gateway.deepsecure.one"
+        )
+        body: dict[str, Any] = {
+            "error": error_code,
+            "detail": detail,
+            "status": status_code,
+            "resource_metadata": f"{gateway_url}/.well-known/oauth-protected-resource",
+        }
+        return body
+
     def _unauthorized_response(
         self,
         detail: str,
@@ -561,22 +747,27 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
         """Create a 401 Unauthorized response."""
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            content={
-                "error": error_code,
-                "detail": detail,
+            content=self._build_error_body(error_code, detail, 401),
+            headers={
+                "WWW-Authenticate": self._www_authenticate_header(
+                    error_code="invalid_token" if error_code != "missing_authorization" else "",
+                    error_description=detail,
+                )
             },
-            headers={"WWW-Authenticate": "Bearer"},
         )
 
     def _error_response(self, error: JWTValidationError) -> JSONResponse:
         """Create an error response from JWTValidationError."""
+        status_code = error.status_code
         return JSONResponse(
-            status_code=error.status_code,
-            content={
-                "error": error.error_code,
-                "detail": error.detail,
+            status_code=status_code,
+            content=self._build_error_body(error.error_code, error.detail, status_code),
+            headers=error.headers if error.headers else {
+                "WWW-Authenticate": self._www_authenticate_header(
+                    error_code="invalid_token",
+                    error_description=error.detail,
+                )
             },
-            headers=error.headers if error.headers else {"WWW-Authenticate": "Bearer"},
         )
 
     # ─────────────────────────────────────────────────────────────────────────

@@ -120,6 +120,10 @@ app.add_middleware(
 # Add logging middleware
 app.add_middleware(LoggingMiddleware)
 
+# Mount .well-known routes (no prefix, no auth)
+from app.api.well_known import router as well_known_router
+app.include_router(well_known_router)
+
 # Include the main API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 

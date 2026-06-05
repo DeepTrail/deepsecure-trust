@@ -1,0 +1,148 @@
+{
+  "realm": "mcp",
+  "enabled": true,
+  "displayName": "DeepSecure MCP",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 5,
+  "accessTokenLifespan": 900,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "actionTokenGeneratedByAdminLifespan": 43200,
+  "actionTokenGeneratedByUserLifespan": 300,
+  "oauth2DeviceCodeLifespan": 600,
+  "oauth2DevicePollingInterval": 5,
+  "defaultSignatureAlgorithm": "RS256",
+  "roles": {
+    "realm": [
+      {
+        "name": "mcp_user",
+        "description": "Standard MCP user — can call tools",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "mcp_admin",
+        "description": "MCP administrator — can manage scopes and clients",
+        "composite": false,
+        "clientRole": false
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "mcp-gateway",
+      "name": "DeepTrail Gateway",
+      "description": "Resource server — validates tokens, does not issue them",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "bearerOnly": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": false,
+      "defaultClientScopes": ["mcp_tools"],
+      "optionalClientScopes": ["mcp_resources", "mcp_prompts"]
+    },
+    {
+      "clientId": "mcp-public-client",
+      "name": "MCP Public Client (PKCE)",
+      "description": "Public client for MCP SDK/CLI — Authorization Code + PKCE S256",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:*",
+        "http://127.0.0.1:*"
+      ],
+      "webOrigins": ["+"],
+      "fullScopeAllowed": false,
+      "defaultClientScopes": ["mcp_tools"],
+      "optionalClientScopes": ["mcp_resources", "mcp_prompts"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      }
+    },
+    {
+      "clientId": "test-agent",
+      "name": "MP2 Test Agent",
+      "description": "Service account for OAuth container tests and CI",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "test-agent-secret",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "bearerOnly": false,
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["mcp_tools"],
+      "optionalClientScopes": ["mcp_resources", "mcp_prompts"]
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "mcp_tools",
+      "description": "Access to MCP tools (tools/list, tools/call)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Access AI tools on your behalf"
+      },
+      "protocolMappers": [
+        {
+          "name": "mcp-tools-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "mcp-gateway",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "mcp_resources",
+      "description": "Access to MCP resources (resources/list, resources/read)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Read data resources on your behalf"
+      }
+    },
+    {
+      "name": "mcp_prompts",
+      "description": "Access to MCP prompts (prompts/list, prompts/get)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Use prompt templates on your behalf"
+      }
+    }
+  ]
+}
