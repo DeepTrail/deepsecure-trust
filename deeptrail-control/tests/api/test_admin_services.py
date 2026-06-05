@@ -46,7 +46,7 @@ def test_create_service(client):
     assert resp.status_code == 201
     data = resp.json()
     assert data["service_id"] == "notion"
-    assert data["status"] == "sandbox"
+    assert data["status"] == "active"
 
 
 def test_create_duplicate_service(client):

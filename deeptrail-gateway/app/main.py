@@ -50,7 +50,12 @@ from .core.share_storage import ShareStorageManager
 # from .middleware.sanitization import SanitizationMiddleware, ContentValidationMiddleware
 
 # Core PEP: Essential middleware imports
-from .middleware.jwt_validation import JWTValidationMiddleware
+from .middleware.correlation import CorrelationMiddleware, get_request_id
+from .middleware.jwt_validation import (
+    JWTValidationMiddleware,
+    build_insufficient_scope_body,
+    build_insufficient_scope_header,
+)
 from .middleware.oauth_validation import configure_oauth_validator
 from .security.session_revocation import configure_session_revocation_checker
 from .middleware.policy_enforcement import PolicyEnforcementMiddleware
@@ -222,10 +227,11 @@ configure_request_logging(logging_config)
 # TODO: Add basic policy enforcement middleware (essential for core PEP)
 
 # Core PEP: Essential middleware stack
-# Order matters: JWT validation -> Policy enforcement -> Secret injection
+# Order matters: Correlation -> JWT validation -> Policy enforcement -> Secret injection
 app.add_middleware(SecretInjectionMiddleware, control_plane_url=config.control_plane_url)
 app.add_middleware(PolicyEnforcementMiddleware, enforcement_mode=config.policy.enforcement_mode)
 app.add_middleware(JWTValidationMiddleware, control_plane_url=config.control_plane_url)
+app.add_middleware(CorrelationMiddleware)
 
 configure_oauth_validator()
 logger.info("OAuth token validator configured for Keycloak MCP realm")
@@ -680,7 +686,7 @@ async def mcp_endpoint(request: Request):
         
         # Build context for MCP handlers
         context = {
-            "request_id": request.headers.get("X-Request-ID"),
+            "request_id": get_request_id(request),
             "mcp_protocol_version": mcp_protocol_version,
             "mcp_method": mcp_method_header,
             "mcp_name": mcp_name_header,
@@ -721,11 +727,36 @@ async def mcp_endpoint(request: Request):
                 media_type="application/json"
             )
         
+        # E2: Permission denied → HTTP 403 with scope challenge (not JSON-RPC 200)
+        if (
+            response.error
+            and response.error.code == JsonRpcErrorCode.PERMISSION_DENIED
+        ):
+            required_perm = None
+            if response.error.data and isinstance(response.error.data, dict):
+                required_perm = response.error.data.get("required_permission")
+            required_perms = [required_perm] if required_perm else []
+            req_id = get_request_id(request)
+            return JSONResponse(
+                status_code=403,
+                content=build_insufficient_scope_body(
+                    required_perms,
+                    response.error.message,
+                    request_id=req_id,
+                ),
+                headers={
+                    "WWW-Authenticate": build_insufficient_scope_header(required_perms),
+                    "X-Request-ID": req_id,
+                    "MCP-Protocol-Version": mcp_protocol_version or "2025-11-25",
+                },
+            )
+
         # Single response — build JSONResponse
         response_obj = JSONResponse(
             content=response.model_dump(),
             media_type="application/json"
         )
+        response_obj.headers["X-Request-ID"] = get_request_id(request)
         
         # B5: Set MCP-Protocol-Version response header (2026-07-28 spec)
         negotiated_version = mcp_protocol_version or "2025-11-25"

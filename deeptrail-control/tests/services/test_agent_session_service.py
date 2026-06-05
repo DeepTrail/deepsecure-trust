@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 
 import jwt
 import pytest
+
+from app.core.jwt_signing import reset_jwt_signing_service
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 # Note: We don't import AgentSession/DelegationToken for spec= usage
@@ -35,6 +37,17 @@ def _clear_pending_challenges():
     _pending_challenges.clear()
     yield
     _pending_challenges.clear()
+
+
+@pytest.fixture(autouse=True)
+def _force_hs256_jwt_for_tests(monkeypatch, jwt_secret):
+    """Align JWT signing with test decode key (HS256 + test secret)."""
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    monkeypatch.setenv("SECRET_KEY", jwt_secret)
+    monkeypatch.setenv("JWT_SECRET", jwt_secret)
+    reset_jwt_signing_service()
+    yield
+    reset_jwt_signing_service()
 
 
 @pytest.fixture

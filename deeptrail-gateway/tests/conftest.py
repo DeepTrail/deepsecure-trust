@@ -35,6 +35,20 @@ def cleanup_http_client():
     import app.core.http_client
     app.core.http_client._http_client = None
 
+
+@pytest.fixture(autouse=True)
+def _disable_session_revocation_by_default():
+    """Avoid fail-closed Redis revocation polluting unit tests."""
+    from app.security.session_revocation import (
+        configure_session_revocation_checker,
+        reset_session_revocation_checker,
+    )
+
+    reset_session_revocation_checker()
+    configure_session_revocation_checker(redis_url=None)
+    yield
+    reset_session_revocation_checker()
+
 @pytest.fixture
 def valid_jwt_payload():
     """Provide a valid JWT payload for testing."""

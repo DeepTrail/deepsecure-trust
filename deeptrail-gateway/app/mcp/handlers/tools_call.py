@@ -493,12 +493,18 @@ async def handle_tools_call(params: dict[str, Any]) -> dict[str, Any]:
                 backend=backend_id,
                 denial_reason=validation_result.denial_reason.value if validation_result.denial_reason else None,
             )
+        from ...mcp.oauth_scope_mapper import permission_to_scope
+
+        required_scopes = (
+            [permission_to_scope(required_perm)] if required_perm else []
+        )
         raise MCPError(
             ToolsCallErrorCode.PERMISSION_DENIED,
             error_message,
             data={
                 "tool": tool_name,
                 "required_permission": required_perm,
+                "required_scopes": required_scopes,
                 "delegated_permissions": agent_context.delegated_permissions if agent_context else []
             }
         )

@@ -39,6 +39,7 @@ from .oauth_service import (  # noqa
     get_oauth_service,
 )
 from .scope_mapper import ScopeMapper  # noqa
+from .cimd_service import CIMDService  # noqa
 from .vault_client import (  # noqa
     DecryptionError,
     TokenNotFoundError,
