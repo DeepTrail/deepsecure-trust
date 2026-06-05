@@ -105,10 +105,13 @@ class TestGatewayCore:
         
         assert response.status_code == 401
     
+    @patch('app.middleware.jwt_validation.JWTValidationMiddleware._classify_token', return_value='deepsecure')
     @patch('app.middleware.jwt_validation.JWTValidationMiddleware._validate_jwt_token')
     @patch('app.core.request_validator.RequestValidator.validate_request')
     @patch('app.proxy.get_http_client')
-    def test_post_request_with_body(self, mock_http_client, mock_validate_request, mock_jwt_validation):
+    def test_post_request_with_body(
+        self, mock_http_client, mock_validate_request, mock_jwt_validation, _mock_classify
+    ):
         """Test POST request with body."""
         # Reset global HTTP client
         import app.core.http_client
@@ -117,9 +120,15 @@ class TestGatewayCore:
         async def mock_validate_jwt(*args, **kwargs):
             return {
                 "sub": "agent-test-123",
+                "owner": "test@example.com",
+                "delegated_permissions": ["domain:httpbin.org", "method:POST"],
+                "delegation_id": "del-1",
+                "session_id": "sess-1",
+                "iss": "deeptrail-control",
+                "aud": "deeptrail-gateway",
                 "permissions": ["domain:httpbin.org", "method:POST"],
                 "allowed_domains": ["httpbin.org"],
-                "allowed_methods": ["POST"]
+                "allowed_methods": ["POST"],
             }
         mock_jwt_validation.side_effect = mock_validate_jwt
         

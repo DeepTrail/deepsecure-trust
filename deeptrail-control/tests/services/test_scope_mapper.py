@@ -272,10 +272,11 @@ class TestGetSupportedServices:
         assert "slack" in services
         assert "hubspot" in services
     
-    def test_exactly_six_services(self):
-        """Currently supports exactly 6 services (notion, slack, hubspot, gdrive, gcalendar, gmail)."""
+    def test_exactly_seven_services(self):
+        """Supports notion, slack, hubspot, gdrive, gcalendar, gmail, github."""
         services = ScopeMapper.get_supported_services()
-        assert len(services) == 6
+        assert len(services) == 7
+        assert "github" in services
 
 
 class TestGetSupportedScopes:

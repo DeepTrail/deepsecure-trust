@@ -87,9 +87,18 @@ class TestCatalogEnforcement:
         assert "public-svc" in ids
 
     def test_role_filtering(self, client, db):
+        """Catalog enforces visibility via available_to_users (roles are metadata)."""
         _seed_services(db, [
-            {"service_id": "admin-only", "available_to_roles": ["admin"]},
-            {"service_id": "eng-only", "available_to_roles": ["engineer"]},
+            {
+                "service_id": "admin-only",
+                "available_to_roles": ["admin"],
+                "available_to_users": ["admin@test.com"],
+            },
+            {
+                "service_id": "eng-only",
+                "available_to_roles": ["engineer"],
+                "available_to_users": ["dev@test.com"],
+            },
         ])
         _seed_user_session(db, "admin@test.com", "admin")
         _seed_user_session(db, "dev@test.com", "engineer")

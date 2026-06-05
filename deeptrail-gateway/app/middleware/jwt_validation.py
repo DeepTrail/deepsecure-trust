@@ -180,6 +180,55 @@ class JWTValidationError(Exception):
         super().__init__(detail)
 
 
+def build_insufficient_scope_header(
+    required_permissions: list[str],
+    *,
+    gateway_url: str | None = None,
+) -> str:
+    """Build RFC 6750 WWW-Authenticate header for insufficient_scope (E2)."""
+    import os
+
+    from ..mcp.oauth_scope_mapper import permissions_to_scopes
+
+    scopes = permissions_to_scopes(required_permissions)
+    scope_str = " ".join(scopes)
+    base_url = gateway_url or os.environ.get(
+        "GATEWAY_CANONICAL_URL", "https://gateway.deepsecure.one"
+    )
+    return (
+        f'Bearer error="insufficient_scope", '
+        f'scope="{scope_str}", '
+        f'resource_metadata="{base_url}/.well-known/oauth-protected-resource"'
+    )
+
+
+def build_insufficient_scope_body(
+    required_permissions: list[str],
+    detail: str,
+    *,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Structured 403 body for scope challenge responses."""
+    import os
+
+    from ..mcp.oauth_scope_mapper import permissions_to_scopes
+
+    gateway_url = os.environ.get(
+        "GATEWAY_CANONICAL_URL", "https://gateway.deepsecure.one"
+    )
+    body: dict[str, Any] = {
+        "error": "insufficient_scope",
+        "detail": detail,
+        "status": 403,
+        "required_permissions": required_permissions,
+        "required_scopes": permissions_to_scopes(required_permissions),
+        "resource_metadata": f"{gateway_url}/.well-known/oauth-protected-resource",
+    }
+    if request_id:
+        body["request_id"] = request_id
+    return body
+
+
 # =============================================================================
 # Middleware
 # =============================================================================
@@ -598,24 +647,10 @@ class JWTValidationMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _oauth_scopes_to_permissions(scopes: list[str]) -> list[str]:
-        """Map OAuth scopes to DeepSecure permission strings.
+        """Map OAuth scopes to DeepSecure permission strings (E4)."""
+        from ..mcp.oauth_scope_mapper import scopes_to_permissions
 
-        The mapping is intentionally broad — OAuth scopes grant capability
-        categories, while DeepSecure permissions are fine-grained.  The
-        gateway's PermissionMapper further restricts what tools are
-        accessible within these categories.
-        """
-        scope_map: dict[str, list[str]] = {
-            "mcp_tools": ["mcp:tools:list", "mcp:tools:call"],
-            "mcp_resources": ["mcp:resources:list", "mcp:resources:read"],
-            "mcp_prompts": ["mcp:prompts:list", "mcp:prompts:get"],
-        }
-
-        permissions: list[str] = []
-        for scope in scopes:
-            if scope in scope_map:
-                permissions.extend(scope_map[scope])
-        return permissions
+        return scopes_to_permissions(scopes)
 
     def _validate_required_claims(
         self, payload: dict[str, Any], required_claims: list[str]
@@ -857,9 +892,11 @@ def require_permission(permission: str) -> Callable:
         agent = await get_agent_context(request)
 
         if not agent.has_permission(permission):
+            www_auth = build_insufficient_scope_header([permission])
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Permission denied: {permission}",
+                headers={"WWW-Authenticate": www_auth},
             )
 
         return agent
@@ -894,9 +931,11 @@ def require_any_permission(*permissions: str) -> Callable:
         agent = await get_agent_context(request)
 
         if not agent.has_any_permission(list(permissions)):
+            www_auth = build_insufficient_scope_header(list(permissions))
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Permission denied: requires one of {permissions}",
+                headers={"WWW-Authenticate": www_auth},
             )
 
         return agent

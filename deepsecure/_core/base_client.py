@@ -1,7 +1,8 @@
 '''Base client class for API interaction.'''
 
 import os
-from typing import Dict, Any, Optional
+import re
+from typing import Dict, Any, Optional, List
 import requests
 import logging
 from datetime import datetime, timedelta
@@ -13,6 +14,7 @@ from .. import __version__ # Import the version
 from ..exceptions import DeepSecureError
 from .identity_manager import IdentityManager
 from .config import get_effective_deeptrail_control_url, get_effective_deeptrail_gateway_url
+from .scope_mapper import merge_scopes, scopes_to_permissions
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,9 @@ class BaseClient:
         self._identity_manager = IdentityManager(api_client=self, silent_mode=silent_mode)
         self._access_token: Optional[str] = None
         self._token_expires_at: Optional[datetime] = None
+        self._step_up_retry_count: int = 0
+        self._cumulative_oauth_scopes: List[str] = []
+        self._max_step_up_retries: int = 2
         self.client = httpx.Client(
             headers={"User-Agent": f"DeepSecureCLI/{__version__}"}, timeout=30.0
         )
@@ -46,6 +51,8 @@ class BaseClient:
         method: str,
         path: str,
         expected_status: int = 200,
+        *,
+        raise_on_error: bool = True,
         **kwargs,
     ):
         headers = kwargs.pop("headers", {})
@@ -79,7 +86,8 @@ class BaseClient:
             response = self.client.request(
                 method, url, headers=headers, **kwargs
             )
-            response.raise_for_status()
+            if raise_on_error:
+                response.raise_for_status()
             return response
         except httpx.TimeoutException as e:
             logger.error(f"Request timed out: {method} {path}")
@@ -187,6 +195,85 @@ class BaseClient:
         except Exception as e:
             raise DeepSecureError(f"An unexpected error occurred during token request: {e}") from e
 
+    @staticmethod
+    def _parse_www_authenticate_scopes(www_authenticate: str) -> List[str]:
+        """Extract scope values from a WWW-Authenticate Bearer header (E3)."""
+        if not www_authenticate:
+            return []
+        match = re.search(r'scope="([^"]+)"', www_authenticate)
+        if not match:
+            return []
+        return match.group(1).split()
+
+    def _handle_insufficient_scope(
+        self,
+        www_authenticate: str,
+        agent_id: str,
+    ) -> bool:
+        """Attempt step-up by expanding OAuth scopes. Returns True if retry allowed."""
+        if self._step_up_retry_count >= self._max_step_up_retries:
+            logger.warning(
+                "Step-up retry budget exhausted (%d/%d)",
+                self._step_up_retry_count,
+                self._max_step_up_retries,
+            )
+            return False
+
+        new_scopes = self._parse_www_authenticate_scopes(www_authenticate)
+        if not new_scopes:
+            return False
+
+        self._cumulative_oauth_scopes = merge_scopes(
+            self._cumulative_oauth_scopes, new_scopes
+        )
+        self._step_up_retry_count += 1
+        logger.info(
+            "Step-up auth attempt %d/%d for agent %s — scopes: %s",
+            self._step_up_retry_count,
+            self._max_step_up_retries,
+            agent_id,
+            self._cumulative_oauth_scopes,
+        )
+
+        # Re-authenticate agent JWT (user must have expanded delegation out-of-band)
+        self._access_token = None
+        self._token_expires_at = None
+        self.get_access_token(agent_id)
+        return True
+
+    def gateway_request_with_step_up(
+        self,
+        method: str,
+        path: str,
+        agent_id: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Gateway request with automatic step-up on insufficient_scope 403 (E3)."""
+        while True:
+            response = self._authenticated_request(
+                method, path, agent_id, raise_on_error=False, **kwargs
+            )
+            if response.status_code != 403:
+                response.raise_for_status()
+                return response
+
+            www_auth = response.headers.get("WWW-Authenticate", "")
+            if 'error="insufficient_scope"' not in www_auth:
+                response.raise_for_status()
+                return response
+
+            if not self._handle_insufficient_scope(www_auth, agent_id):
+                response.raise_for_status()
+                return response
+
+    def get_cumulative_oauth_scopes(self) -> List[str]:
+        """Return scopes accumulated during step-up retries."""
+        return list(self._cumulative_oauth_scopes)
+
+    def get_step_up_permissions(self) -> List[str]:
+        """Return DeepSecure permissions implied by cumulative OAuth scopes."""
+        return scopes_to_permissions(self._cumulative_oauth_scopes)
+
     def _authenticated_request(
         self,
         method: str,
@@ -213,7 +300,10 @@ class BaseClient:
             
             auth_headers["Authorization"] = f"Bearer {self._access_token}"
         
-        return self._request(method, path, headers=auth_headers, **kwargs)
+        raise_on_error = kwargs.pop("raise_on_error", True)
+        return self._request(
+            method, path, headers=auth_headers, raise_on_error=raise_on_error, **kwargs
+        )
 
     def _unauthenticated_request(
         self,
