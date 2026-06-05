@@ -244,10 +244,13 @@ DeepSecure implements a multi-layer identity model:
 | Layer | Identity Type | Token Format | Lifetime | Purpose |
 |-------|---------------|-------------|----------|---------|
 | **L0** | User ID-Token | OIDC JWT from IdP | ~1 hour | Proves user is who they say (from Okta/Keycloak) |
+| ~~**L1**~~ | ~~Organization Key~~ | — | — | *Never implemented — see note below* |
 | **L2** | User Session JWT | DeepSecure JWT | 8 hours | User session for console/API operations |
 | **L3** | Agent Session JWT | DeepSecure JWT | 8 hours | Agent session with delegated permissions |
 | **L4** | Task Token JWT | DeepSecure JWT | min(deadline, 1h) | Per-task scoped permissions (narrowest) |
 | **L5** | Delegation Token | Macaroon-style JWT | 7 days (configurable) | Binds user permissions to agent |
+
+**Why is L1 missing?** The original 6-layer hierarchy defined L1 as an "Organization Key" — a platform bootstrap token for multi-tenant onboarding. It was never implemented; GCP Workload Identity (P4, May 2026) replaced it with direct OIDC attestation. L2–L5 were not renumbered because those labels are embedded across JWT claims, database comments, and code. Full history, all three numbering schemes, and a file-by-file audit of old references: [`architecture/IDENTITY_LAYER_NUMBERING_HISTORY.md`](architecture/IDENTITY_LAYER_NUMBERING_HISTORY.md).
 
 ### 5.2 Agent Identity: Ed25519 Challenge-Response
 
@@ -398,6 +401,19 @@ The agent entrypoint tags each prompt with the services it requires (e.g., `"not
 - **Discovery JWT refresh:** If the discovery JWT approaches its 1h TTL (checked at 50min), the agent re-bootstraps from the GCP metadata server automatically
 - **Client-side expiry check:** Delegations with `expires_at` in the past are skipped before making an API call
 - **Dynamic delegation list:** Re-fetched each round to pick up newly created delegations and drop revoked ones
+
+#### Future: Advanced Multi-User Capabilities
+
+The round-robin approach (deployed) solves the batch agent use case. Three planned capabilities extend multi-user delegation for more advanced scenarios. Full design, implementation gaps, and architectural sketches are in [`docs/design/MULTI_USER_DELEGATION_FUTURE.md`](design/MULTI_USER_DELEGATION_FUTURE.md).
+
+| Capability | What it enables | When to build | Key gateway change |
+|------------|----------------|---------------|-------------------|
+| **`_meta.user_id` Per-Call Switching** | Always-on SDK agents (Slack bots, real-time assistants) switch user context on each `tools/call` without re-bootstrapping. Agent holds one merged-permission JWT and passes `_meta: {user_id: "bob@acme.com"}` per request. | When an always-on agent (not batch) needs real-time multi-user context | Vault token fetch must use internal-auth + `X-User-ID` header instead of JWT `owner`; gateway must validate `_meta.user_id` against JWT's `authorized_users` list and enforce per-user permission maps to prevent escalation |
+| **Delegation-Scoped Constraints** | Delegators control *how* their delegation is used beyond just *what* permissions are granted. Constraints like `max_calls_per_hour`, `time_window` (business hours only), `read_only`, `ip_allowlist`, and `require_approval` are evaluated per tool call. | When users request rate-limited, time-bounded, or approval-gated delegations | New `ConstraintEvaluator` stage between permission check and credential injection in the 10-stage security pipeline |
+| **Cross-Delegation Prompt Orchestration** | Agent synthesizes information across multiple users' delegations — e.g., search all delegated users' Notion for strategy docs, deduplicate, post a combined summary. Requires an `isolation_mode` field (`isolated` default vs `aggregatable` admin-set) on delegations to govern cross-user data access. | When the agent needs company-wide reports or cross-user reasoning. Requires stateful agent framework (LangGraph/CrewAI, not Gemini CLI) | No gateway change; agent framework manages shared memory across delegation rounds. `isolation_mode` enforcement at entrypoint level |
+| **Concurrent Multi-User Execution** | Run delegations in parallel instead of sequential round-robin — reduces wall-clock time from N*T to T for N delegations. Options: Cloud Run `--task-count=N`, async Python, or thread pool. | When a single agent has 10+ delegations and sequential execution is too slow | No gateway change; parallelism is agent-side (multiple MCP sessions with separate JWTs) |
+
+**Dependency chain:** Round-robin (✅ deployed) → Constraints / Concurrent (independent) → `_meta.user_id` (alternative path) → Cross-delegation orchestration (requires round-robin + agent framework + isolation_mode)
 
 ---
 
@@ -1234,6 +1250,10 @@ The platform is designed with a clear open-source/enterprise boundary:
 | Multi-User UI (Fleet → Services mapping) | ⏳ Planned | P5.3 Phase 1 | Post-MVP |
 | Identity Stack Panel UI | ⏳ Planned | P5.3 Phase 2 | Post-MVP |
 | MCP Auth Spec Compliance (OAuth 2.1) | ⏳ Planned | P5.3 | Pre-July 2026 |
+| `_meta.user_id` Per-Call Switching | 📋 Designed | Future | [MULTI_USER_DELEGATION_FUTURE §1](design/MULTI_USER_DELEGATION_FUTURE.md#1-_metauserid-per-call-switching) |
+| Delegation-Scoped Constraints | 📋 Designed | Future | [MULTI_USER_DELEGATION_FUTURE §2](design/MULTI_USER_DELEGATION_FUTURE.md#2-delegation-scoped-constraints) |
+| Cross-Delegation Orchestration | 📋 Designed | Future | [MULTI_USER_DELEGATION_FUTURE §3](design/MULTI_USER_DELEGATION_FUTURE.md#3-cross-delegation-prompt-orchestration) |
+| Concurrent Multi-User Execution | 📋 Designed | Future | [MULTI_USER_DELEGATION_FUTURE §4](design/MULTI_USER_DELEGATION_FUTURE.md#4-concurrent-multi-user-execution) |
 | PII Result Filtering | ⏳ Planned | P2 | Enterprise |
 | Circuit Breakers | ⏳ Planned | P2 | Production |
 | Redis Session Persistence | ⏳ Planned | P2 | Scaling |
