@@ -217,42 +217,332 @@ function ExpandedPanel({
     }
   }
 
+  function renderAvailableToBadges() {
+    if (isServiceEveryone) {
+      return <Badge variant="secondary" className="text-xs">Everyone</Badge>;
+    }
+    const roles = (service.available_to_roles ?? []).filter((r) => r !== "all");
+    return (
+      <div className="flex flex-wrap gap-1">
+        {roles.map((r) => (
+          <Badge key={r} variant="outline" className="text-xs capitalize">
+            {r}
+          </Badge>
+        ))}
+        {(service.available_to_groups ?? []).map((g) => (
+          <Badge key={g} variant="outline" className="text-xs">
+            {g}
+          </Badge>
+        ))}
+        {(service.available_to_users ?? []).map((u) => (
+          <Badge key={u} variant="outline" className="text-xs">
+            {u}
+          </Badge>
+        ))}
+      </div>
+    );
+  }
+
+  function renderOAuthSection(compactView: boolean) {
+    if (!isRest) return null;
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold">OAuth Credentials</h4>
+          {!oauthEditing && !oauthLoading && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => {
+                if (oauthConfig?.source === "env") {
+                  if (
+                    !confirm(
+                      "This service uses centralized credentials from environment configuration. Saving per-service credentials will override them. Continue?"
+                    )
+                  ) {
+                    return;
+                  }
+                }
+                setOauthEditing(true);
+              }}
+            >
+              <Pencil className="mr-1 h-3 w-3" />
+              {oauthConfig ? "Edit" : "Configure"}
+            </Button>
+          )}
+        </div>
+
+        {oauthLoading ? (
+          <p className="text-xs text-muted-foreground">Loading...</p>
+        ) : oauthEditing ? (
+          <div className="grid gap-2 rounded-md border p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="grid gap-1">
+                <Label className="text-xs">Client ID</Label>
+                <Input
+                  className="h-8 text-xs"
+                  value={oaClientId}
+                  onChange={(e) => setOaClientId(e.target.value)}
+                  placeholder="OAuth Client ID"
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-xs">Client Secret</Label>
+                <Input
+                  className="h-8 text-xs"
+                  type="password"
+                  value={oaClientSecret}
+                  onChange={(e) => setOaClientSecret(e.target.value)}
+                  placeholder={
+                    oauthConfig ? "Leave blank to keep current" : "OAuth Client Secret"
+                  }
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="grid gap-1">
+                <Label className="text-xs">Auth URL</Label>
+                <Input
+                  className="h-8 text-xs"
+                  value={oaAuthUrl}
+                  onChange={(e) => setOaAuthUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-xs">Token URL</Label>
+                <Input
+                  className="h-8 text-xs"
+                  value={oaTokenUrl}
+                  onChange={(e) => setOaTokenUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-xs">Scopes</Label>
+              <Input
+                className="h-8 text-xs"
+                value={oaScopes}
+                onChange={(e) => setOaScopes(e.target.value)}
+                placeholder="comma-separated"
+              />
+            </div>
+            {oauthError && <p className="text-xs text-red-600">{oauthError}</p>}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                onClick={handleOauthSave}
+                disabled={!oaClientId || oauthSaving}
+              >
+                {oauthSaving ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <Save className="mr-1 h-3 w-3" />
+                )}
+                Save Credentials
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => {
+                  setOauthEditing(false);
+                  setOauthError(null);
+                  if (oauthConfig) {
+                    setOaClientId(oauthConfig.client_id);
+                    setOaAuthUrl(oauthConfig.auth_url ?? "");
+                    setOaTokenUrl(oauthConfig.token_url ?? "");
+                    setOaScopes(oauthConfig.scopes?.join(", ") ?? "");
+                  }
+                  setOaClientSecret("");
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : oauthConfig ? (
+          compactView ? (
+            <div className="rounded-md border bg-background p-3">
+              {oauthConfig.source === "env" && (
+                <div className="mb-3 rounded bg-blue-50 px-2 py-1">
+                  <p className="text-xs text-blue-700">
+                    Managed centrally via environment configuration
+                  </p>
+                </div>
+              )}
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Client ID</dt>
+                  <dd className="mt-0.5 font-mono text-xs">
+                    {oauthConfig.client_id.slice(0, 12)}…
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Secret</dt>
+                  <dd className="mt-0.5">
+                    <Badge variant="secondary" className="text-xs">
+                      Configured
+                    </Badge>
+                  </dd>
+                </div>
+                {oauthConfig.auth_url && (
+                  <div className="col-span-2">
+                    <dt className="text-xs text-muted-foreground">Auth URL</dt>
+                    <dd className="mt-0.5 font-mono text-xs break-all">
+                      {oauthConfig.auth_url}
+                    </dd>
+                  </div>
+                )}
+                {oauthConfig.token_url && (
+                  <div className="col-span-2">
+                    <dt className="text-xs text-muted-foreground">Token URL</dt>
+                    <dd className="mt-0.5 font-mono text-xs break-all">
+                      {oauthConfig.token_url}
+                    </dd>
+                  </div>
+                )}
+                {oauthConfig.scopes && oauthConfig.scopes.length > 0 && (
+                  <div className="col-span-2">
+                    <dt className="text-xs text-muted-foreground">Scopes</dt>
+                    <dd className="mt-0.5 text-xs">{oauthConfig.scopes.join(", ")}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          ) : (
+            <dl className="space-y-1 text-sm">
+              {oauthConfig.source === "env" && (
+                <div className="mb-2 rounded bg-blue-50 px-2 py-1">
+                  <p className="text-xs text-blue-700">
+                    Managed centrally via environment configuration
+                  </p>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Client ID</dt>
+                <dd className="font-mono text-xs">{oauthConfig.client_id.slice(0, 8)}...</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Secret</dt>
+                <dd>
+                  <Badge variant="secondary" className="text-xs">
+                    Configured
+                  </Badge>
+                </dd>
+              </div>
+              {oauthConfig.auth_url && (
+                <div className="flex justify-between gap-4">
+                  <dt className="shrink-0 text-muted-foreground">Auth URL</dt>
+                  <dd className="font-mono text-xs break-all text-right">{oauthConfig.auth_url}</dd>
+                </div>
+              )}
+              {oauthConfig.token_url && (
+                <div className="flex justify-between gap-4">
+                  <dt className="shrink-0 text-muted-foreground">Token URL</dt>
+                  <dd className="font-mono text-xs break-all text-right">{oauthConfig.token_url}</dd>
+                </div>
+              )}
+              {oauthConfig.scopes && oauthConfig.scopes.length > 0 && (
+                <div className="flex justify-between gap-4">
+                  <dt className="shrink-0 text-muted-foreground">Scopes</dt>
+                  <dd className="text-xs text-right">{oauthConfig.scopes.join(", ")}</dd>
+                </div>
+              )}
+            </dl>
+          )
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            No OAuth credentials configured. Click Configure to add.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  function renderTestResult() {
+    if (!testResult) return null;
+    return (
+      <div
+        className={cn(
+          "rounded-md border p-3 text-sm",
+          testResult.status === "success"
+            ? "border-green-200 bg-green-50 text-green-800"
+            : "border-red-200 bg-red-50 text-red-800"
+        )}
+      >
+        <p className="font-medium">
+          {testResult.status === "success" ? "Connection successful" : "Connection failed"}
+        </p>
+        <p className="text-xs">{testResult.message}</p>
+        {testResult.latency_ms != null && (
+          <p className="text-xs">Latency: {testResult.latency_ms}ms</p>
+        )}
+      </div>
+    );
+  }
+
+  function renderMcpTools() {
+    if (!isMcp || !service.discovered_tools?.length) return null;
+    return (
+      <div className="space-y-2">
+        <h4 className="text-sm font-semibold">
+          Discovered Tools ({service.discovered_tools.length})
+        </h4>
+        <div className="flex flex-wrap gap-1">
+          {service.discovered_tools.map((tool: DiscoveredTool) => (
+            <Badge key={tool.name} variant="secondary" className="text-xs">
+              {tool.name}
+            </Badge>
+          ))}
+        </div>
+        {service.tools_last_discovered_at && (
+          <p className="text-xs text-muted-foreground">
+            Last discovered: {new Date(service.tools_last_discovered_at).toLocaleString()}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="border-t bg-muted/20 px-6 py-4">
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="space-y-3">
-          <h4 className="text-sm font-semibold">Connection Details</h4>
-          <dl className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Endpoint</dt>
-              <dd className="font-mono text-xs">{service.endpoint_url}</dd>
-            </div>
-            {isMcp && (
-              <>
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Transport</dt>
-                  <dd>{service.transport}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Auth Method</dt>
-                  <dd>{service.mcp_auth_method}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Protocol Version</dt>
-                  <dd>{service.mcp_protocol_version}</dd>
-                </div>
-              </>
-            )}
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Data Classification</dt>
-              <dd className="capitalize">{service.data_classification}</dd>
-            </div>
-
-            {/* Available To — inline edit */}
-            <div className="items-start">
-              <dt className="text-muted-foreground pt-0.5 mb-1.5">Available To</dt>
-              <dd>
-                {editing ? (
+      {editing ? (
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-3">
+            <h4 className="text-sm font-semibold">Connection Details</h4>
+            <dl className="space-y-3 text-sm">
+              <div>
+                <dt className="text-muted-foreground mb-1">Endpoint</dt>
+                <dd className="font-mono text-xs break-all">{service.endpoint_url}</dd>
+              </div>
+              {isMcp && (
+                <>
+                  <div>
+                    <dt className="text-muted-foreground mb-1">Transport</dt>
+                    <dd>{service.transport}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground mb-1">Auth Method</dt>
+                    <dd>{service.mcp_auth_method}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground mb-1">Protocol Version</dt>
+                    <dd>{service.mcp_protocol_version}</dd>
+                  </div>
+                </>
+              )}
+              <div>
+                <dt className="text-muted-foreground mb-1">Data Classification</dt>
+                <dd className="capitalize">{service.data_classification}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground mb-1.5">Available To</dt>
+                <dd>
                   <AvailableToPicker
                     everyone={editEveryone}
                     onEveryoneChange={setEditEveryone}
@@ -261,33 +551,10 @@ function ExpandedPanel({
                     onGroupsChange={setEditGroups}
                     onUsersChange={setEditUsers}
                   />
-                ) : (
-                  <div className="flex flex-wrap gap-1">
-                    {isServiceEveryone ? (
-                      <Badge variant="secondary" className="text-xs">Everyone</Badge>
-                    ) : (
-                      <>
-                        {(service.available_to_groups ?? []).map((g) => (
-                          <Badge key={g} variant="outline" className="text-xs">
-                            {g}
-                          </Badge>
-                        ))}
-                        {(service.available_to_users ?? []).map((u) => (
-                          <Badge key={u} variant="outline" className="text-xs">
-                            {u}
-                          </Badge>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                )}
-              </dd>
-            </div>
-
-            {/* Status — inline edit */}
-            {editing && (
-              <div className="flex justify-between items-center">
-                <dt className="text-muted-foreground">Status</dt>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground mb-1.5">Status</dt>
                 <dd>
                   <div className="flex gap-1">
                     {STATUS_OPTIONS.map((s) => (
@@ -308,239 +575,108 @@ function ExpandedPanel({
                   </div>
                 </dd>
               </div>
-            )}
-          </dl>
-        </div>
+            </dl>
+          </div>
 
-        <div className="space-y-3">
-          <h4 className="text-sm font-semibold">Health & Monitoring</h4>
-          <dl className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Latency</dt>
-              <dd>
-                {service.health_latency_ms != null ? `${service.health_latency_ms}ms` : "—"}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Errors (24h)</dt>
-              <dd>{service.health_error_count_24h ?? 0}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Last Checked</dt>
-              <dd>
-                {service.health_last_checked_at
-                  ? new Date(service.health_last_checked_at).toLocaleString()
-                  : "Never"}
-              </dd>
-            </div>
-          </dl>
-
-          {/* Test Connection Result */}
-          {testResult && (
-            <div
-              className={cn(
-                "rounded-md border p-3 text-sm",
-                testResult.status === "success"
-                  ? "border-green-200 bg-green-50 text-green-800"
-                  : "border-red-200 bg-red-50 text-red-800"
-              )}
-            >
-              <p className="font-medium">
-                {testResult.status === "success" ? "Connection successful" : "Connection failed"}
-              </p>
-              <p className="text-xs">{testResult.message}</p>
-              {testResult.latency_ms != null && (
-                <p className="text-xs">Latency: {testResult.latency_ms}ms</p>
-              )}
-            </div>
-          )}
-
-          {saveError && <p className="text-sm text-red-600">{saveError}</p>}
-
-          {/* OAuth Credentials for REST services */}
-          {isRest && (
-            <div className="mt-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold">OAuth Credentials</h4>
-                {!oauthEditing && !oauthLoading && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs"
-                    onClick={() => {
-                      if (oauthConfig?.source === "env") {
-                        if (!confirm("This service uses centralized credentials from environment configuration. Saving per-service credentials will override them. Continue?")) {
-                          return;
-                        }
-                      }
-                      setOauthEditing(true);
-                    }}
-                  >
-                    <Pencil className="mr-1 h-3 w-3" />
-                    {oauthConfig ? "Edit" : "Configure"}
-                  </Button>
-                )}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">Health & Monitoring</h4>
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                <span>
+                  <span className="text-muted-foreground">Latency </span>
+                  {service.health_latency_ms != null ? `${service.health_latency_ms}ms` : "—"}
+                </span>
+                <span>
+                  <span className="text-muted-foreground">Errors (24h) </span>
+                  {service.health_error_count_24h ?? 0}
+                </span>
+                <span>
+                  <span className="text-muted-foreground">Last checked </span>
+                  {service.health_last_checked_at
+                    ? new Date(service.health_last_checked_at).toLocaleString()
+                    : "Never"}
+                </span>
               </div>
+            </div>
+            {renderTestResult()}
+            {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+            {renderOAuthSection(false)}
+            {renderMcpTools()}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <h4 className="text-sm font-semibold">Details</h4>
+            <dl className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-8 gap-y-2 text-sm">
+              <dt className="text-muted-foreground">Endpoint</dt>
+              <dd className="font-mono text-xs break-all">{service.endpoint_url}</dd>
+              <dt className="text-muted-foreground">Classification</dt>
+              <dd className="capitalize">{service.data_classification}</dd>
 
-              {oauthLoading ? (
-                <p className="text-xs text-muted-foreground">Loading...</p>
-              ) : oauthEditing ? (
-                <div className="grid gap-2 rounded-md border p-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="grid gap-1">
-                      <Label className="text-xs">Client ID</Label>
-                      <Input
-                        className="h-8 text-xs"
-                        value={oaClientId}
-                        onChange={(e) => setOaClientId(e.target.value)}
-                        placeholder="OAuth Client ID"
-                      />
-                    </div>
-                    <div className="grid gap-1">
-                      <Label className="text-xs">Client Secret</Label>
-                      <Input
-                        className="h-8 text-xs"
-                        type="password"
-                        value={oaClientSecret}
-                        onChange={(e) => setOaClientSecret(e.target.value)}
-                        placeholder={oauthConfig ? "Leave blank to keep current" : "OAuth Client Secret"}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="grid gap-1">
-                      <Label className="text-xs">Auth URL</Label>
-                      <Input
-                        className="h-8 text-xs"
-                        value={oaAuthUrl}
-                        onChange={(e) => setOaAuthUrl(e.target.value)}
-                        placeholder="https://..."
-                      />
-                    </div>
-                    <div className="grid gap-1">
-                      <Label className="text-xs">Token URL</Label>
-                      <Input
-                        className="h-8 text-xs"
-                        value={oaTokenUrl}
-                        onChange={(e) => setOaTokenUrl(e.target.value)}
-                        placeholder="https://..."
-                      />
-                    </div>
-                  </div>
-                  <div className="grid gap-1">
-                    <Label className="text-xs">Scopes</Label>
-                    <Input
-                      className="h-8 text-xs"
-                      value={oaScopes}
-                      onChange={(e) => setOaScopes(e.target.value)}
-                      placeholder="comma-separated"
-                    />
-                  </div>
-                  {oauthError && <p className="text-xs text-red-600">{oauthError}</p>}
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={handleOauthSave}
-                      disabled={!oaClientId || oauthSaving}
-                    >
-                      {oauthSaving ? (
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                      ) : (
-                        <Save className="mr-1 h-3 w-3" />
-                      )}
-                      Save Credentials
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => {
-                        setOauthEditing(false);
-                        setOauthError(null);
-                        if (oauthConfig) {
-                          setOaClientId(oauthConfig.client_id);
-                          setOaAuthUrl(oauthConfig.auth_url ?? "");
-                          setOaTokenUrl(oauthConfig.token_url ?? "");
-                          setOaScopes(oauthConfig.scopes?.join(", ") ?? "");
-                        }
-                        setOaClientSecret("");
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : oauthConfig ? (
-                <dl className="space-y-1 text-sm">
-                  {oauthConfig.source === "env" && (
-                    <div className="mb-2 rounded bg-blue-50 px-2 py-1">
-                      <p className="text-xs text-blue-700">
-                        Managed centrally via environment configuration
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <dt className="text-muted-foreground">Client ID</dt>
-                    <dd className="font-mono text-xs">
-                      {oauthConfig.client_id.slice(0, 8)}...
-                    </dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-muted-foreground">Secret</dt>
-                    <dd>
-                      <Badge variant="secondary" className="text-xs">Configured</Badge>
-                    </dd>
-                  </div>
-                  {oauthConfig.auth_url && (
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Auth URL</dt>
-                      <dd className="font-mono text-xs truncate max-w-[200px]">{oauthConfig.auth_url}</dd>
-                    </div>
-                  )}
-                  {oauthConfig.token_url && (
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Token URL</dt>
-                      <dd className="font-mono text-xs truncate max-w-[200px]">{oauthConfig.token_url}</dd>
-                    </div>
-                  )}
-                  {oauthConfig.scopes && oauthConfig.scopes.length > 0 && (
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Scopes</dt>
-                      <dd className="text-xs">{oauthConfig.scopes.join(", ")}</dd>
-                    </div>
-                  )}
-                </dl>
+              <dt className="text-muted-foreground">Available to</dt>
+              <dd>{renderAvailableToBadges()}</dd>
+              <dt className="text-muted-foreground">Status</dt>
+              <dd>
+                <Badge
+                  variant="outline"
+                  className={cn("text-xs capitalize", STATUS_COLORS[service.status])}
+                >
+                  {service.status}
+                </Badge>
+              </dd>
+
+              {isMcp ? (
+                <>
+                  <dt className="text-muted-foreground">Transport</dt>
+                  <dd className="text-xs">{service.transport}</dd>
+                  <dt className="text-muted-foreground">Auth method</dt>
+                  <dd className="text-xs">{service.mcp_auth_method ?? "—"}</dd>
+                  <dt className="text-muted-foreground">Protocol</dt>
+                  <dd className="col-span-3 text-xs">{service.mcp_protocol_version ?? "—"}</dd>
+                </>
               ) : (
-                <p className="text-xs text-muted-foreground">
-                  No OAuth credentials configured. Click Configure to add.
-                </p>
+                <>
+                  <dt className="text-muted-foreground">Type</dt>
+                  <dd className="text-xs">REST + OAuth</dd>
+                  <dt className="text-muted-foreground">Health</dt>
+                  <dd>
+                    <HealthIndicator status={service.health_status} />
+                  </dd>
+                </>
               )}
-            </div>
-          )}
+            </dl>
+          </div>
 
-          {isMcp && service.discovered_tools && service.discovered_tools.length > 0 && (
-            <div className="mt-4">
-              <h4 className="mb-2 text-sm font-semibold">
-                Discovered Tools ({service.discovered_tools.length})
-              </h4>
-              <div className="flex flex-wrap gap-1">
-                {service.discovered_tools.map((tool: DiscoveredTool) => (
-                  <Badge key={tool.name} variant="secondary" className="text-xs">
-                    {tool.name}
-                  </Badge>
-                ))}
-              </div>
-              {service.tools_last_discovered_at && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Last discovered:{" "}
-                  {new Date(service.tools_last_discovered_at).toLocaleString()}
-                </p>
-              )}
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold">Health</h4>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+              <span>
+                <span className="text-muted-foreground">Latency </span>
+                <span className="font-medium">
+                  {service.health_latency_ms != null ? `${service.health_latency_ms}ms` : "—"}
+                </span>
+              </span>
+              <span>
+                <span className="text-muted-foreground">Errors (24h) </span>
+                <span className="font-medium">{service.health_error_count_24h ?? 0}</span>
+              </span>
+              <span>
+                <span className="text-muted-foreground">Last checked </span>
+                <span className="font-medium">
+                  {service.health_last_checked_at
+                    ? new Date(service.health_last_checked_at).toLocaleString()
+                    : "Never"}
+                </span>
+              </span>
             </div>
-          )}
+            {renderTestResult()}
+          </div>
+
+          {renderOAuthSection(true)}
+          {renderMcpTools()}
         </div>
-      </div>
+      )}
 
       {/* Action Buttons */}
       <div className="mt-4 flex items-center gap-2 border-t pt-3">

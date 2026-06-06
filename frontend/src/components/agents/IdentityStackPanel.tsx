@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import { ChevronDown, ChevronRight, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api/client";
 import { getServiceDisplayName } from "./service-utils";
+import { PermissionGroups } from "./DelegationsTable";
 import type {
   IdentityStackResponse,
   IdentityStackLayer,
   IdentityLayerType,
+  UserIdTokenStackItem,
   UserSessionStackItem,
   DelegationStackItem,
   AgentSessionStackItem,
@@ -30,13 +32,17 @@ const LAYER_STYLES: Record<IdentityLayerType, string> = {
 
 const EMPTY_MESSAGES: Record<IdentityLayerType, string> = {
   "User ID-Token":
-    "User ID-Tokens are issued by the identity provider (Google, Keycloak) and consumed during login. They are not stored by DeepSecure.",
+    "No delegating users for this agent. ID tokens are not stored; groups appear here from login claims and organization directory when delegators exist.",
   "User Session": "No active console sessions for delegating users.",
   Delegation: "No delegations.",
   "Agent Session": "No agent sessions. Agent has not authenticated yet.",
   "Task Token":
     "No task tokens. Task tokens are created when agents execute scoped tasks (not yet in production use).",
 };
+
+function truncateId(id: string, length = 12): string {
+  return id.length > length ? `${id.slice(0, length)}…` : id;
+}
 
 export function IdentityStackPanel({ agentId }: IdentityStackPanelProps) {
   const [data, setData] = useState<IdentityStackResponse | null>(null);
@@ -160,7 +166,7 @@ function LayerRow({
 function LayerContent({ layer }: { layer: IdentityStackLayer }) {
   const type = layer.type as IdentityLayerType;
 
-  if (type === "User ID-Token" || layer.items.length === 0) {
+  if (layer.items.length === 0) {
     return (
       <div className="text-xs text-muted-foreground bg-muted/10 rounded-md px-3 py-2">
         {EMPTY_MESSAGES[type]}
@@ -169,6 +175,8 @@ function LayerContent({ layer }: { layer: IdentityStackLayer }) {
   }
 
   switch (type) {
+    case "User ID-Token":
+      return <UserIdTokenTable items={layer.items as unknown as UserIdTokenStackItem[]} />;
     case "User Session":
       return <UserSessionTable items={layer.items as unknown as UserSessionStackItem[]} />;
     case "Delegation":
@@ -182,11 +190,52 @@ function LayerContent({ layer }: { layer: IdentityStackLayer }) {
   }
 }
 
+function UserIdTokenTable({ items }: { items: UserIdTokenStackItem[] }) {
+  return (
+    <div>
+      <p className="text-[10px] text-muted-foreground mb-2">
+        ID tokens are consumed at login and not stored. Groups reflect cached IdP claims and org directory membership.
+      </p>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b text-muted-foreground">
+            <th className="text-left py-1 font-medium">User</th>
+            <th className="text-left py-1 font-medium">IdP</th>
+            <th className="text-left py-1 font-medium">Groups</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.id} className="border-b last:border-b-0">
+              <td className="py-1">{item.user}</td>
+              <td className="py-1">{item.idp ?? "—"}</td>
+              <td className="py-1">
+                {item.groups.length > 0 ? (
+                  <div className="flex gap-1 flex-wrap">
+                    {item.groups.map((g) => (
+                      <Badge key={g} variant="outline" className="text-[10px] px-1.5 py-0">
+                        {g}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function UserSessionTable({ items }: { items: UserSessionStackItem[] }) {
   return (
     <table className="w-full text-xs">
       <thead>
         <tr className="border-b text-muted-foreground">
+          <th className="text-left py-1 font-medium">Session ID</th>
           <th className="text-left py-1 font-medium">User</th>
           <th className="text-left py-1 font-medium">IdP</th>
           <th className="text-left py-1 font-medium">Created</th>
@@ -197,6 +246,7 @@ function UserSessionTable({ items }: { items: UserSessionStackItem[] }) {
       <tbody>
         {items.map((item) => (
           <tr key={item.id} className="border-b last:border-b-0">
+            <td className="py-1 font-mono text-[10px]">{truncateId(item.session_id ?? item.id)}</td>
             <td className="py-1">{item.user}</td>
             <td className="py-1">{item.idp ?? "—"}</td>
             <td className="py-1">{item.created_at ? new Date(item.created_at).toLocaleString() : "—"}</td>
@@ -212,38 +262,67 @@ function UserSessionTable({ items }: { items: UserSessionStackItem[] }) {
 }
 
 function DelegationTable({ items, count }: { items: DelegationStackItem[]; count: number }) {
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+
   return (
     <div>
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b text-muted-foreground">
+            <th className="w-6 py-1" />
+            <th className="text-left py-1 font-medium">Delegation ID</th>
             <th className="text-left py-1 font-medium">Delegator</th>
             <th className="text-left py-1 font-medium">Permissions</th>
-            <th className="text-left py-1 font-medium">Services</th>
             <th className="text-left py-1 font-medium">Expires</th>
             <th className="text-left py-1 font-medium">Status</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => (
-            <tr key={item.id} className="border-b last:border-b-0">
-              <td className="py-1">{item.delegator}</td>
-              <td className="py-1">{item.permissions_count}</td>
-              <td className="py-1">
-                <div className="flex gap-1 flex-wrap">
-                  {item.services.map((s) => (
-                    <Badge key={s} variant="outline" className="text-[10px] px-1.5 py-0">
-                      {getServiceDisplayName(s)}
-                    </Badge>
-                  ))}
-                </div>
-              </td>
-              <td className="py-1">{item.expires_at ? new Date(item.expires_at).toLocaleDateString() : "—"}</td>
-              <td className="py-1">
-                <StatusBadge status={item.status} />
-              </td>
-            </tr>
-          ))}
+          {items.map((item) => {
+            const isOpen = expandedRow === item.id;
+            const permissions = item.permissions ?? [];
+            return (
+              <Fragment key={item.id}>
+                <tr
+                  className="border-b cursor-pointer hover:bg-muted/20 transition-colors"
+                  onClick={() => setExpandedRow(isOpen ? null : item.id)}
+                >
+                  <td className="py-1 pr-1">
+                    {isOpen ? (
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                  </td>
+                  <td className="py-1 font-mono text-[10px]">{truncateId(item.id)}</td>
+                  <td className="py-1">{item.delegator}</td>
+                  <td className="py-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-muted-foreground">
+                        {item.permissions_count} permissions
+                      </span>
+                      {item.services.map((s) => (
+                        <Badge key={s} variant="outline" className="text-[10px] px-1.5 py-0">
+                          {getServiceDisplayName(s)}
+                        </Badge>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="py-1">{item.expires_at ? new Date(item.expires_at).toLocaleDateString() : "—"}</td>
+                  <td className="py-1">
+                    <StatusBadge status={item.status} />
+                  </td>
+                </tr>
+                {isOpen && permissions.length > 0 && (
+                  <tr>
+                    <td colSpan={6} className="bg-muted/10 px-4 py-2">
+                      <PermissionGroups permissions={permissions} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
       {count > items.length && (
@@ -263,7 +342,7 @@ function AgentSessionTable({ items, count }: { items: AgentSessionStackItem[]; c
           <tr className="border-b text-muted-foreground">
             <th className="text-left py-1 font-medium">Session ID</th>
             <th className="text-left py-1 font-medium">Delegator</th>
-            <th className="text-left py-1 font-medium">Delegation</th>
+            <th className="text-left py-1 font-medium">Delegation ID</th>
             <th className="text-left py-1 font-medium">Created</th>
             <th className="text-left py-1 font-medium">Expires</th>
             <th className="text-left py-1 font-medium">Status</th>
@@ -272,9 +351,9 @@ function AgentSessionTable({ items, count }: { items: AgentSessionStackItem[]; c
         <tbody>
           {items.map((item) => (
             <tr key={item.id} className="border-b last:border-b-0">
-              <td className="py-1 font-mono text-[10px]">{item.session_id.slice(0, 12)}…</td>
+              <td className="py-1 font-mono text-[10px]">{truncateId(item.session_id)}</td>
               <td className="py-1">{item.delegator}</td>
-              <td className="py-1 font-mono text-[10px]">{item.delegation_id.slice(0, 12)}…</td>
+              <td className="py-1 font-mono text-[10px]">{truncateId(item.delegation_id)}</td>
               <td className="py-1">{item.created_at ? new Date(item.created_at).toLocaleString() : "—"}</td>
               <td className="py-1">{item.expires_at ? new Date(item.expires_at).toLocaleString() : "—"}</td>
               <td className="py-1">
@@ -309,8 +388,10 @@ function TaskTokenTable({ items }: { items: TaskTokenStackItem[] }) {
       <tbody>
         {items.map((item) => (
           <tr key={item.id} className="border-b last:border-b-0">
-            <td className="py-1 font-mono text-[10px]">{item.id.slice(0, 12)}…</td>
-            <td className="py-1 font-mono text-[10px]">{item.agent_session_id ? item.agent_session_id.slice(0, 12) + "…" : "—"}</td>
+            <td className="py-1 font-mono text-[10px]">{truncateId(item.id)}</td>
+            <td className="py-1 font-mono text-[10px]">
+              {item.agent_session_id ? truncateId(item.agent_session_id) : "—"}
+            </td>
             <td className="py-1">{item.scoped_permissions_count}</td>
             <td className="py-1">
               <StatusBadge status={item.task_status} />

@@ -355,8 +355,8 @@ def test_identity_stack_returns_5_layers(client, db):
     assert types == ["User ID-Token", "User Session", "Delegation", "Agent Session", "Task Token"]
 
 
-def test_identity_stack_user_id_token_always_empty(client, db):
-    """User ID-Token layer is always count=0, items=[], with description."""
+def test_identity_stack_user_id_token_empty_without_delegations(client, db):
+    """User ID-Token layer is empty when the agent has no delegating users."""
     _create_agent(db, "is-idtok")
     resp = client.get("/api/v1/admin/agents/is-idtok/identity-stack")
     layer = resp.json()["layers"][0]
@@ -365,6 +365,41 @@ def test_identity_stack_user_id_token_always_empty(client, db):
     assert layer["active"] == 0
     assert layer["items"] == []
     assert len(layer["description"]) > 0
+
+
+def test_identity_stack_user_id_token_shows_delegator_groups(client, db):
+    """User ID-Token layer lists delegators with groups from IdP claims or org directory."""
+    from app.models.idp_session import IdPSession
+    from app.models.org_directory import OrgDirectory
+
+    _create_agent(db, "is-grp")
+    _create_delegation(db, "is-grp", "grace@test.com")
+
+    db.add(
+        IdPSession(
+            id="idp-grace-001",
+            session_id="jwt-grace-001",
+            user_id="grace@test.com",
+            idp="google",
+            id_token_claims={"groups": ["engineering", "admins"]},
+        )
+    )
+    db.add(
+        OrgDirectory(
+            entity_type="group",
+            email="ops@acme.com",
+            display_name="Operations",
+            members=["other@test.com"],
+        )
+    )
+    db.commit()
+
+    resp = client.get("/api/v1/admin/agents/is-grp/identity-stack")
+    layer = resp.json()["layers"][0]
+    assert layer["count"] == 1
+    item = layer["items"][0]
+    assert item["user"] == "grace@test.com"
+    assert sorted(item["groups"]) == ["admins", "engineering"]
 
 
 def test_identity_stack_user_session_layer(client, db):
@@ -386,6 +421,7 @@ def test_identity_stack_user_session_layer(client, db):
     item = next(i for i in layer["items"] if i["user"] == "carol@test.com")
     assert item["status"] == "active"
     assert item["idp"] is not None
+    assert item["session_id"] == us.session_id
 
 
 def test_identity_stack_delegation_layer(client, db):
@@ -410,6 +446,7 @@ def test_identity_stack_delegation_layer(client, db):
     active_item = next(i for i in layer["items"] if i["status"] == "active")
     assert active_item["delegator"] == "dave@test.com"
     assert active_item["permissions_count"] == 2
+    assert sorted(active_item["permissions"]) == ["notion:pages:read", "slack:messages:list"]
     assert sorted(active_item["services"]) == ["notion", "slack"]
 
 

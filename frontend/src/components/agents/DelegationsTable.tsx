@@ -130,7 +130,7 @@ function DelegationRow({
   );
 }
 
-function PermissionGroups({ permissions }: { permissions: string[] }) {
+export function PermissionGroups({ permissions }: { permissions: string[] }) {
   const groups = groupPermissionsByService(permissions);
   const entries = Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
 

@@ -34,6 +34,8 @@ from app.models.delegation_template import DelegationTemplate
 from app.models.audit_event import AuditEvent
 from app.models.user_session import UserSession
 from app.models.task_token import Task, TaskStatus
+from app.models.idp_session import IdPSession
+from app.models.org_directory import OrgDirectory
 from app.services.lifecycle_service import LifecycleService
 
 
@@ -460,14 +462,25 @@ class IdentityStackItem(BaseModel):
     expires_at: Optional[str] = None
 
 
+class UserIdTokenStackItem(BaseModel):
+    """IdP login context per delegator — ID tokens are not stored; groups come from claims/directory."""
+
+    id: str
+    user: str
+    idp: Optional[str] = None
+    groups: List[str] = Field(default_factory=list)
+
+
 class UserSessionStackItem(IdentityStackItem):
     user: str
+    session_id: str
     idp: Optional[str] = None
 
 
 class DelegationStackItem(IdentityStackItem):
     delegator: str
     permissions_count: int
+    permissions: List[str] = Field(default_factory=list)
     services: List[str]
 
 
@@ -496,6 +509,33 @@ class IdentityStackResponse(BaseModel):
     layers: List[IdentityStackLayer]
 
 
+def _groups_for_delegator(db: Session, user_email: str) -> List[str]:
+    """Resolve IdP groups for a user from cached ID token claims or org directory."""
+    groups: List[str] = []
+
+    idp_sess = (
+        db.query(IdPSession)
+        .filter(IdPSession.user_id == user_email)
+        .order_by(IdPSession.created_at.desc())
+        .first()
+    )
+    if idp_sess and idp_sess.id_token_claims:
+        claims = idp_sess.id_token_claims
+        raw = claims.get("groups") or claims.get("group")
+        if isinstance(raw, list):
+            groups.extend(str(g) for g in raw)
+        elif isinstance(raw, str) and raw:
+            groups.append(raw)
+
+    if not groups:
+        for entry in db.query(OrgDirectory).filter(OrgDirectory.entity_type == "group").all():
+            members = entry.members or []
+            if user_email in members:
+                groups.append(entry.display_name or entry.email)
+
+    return sorted(set(groups))
+
+
 @router.get("/agents/{agent_id}/identity-stack", response_model=IdentityStackResponse)
 def get_identity_stack(
     agent_id: str,
@@ -507,16 +547,7 @@ def get_identity_stack(
     """Get the 5-layer identity stack for an agent."""
     now = datetime.now(timezone.utc)
 
-    # Layer 1: User ID-Token (always empty — external IdP tokens not stored)
-    layer_id_token = IdentityStackLayer(
-        type="User ID-Token",
-        description="OIDC JWT from identity provider (Google, Keycloak). Consumed during login, not stored by DeepSecure.",
-        count=0,
-        active=0,
-        items=[],
-    )
-
-    # Layer 2: User Session — sessions for users who delegated to this agent
+    # Delegations for this agent (used by multiple layers below)
     delegations = (
         db.query(DelegationToken)
         .filter(
@@ -525,7 +556,46 @@ def get_identity_stack(
         )
         .all()
     )
-    delegator_emails = list({d.delegator for d in delegations if d.delegator})
+    delegator_emails = sorted({d.delegator for d in delegations if d.delegator})
+
+    # Layer 1: User ID-Token — OIDC tokens not stored; show groups from login claims / directory
+    id_token_items = []
+    for email in delegator_emails:
+        groups = _groups_for_delegator(db, email)
+        latest_us = (
+            db.query(UserSession)
+            .filter(UserSession.user_id == email)
+            .order_by(UserSession.created_at.desc())
+            .first()
+        )
+        idp_label = None
+        if latest_us and latest_us.idp_issuer:
+            idp_label = (
+                latest_us.idp_issuer.split("/")[-1]
+                if "/" in latest_us.idp_issuer
+                else latest_us.idp_issuer
+            )
+        id_token_items.append(
+            UserIdTokenStackItem(
+                id=email,
+                user=email,
+                idp=idp_label,
+                groups=groups,
+            ).model_dump()
+        )
+
+    layer_id_token = IdentityStackLayer(
+        type="User ID-Token",
+        description=(
+            "OIDC ID tokens from the identity provider are consumed at login and not stored. "
+            "Groups below are from cached login claims and organization directory membership."
+        ),
+        count=len(id_token_items),
+        active=len(id_token_items),
+        items=id_token_items,
+    )
+
+    # Layer 2: User Session — sessions for users who delegated to this agent
 
     user_sessions_items = []
     if delegator_emails:
@@ -543,6 +613,7 @@ def get_identity_stack(
             user_sessions_items.append(UserSessionStackItem(
                 id=us.session_id,
                 user=us.user_id,
+                session_id=us.session_id,
                 idp=us.idp_issuer.split("/")[-1] if us.idp_issuer and "/" in us.idp_issuer else us.idp_issuer,
                 created_at=us.created_at.isoformat() if us.created_at else None,
                 expires_at=exp.isoformat() if exp else None,
@@ -569,6 +640,7 @@ def get_identity_stack(
             id=d.id,
             delegator=d.delegator or "",
             permissions_count=len(perms),
+            permissions=perms,
             services=services,
             created_at=d.created_at.isoformat() if d.created_at else None,
             expires_at=exp.isoformat() if exp else None,

@@ -384,14 +384,23 @@ export interface IdentityStackItem {
   expires_at: string | null;
 }
 
+export interface UserIdTokenStackItem {
+  id: string;
+  user: string;
+  idp: string | null;
+  groups: string[];
+}
+
 export interface UserSessionStackItem extends IdentityStackItem {
   user: string;
+  session_id: string;
   idp: string | null;
 }
 
 export interface DelegationStackItem extends IdentityStackItem {
   delegator: string;
   permissions_count: number;
+  permissions: string[];
   services: string[];
 }
 
