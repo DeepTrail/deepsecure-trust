@@ -16,10 +16,23 @@ const MOCK_RESPONSE: IdentityStackResponse = {
   layers: [
     {
       type: "User ID-Token",
-      description: "OIDC JWT from identity provider (Google, Keycloak). Consumed during login, not stored by DeepSecure.",
-      count: 0,
-      active: 0,
-      items: [],
+      description: "OIDC JWT from identity provider. Groups from cached claims.",
+      count: 2,
+      active: 2,
+      items: [
+        {
+          id: "alice@acme.com",
+          user: "alice@acme.com",
+          idp: "google",
+          groups: ["engineering", "admins"],
+        },
+        {
+          id: "bob@acme.com",
+          user: "bob@acme.com",
+          idp: "keycloak",
+          groups: [],
+        },
+      ],
     },
     {
       type: "User Session",
@@ -29,6 +42,7 @@ const MOCK_RESPONSE: IdentityStackResponse = {
       items: [
         {
           id: "usess-001",
+          session_id: "usess-001abcdef",
           user: "alice@acme.com",
           idp: "google",
           created_at: "2026-06-04T09:00:00Z",
@@ -37,6 +51,7 @@ const MOCK_RESPONSE: IdentityStackResponse = {
         },
         {
           id: "usess-002",
+          session_id: "usess-002xyz789",
           user: "bob@acme.com",
           idp: "keycloak",
           created_at: "2026-06-04T10:30:00Z",
@@ -54,8 +69,9 @@ const MOCK_RESPONSE: IdentityStackResponse = {
         {
           id: "del-abc123",
           delegator: "alice@acme.com",
-          permissions_count: 24,
-          services: ["notion", "slack", "github"],
+          permissions_count: 2,
+          permissions: ["notion:pages:read", "slack:messages:list"],
+          services: ["notion", "slack"],
           created_at: "2026-06-03T00:00:00Z",
           expires_at: "2026-07-03T00:00:00Z",
           status: "active",
@@ -63,7 +79,8 @@ const MOCK_RESPONSE: IdentityStackResponse = {
         {
           id: "del-def456",
           delegator: "bob@acme.com",
-          permissions_count: 12,
+          permissions_count: 1,
+          permissions: ["notion:pages:read"],
           services: ["notion"],
           created_at: "2026-06-01T00:00:00Z",
           expires_at: "2026-07-01T00:00:00Z",
@@ -72,7 +89,8 @@ const MOCK_RESPONSE: IdentityStackResponse = {
         {
           id: "del-ghi789",
           delegator: "alice@acme.com",
-          permissions_count: 5,
+          permissions_count: 1,
+          permissions: ["notion:pages:read"],
           services: ["notion"],
           created_at: "2026-05-01T00:00:00Z",
           expires_at: "2026-05-17T00:00:00Z",
@@ -160,43 +178,63 @@ describe("IdentityStackPanel", () => {
     expect(screen.getByText(/asess-001abc/)).toBeInTheDocument();
   });
 
-  it("User ID-Token shows empty state explanation", async () => {
+  it("User ID-Token shows delegator groups when items exist", async () => {
     setupSuccessMock();
     render(<IdentityStackPanel agentId="agent-1" />);
     await waitFor(() => expect(screen.getByText("User ID-Token")).toBeInTheDocument());
 
     fireEvent.click(screen.getByText("User ID-Token"));
-    expect(
-      screen.getByText(/User ID-Tokens are issued by the identity provider/)
-    ).toBeInTheDocument();
+    expect(screen.getByText("engineering")).toBeInTheDocument();
+    expect(screen.getByText("admins")).toBeInTheDocument();
+    expect(screen.getByText(/ID tokens are consumed at login/)).toBeInTheDocument();
   });
 
-  it("User Session renders user email, IdP, and status", async () => {
+  it("User ID-Token shows empty state when no delegators", async () => {
+    setupSuccessMock({
+      ...MOCK_RESPONSE,
+      layers: MOCK_RESPONSE.layers.map((l) =>
+        l.type === "User ID-Token" ? { ...l, count: 0, active: 0, items: [] } : l
+      ),
+    });
+    render(<IdentityStackPanel agentId="agent-1" />);
+    await waitFor(() => expect(screen.getByText("User ID-Token")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("User ID-Token"));
+    expect(screen.getByText(/No delegating users for this agent/)).toBeInTheDocument();
+  });
+
+  it("User Session renders session ID, user email, IdP, and status", async () => {
     setupSuccessMock();
     render(<IdentityStackPanel agentId="agent-1" />);
     await waitFor(() => expect(screen.getByText("User Session")).toBeInTheDocument());
 
     fireEvent.click(screen.getByText("User Session"));
+    expect(screen.getByText(/usess-001abc/)).toBeInTheDocument();
     expect(screen.getByText("alice@acme.com")).toBeInTheDocument();
     expect(screen.getByText("google")).toBeInTheDocument();
     expect(screen.getByText("bob@acme.com")).toBeInTheDocument();
     expect(screen.getByText("keycloak")).toBeInTheDocument();
   });
 
-  it("Delegation renders delegator, permissions count, service badges, and status", async () => {
+  it("Delegation renders delegation ID, permissions summary, and expandable scopes", async () => {
     setupSuccessMock();
     render(<IdentityStackPanel agentId="agent-1" />);
     await waitFor(() => expect(screen.getByText("Delegation")).toBeInTheDocument());
 
     fireEvent.click(screen.getByText("Delegation"));
-    expect(screen.getAllByText("alice@acme.com").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("24")).toBeInTheDocument();
+    expect(screen.getByText(/del-abc123/)).toBeInTheDocument();
+    expect(screen.getByText("2 permissions")).toBeInTheDocument();
     expect(screen.getAllByText("Notion").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Slack")).toBeInTheDocument();
-    expect(screen.getByText("GitHub")).toBeInTheDocument();
+
+    const delegationRow = screen.getByText(/del-abc123/).closest("tr");
+    expect(delegationRow).not.toBeNull();
+    fireEvent.click(delegationRow!);
+    expect(screen.getByText("notion:pages:read")).toBeInTheDocument();
+    expect(screen.getByText("slack:messages:list")).toBeInTheDocument();
   });
 
-  it("Agent Session renders session ID (monospace truncated), delegator, and status", async () => {
+  it("Agent Session renders session ID, delegator, delegation ID, and status", async () => {
     setupSuccessMock();
     render(<IdentityStackPanel agentId="agent-1" />);
     await waitFor(() => expect(screen.getByText("Agent Session")).toBeInTheDocument());
@@ -204,6 +242,8 @@ describe("IdentityStackPanel", () => {
     fireEvent.click(screen.getByText("Agent Session"));
     expect(screen.getByText(/asess-001abc/)).toBeInTheDocument();
     expect(screen.getByText("alice@acme.com")).toBeInTheDocument();
+    expect(screen.getByText(/del-abc123ab/)).toBeInTheDocument();
+    expect(screen.getByText("Delegation ID")).toBeInTheDocument();
   });
 
   it("Task Token shows empty state message", async () => {

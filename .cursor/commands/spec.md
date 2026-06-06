@@ -40,6 +40,102 @@ The spec produced by this command is the **upstream input** for `/create-design-
 
 ---
 
+## Persona Coverage Protocol (MANDATORY)
+
+DeepSecure specs serve **four personas** (Employee, IT Admin, Security Team, Engineer / Developer). A common failure mode is writing user stories only for IT Admin while the **Persona Capability Unlocked** table lists outcomes for all four — leaving implementers and reviewers to guess what "done" means for everyone else.
+
+**Rule: Every persona row in the Persona Capability table MUST have matching artifacts in §1 and §11.**
+
+| Artifact | Requirement |
+|----------|-------------|
+| **Persona Capability table** | One row per affected persona; include **User Stories** column linking to §1 subsection anchors |
+| **§1 User Stories** | Grouped by persona (`#### User Stories — IT Admin`, etc.); **≥2 stories per persona** listed in the capability table (≥1 if persona has only a single narrow outcome) |
+| **§1 Success Criteria** | Grouped by the same persona headings; at least one measurable checkbox per persona |
+| **§11 Demo Scenarios** | **≥1 scenario per persona** in the capability table (plus ≥1 error/edge-case scenario) |
+
+**Persona parity checklist (run before VALIDATE phase):**
+
+```
+For each persona P in Persona Capability table:
+  □ §1 has "User Stories — P" with stories covering every bullet in "Capability Unlocked"
+  □ §1 Success Criteria has a "P" subsection with testable checkboxes
+  □ §11 has a scenario titled with persona P (or Security Team member / Engineer as appropriate)
+```
+
+**Do NOT:**
+
+- List capabilities for Employee / Security / Engineer in the mapping table but only write IT Admin user stories
+- Use a flat bullet list of stories without persona headings when multiple personas are affected
+- Mark a persona "N/A" without explicit justification in Non-Goals
+
+### Domain Semantics Boxes (when behavior is ambiguous)
+
+When a feature has **marketing language that sounds simple but behavior has branches** (e.g. "admin sets once, N users onboard", "auto-provision", "narrow permissions", "role-based visibility"), add a dedicated subsection in §1 **before Success Criteria**:
+
+```markdown
+### [Feature Name] Semantics
+
+> **What "[phrase from requirements]" means in this spec**
+
+1. [Step-by-step system behavior]
+2. [What the user does NOT have to do — explicit negatives matter]
+3. [Modes / feature flags / edge cases in a table]
+
+**What users may still do (optional, not required):** [table]
+```
+
+Examples requiring a semantics box: auto-provision vs manual delegate, invite vs on_login, PATCH narrow vs revoke+recreate, role vs group vs user visibility OR-rules.
+
+Reference implementation: `docs/spec/p5.2-gap-closure-spec.md` §1 Auto-Provision Semantics.
+
+---
+
+## UI Wireframes Protocol (OPTIONAL-BUT-EXPECTED)
+
+Specs that touch the **frontend** must document **what users see** on new or changed screens — not only APIs and backend behavior. A common failure mode is a thorough §7 API Contracts section with **no §4 wireframes**, leaving frontend implementers to invent layout and component boundaries.
+
+**Trigger — include §4 UI Wireframes (Delta) when ANY of:**
+
+| Condition | Example |
+|-----------|---------|
+| `frontend` impact is **Medium** or **High** in Services Affected | Admin pages, dashboard changes, new modals |
+| Spec adds a **new route** under `frontend/src/app/` | `/dashboard/admin/idp` |
+| Spec **materially changes** an existing page (new filter bar, new panel, new primary action) | Fleet filters, delegation edit drawer, health banner |
+
+**When `frontend` impact is None/Low and no routes/pages change:** §4 may be a single **N/A** paragraph — do not pad with unchanged screens.
+
+**Rule: Every new route or materially changed page gets at least one ASCII wireframe in §4.**
+
+| Artifact | Requirement |
+|----------|-------------|
+| **§4.1 Parent references** | Table linking to canonical wireframes for **unchanged** pages (do not duplicate full parent spec wireframes) |
+| **§4.2 Screen inventory (delta)** | Table: Route \| Change type (New/Modified/Extended) \| Wireframe subsection |
+| **§4.N Per-screen wireframes** | ASCII box diagram + route + key interactions; for **Modified**, include Before/After or call out delta vs parent ref |
+| **Cross-links** | Persona Capability bullets that are UI-facing should reference §4 subsection (e.g. "Fleet filters — §4.3") |
+
+**Do NOT:**
+
+- Duplicate full wireframes from a parent spec or `docs/PRODUCT_USE_CASES_BY_PERSONA.md` for unchanged pages — **link** instead
+- Put the only screen layout detail in §11 Demo Scenarios (journeys reference §4; they do not replace it)
+- Ship Medium/High frontend impact without at least one delta wireframe per touched route
+
+**Wireframe parity checklist (run before VALIDATE when §4 is in scope):**
+
+```
+For each row in §4.2 Screen inventory:
+  □ §4.N has ASCII wireframe with route in heading
+  □ Modified pages link to parent wireframe in §4.1
+  □ Key buttons, filters, tables, and error/empty states visible in ASCII
+  □ §11 demo steps for that screen cite §4.N (not re-draw full layout inline)
+```
+
+Reference implementations:
+- Full catalog: `docs/spec/p5.2-it-admin-service-catalog-spec.md` §4
+- Delta + before/after: `docs/spec/p5.1-ui-improvements-spec.md` §4
+- Gap closure (parent links): extend parent §4 — see `docs/spec/p5.2-gap-closure-spec.md` when §4 is added
+
+---
+
 ## The Gated Workflow
 
 Specification has four phases. Do not advance to the next phase until the current one is validated.
@@ -74,7 +170,7 @@ Before writing anything, explicitly list every assumption you're making:
 
 ### Clarification Questions
 
-Ask targeted questions. Group them by category. These questions are designed to surface the information needed for all 15 sections of the downstream design doc:
+Ask targeted questions. Group them by category. These questions are designed to surface the information needed for all 16 sections of the downstream design doc:
 
 ```markdown
 ## Questions Requiring Human Input
@@ -100,6 +196,12 @@ Ask targeted questions. Group them by category. These questions are designed to 
 - [ ] Are there demo scenarios that must work end-to-end? (→ feeds Demo Scenarios)
 - [ ] What is the rollout strategy — all at once or phased? (→ feeds Rollout Plan)
 
+### UI / Frontend (when frontend impact ≥ Medium or new routes)
+- [ ] Which routes are **new** vs **materially changed**? (→ feeds §4 Screen inventory)
+- [ ] Where are **parent wireframes** for unchanged pages? (`PRODUCT_USE_CASES_BY_PERSONA.md`, parent spec §4, prior design doc)
+- [ ] What are the primary UI states per screen — loading, empty, error, success? (→ feeds §4 + design doc UI Screen Designs)
+- [ ] Which API endpoints populate each table, filter, or modal? (→ feeds §4 key interactions + §7 API Contracts)
+
 ### Security
 - [ ] What security boundaries does this feature cross?
 - [ ] What tokens/credentials are involved and how are they stored?
@@ -112,9 +214,15 @@ Ask targeted questions. Group them by category. These questions are designed to 
 
 ## Phase 2: SPECIFY — Write the Spec Document
 
-Write a structured specification covering **all 15 sections** below. This template is designed so that `/create-design-doc` can directly transform each section into its corresponding design doc section without guessing.
+Write a structured specification covering **all 16 sections** below. This template is designed so that `/create-design-doc` can directly transform each section into its corresponding design doc section without guessing.
 
 **Critical rule:** If the user's input lacks detail for a section, **ask for it** (Phase 1 questions) or **infer it** from context and codebase exploration rather than leaving `[placeholder]` text. A spec with placeholders is a spec that hasn't been written yet.
+
+**Persona rule (non-negotiable):** After drafting the Persona Capability table, **immediately** draft user-story subsections for **every persona listed** (or document N/A personas in Non-Goals). Do not finish §1 with only IT Admin stories. Run the **Persona parity checklist** (see Persona Coverage Protocol) before Phase 3.
+
+**Semantics rule:** If requirements use shorthand ("auto-provision", "self-service", "role-based", "admin sets once"), add a **Domain Semantics** subsection in §1 clarifying system behavior and what users **do not** have to do manually.
+
+**Wireframe rule (optional-but-expected):** When frontend impact is Medium/High or any route/page changes, draft **§4 UI Wireframes (Delta)** before finishing §5 Technical Design. Run the **Wireframe parity checklist** (see UI Wireframes Protocol) before Phase 3. Link parent wireframes; do not duplicate unchanged screens.
 
 ### Spec Template
 
@@ -158,14 +266,16 @@ This spec delivers **[Phase Name(s)]** from the product roadmap.
 
 ### Persona Capability Unlocked by This Spec
 
-Taken from the roadmap's **"Persona Capability Timeline"** — what becomes non-broken for each persona after this spec lands:
+Taken from the roadmap's **"Persona Capability Timeline"** — what becomes non-broken for each persona after this spec lands. **Each row MUST link to §1 user stories** (see Persona Coverage Protocol).
 
-| Persona | Capability Unlocked |
-|---------|---------------------|
-| **Employee** | [What works for this persona after this spec lands — copy from roadmap] |
-| **IT Admin** | [What works for this persona] |
-| **Security Team** | [What works for this persona] |
-| **Engineer / Developer** | [What works for this persona] |
+| Persona | Capability Unlocked | User Stories |
+|---------|---------------------|--------------|
+| **Employee** | [What works for this persona after this spec lands — copy from roadmap] | [§1 Employee](#user-stories--employee) |
+| **IT Admin** | [What works for this persona] | [§1 IT Admin](#user-stories--it-admin) |
+| **Security Team** | [What works for this persona] | [§1 Security Team](#user-stories--security-team) |
+| **Engineer / Developer** | [What works for this persona] | [§1 Engineer / Developer](#user-stories--engineer--developer) |
+
+*Omit personas not affected by this spec — do not leave empty rows. If only IT Admin is affected, state that explicitly in Non-Goals for other personas.*
 
 ### What This Spec Unblocks
 
@@ -181,18 +291,19 @@ Taken from the roadmap's **"Persona Capability Timeline"** — what becomes non-
 1. [Objective](#1-objective)
 2. [Goals & Non-Goals](#2-goals--non-goals)
 3. [Background](#3-background)
-4. [Technical Design](#4-technical-design)
-5. [Data Models](#5-data-models)
-6. [API Contracts](#6-api-contracts)
-7. [Security Considerations](#7-security-considerations)
-8. [Project Structure](#8-project-structure)
-9. [Testing Strategy](#9-testing-strategy)
-10. [Demo Scenarios / User Journeys](#10-demo-scenarios--user-journeys)
-11. [Rollout Plan](#11-rollout-plan)
-12. [Boundaries](#12-boundaries)
-13. [Dependencies & Risks](#13-dependencies--risks)
-14. [Open Questions](#14-open-questions)
-15. [References](#15-references)
+4. [UI Wireframes (Delta)](#4-ui-wireframes-delta)
+5. [Technical Design](#5-technical-design)
+6. [Data Models](#6-data-models)
+7. [API Contracts](#7-api-contracts)
+8. [Security Considerations](#8-security-considerations)
+9. [Project Structure](#9-project-structure)
+10. [Testing Strategy](#10-testing-strategy)
+11. [Demo Scenarios / User Journeys](#11-demo-scenarios--user-journeys)
+12. [Rollout Plan](#12-rollout-plan)
+13. [Boundaries](#13-boundaries)
+14. [Dependencies & Risks](#14-dependencies--risks)
+15. [Open Questions](#15-open-questions)
+16. [References](#16-references)
 
 ---
 
@@ -201,14 +312,62 @@ Taken from the roadmap's **"Persona Capability Timeline"** — what becomes non-
 [What we're building and why. 2-3 sentences max.]
 
 ### User Stories / Acceptance Criteria
-- As a [persona], I want [action] so that [outcome]
-- As a [persona], I want [action] so that [outcome]
+
+**MANDATORY:** Group by persona. Stories must cover **every bullet** in the Persona Capability table for that persona. Minimum **≥2 stories per persona** (≥1 if single outcome).
+
+Stories below map 1:1 to the Persona Capability table above.
+
+#### User Stories — IT Admin
+
+- As an **IT Admin**, I [concrete action] so that [measurable outcome]
+- As an **IT Admin**, I [concrete action] so that [measurable outcome]
+
+#### User Stories — Employee
+
+- As an **Employee**, I [concrete action] so that [measurable outcome]
+- As an **Employee**, I [concrete action] so that [measurable outcome]
+
+#### User Stories — Security Team
+
+- As a **Security Team** member, I [concrete action] so that [measurable outcome]
+- As a **Security Team** member, I [concrete action] so that [measurable outcome]
+
+#### User Stories — Engineer / Developer
+
+- As an **Engineer**, I [concrete action] so that [measurable outcome]
+- As an **Engineer**, I [concrete action] so that [measurable outcome]
+
+*Delete persona subsections that are genuinely N/A for this spec (document why in Non-Goals).*
+
+### [Optional] Domain Semantics — [Feature Name]
+
+> Include when behavior is ambiguous (see Persona Coverage Protocol). Example: auto-provision, role visibility, narrow-only PATCH.
+
+[Numbered behavior, explicit "user does NOT have to…", modes table]
 
 ### Success Criteria
-[Specific, testable conditions — not vague "it works".]
-- [ ] [Criterion 1 — measurable]
-- [ ] [Criterion 2 — measurable]
-- [ ] [Criterion 3 — measurable]
+
+**MANDATORY:** Group by the same persona headings as user stories.
+
+**IT Admin**
+
+- [ ] [Measurable criterion]
+
+**Employee**
+
+- [ ] [Measurable criterion]
+
+**Security Team**
+
+- [ ] [Measurable criterion]
+
+**Engineer / Developer**
+
+- [ ] [Measurable criterion]
+
+**All personas**
+
+- [ ] [Cross-cutting criterion — e.g. full test suite passes]
 
 ---
 
@@ -251,7 +410,69 @@ Taken from the roadmap's **"Persona Capability Timeline"** — what becomes non-
 
 ---
 
-## 4. Technical Design
+## 4. UI Wireframes (Delta)
+
+> **Scope:** ASCII wireframes for **new or materially changed** screens only. For unchanged pages, link to parent wireframes in §4.1 — do not duplicate full layouts from parent specs or product docs.
+>
+> **N/A template** (when `frontend` impact is None/Low and no routes change): *"No frontend changes in this spec. §4 UI Wireframes not applicable."*
+
+### 4.1 Parent / Canonical Wireframe References
+
+| Screen / Flow | Source Document | Section | What It Defines |
+|---------------|-----------------|---------|-----------------|
+| [Unchanged page name] | `docs/PRODUCT_USE_CASES_BY_PERSONA.md` or `[parent-spec].md` | §[N] | [What the canonical wireframe already specifies] |
+| [Another unchanged flow] | `docs/spec/p5.2-it-admin-service-catalog-spec.md` | §4.2 | [e.g. Service Catalog table layout — unchanged by this spec] |
+
+### 4.2 Screen Inventory (Delta)
+
+| Route | Change | Wireframe | Primary Persona |
+|-------|--------|-----------|-----------------|
+| `/dashboard/[path]` | New / Modified / Extended | §4.3 | IT Admin / Employee / … |
+| `/dashboard/[path]` | Modified | §4.4 | … |
+
+### 4.3 [Page Title] (`/dashboard/[path]`)
+
+**Change:** New | Modified | Extended
+**Parent ref:** [§4.1 row if Modified; omit if New]
+**Validates:** [User story IDs or capability bullets]
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  [Page Title]                                              [Primary Action]  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  [Filter bar / tabs / breadcrumbs as applicable]                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  [Main content: table, cards, form, or split panel]                          │
+│                                                                              │
+│  [Key columns, status badges, row actions]                                   │
+│                                                                              │
+│  [Empty state CTA or error banner if applicable]                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key interactions:**
+- [Primary action] → [API or navigation target]
+- [Filter / search] → query params or `GET` endpoint
+- [Row click / expand] → [detail panel or route]
+- [Error / empty state] → [when shown, what user sees]
+
+**Modified pages — optional Before / After:**
+
+```
+BEFORE (current — [file path]):
+[ASCII of current layout — abbreviated]
+
+AFTER (this spec):
+[ASCII of target layout — highlight delta]
+```
+
+### 4.4 [Next Page Title] (`/dashboard/[path]`)
+
+[Same structure as §4.3 for each row in §4.2 Screen inventory.]
+
+---
+
+## 5. Technical Design
 
 ### Services Affected
 | Service | Impact | Changes |
@@ -317,7 +538,7 @@ async def [function_name]([params]: [types]) -> [return_type]:
 
 ---
 
-## 5. Data Models
+## 6. Data Models
 
 [For each new or modified model, include a full column table with types — NOT just a placeholder.]
 
@@ -347,7 +568,7 @@ async def [function_name]([params]: [types]) -> [return_type]:
 
 ---
 
-## 6. API Contracts
+## 7. API Contracts
 
 > **CRITICAL**: This section is the CANONICAL source for all API endpoints.
 > Task tickets, tests, and implementations MUST match these exactly.
@@ -399,7 +620,7 @@ Content-Type: application/json
 
 ---
 
-## 7. Security Considerations
+## 8. Security Considerations
 
 [This is a security product. Every spec MUST address security. Include at least 2 of these subsections, depending on what the feature touches:]
 
@@ -420,7 +641,7 @@ Content-Type: application/json
 
 ---
 
-## 8. Project Structure
+## 9. Project Structure
 
 [Group files by workstream/feature area — NOT a flat list. This grouping directly becomes the "Implementation Workstreams" in the design doc.]
 
@@ -447,7 +668,7 @@ Content-Type: application/json
 
 ---
 
-## 9. Testing Strategy
+## 10. Testing Strategy
 
 ### Test Matrix
 
@@ -476,9 +697,11 @@ Content-Type: application/json
 
 ---
 
-## 10. Demo Scenarios / User Journeys
+## 11. Demo Scenarios / User Journeys
 
 [Walk through concrete user journeys that validate this feature end-to-end. These are the "test cases for the design" — if the design can't support these scenarios, it has gaps.]
+
+**Wireframe rule:** Reference §4 for screen layout (`see §4.3`). Do **not** duplicate full ASCII wireframes here — journeys describe **steps and outcomes**, not replace §4.
 
 ### Scenario 1: [Persona] — [Journey Title]
 
@@ -494,14 +717,17 @@ Content-Type: application/json
 **Success criteria:** [How to verify this scenario passed — curl command, test assertion, or UI check]
 
 ### Scenario 2: [Persona] — [Journey Title]
-[Same structure. At least 1 scenario per primary persona.]
+[Same structure. **MANDATORY: one scenario per persona** listed in Persona Capability table — IT Admin, Employee, Security Team, Engineer as applicable.]
 
-### Scenario 3: [Error/Edge Case]
-[At least one scenario covering a failure path — expired token, missing permission, provider down, etc.]
+### Scenario 3: [Persona] — [Journey Title]
+[Continue until every persona in the capability table has a scenario.]
+
+### Scenario N: [Error/Edge Case]
+[At least one scenario covering a failure path — expired token, missing permission, provider down, ambiguous feature branch, etc.]
 
 ---
 
-## 11. Rollout Plan
+## 12. Rollout Plan
 
 [How is this feature delivered? Phased or all-at-once? What is usable after each phase?]
 
@@ -516,7 +742,7 @@ Content-Type: application/json
 
 ---
 
-## 12. Boundaries
+## 13. Boundaries
 
 ### Always Do
 - Run tests before marking task complete
@@ -538,7 +764,7 @@ Content-Type: application/json
 
 ---
 
-## 13. Dependencies & Risks
+## 14. Dependencies & Risks
 
 ### External Dependencies
 | Dependency | Risk | Mitigation |
@@ -552,7 +778,7 @@ Content-Type: application/json
 
 ---
 
-## 14. Open Questions
+## 15. Open Questions
 [Anything unresolved that needs human input before implementation]
 
 - [ ] [Question 1 — with enough context to answer it]
@@ -560,7 +786,7 @@ Content-Type: application/json
 
 ---
 
-## 15. References
+## 16. References
 - [Related spec/design doc](../../docs/design/[file].md) — [How it relates]
 - [Existing implementation](../../[service]/app/[path]) — [What exists today]
 - [External reference](https://...) — [What it documents]
@@ -596,7 +822,11 @@ REFRAMED SUCCESS CRITERIA:
 | No API request/response | Write JSON examples from described endpoints |
 | No security concerns | Analyze the feature for token handling, encryption, access control |
 | No user journeys | Create persona-based walkthroughs from the feature's goals |
+| Only IT Admin stories drafted | Expand §1 + §11 for every persona in Persona Capability table; add persona-grouped success criteria |
+| Ambiguous product phrase | Add Domain Semantics box (what user does NOT do manually, modes table) |
 | No error responses | Infer error cases (400, 401, 403, 404, 502) from auth/validation requirements |
+| New/changed routes without §4 wireframes | Add §4.2 inventory + per-route ASCII; link parent wireframes in §4.1 |
+| Frontend Medium/High impact, §4 is N/A | Either justify N/A in Non-Goals or add delta wireframes per UI Wireframes Protocol |
 
 ---
 
@@ -608,13 +838,28 @@ Present the spec for review. Include a completeness summary showing which sectio
 ## Spec Review Checkpoint
 
 **Feature:** [name]
-**Sections completed:** [N] of 15
+**Sections completed:** [N] of 16
 **Open questions:** [count]
 
+### Persona Coverage (MANDATORY)
+| Persona | Capability row | §1 User Stories | §1 Success Criteria | §11 Scenario |
+|---------|----------------|-----------------|---------------------|--------------|
+| IT Admin | [x] | [x] | [x] | [x] |
+| Employee | [x] | [x] | [x] | [x] |
+| Security Team | [x] / N/A | [x] / N/A | [x] / N/A | [x] / N/A |
+| Engineer / Developer | [x] / N/A | [x] / N/A | [x] / N/A | [x] / N/A |
+
+### UI Wireframe Coverage (when §4 in scope)
+| Route | In §4.2 inventory | ASCII in §4.N | Parent ref in §4.1 |
+|-------|-------------------|---------------|---------------------|
+| `/dashboard/...` | [x] | [x] | [x] / N/A (new route) |
+
 ### Completeness Summary
-- [x] Objective & Success Criteria
+- [x] Objective & Success Criteria (persona-grouped)
+- [x] Domain Semantics box (if ambiguous features present)
 - [x] Goals & Non-Goals
 - [x] Background (Current State + Motivation)
+- [x] UI Wireframes (Delta) — or explicit N/A with justification
 - [x] Technical Design (Architecture diagram + code interfaces)
 - [x] Data Models (full column tables)
 - [ ] API Contracts ⚠️ [needs endpoint confirmation]
@@ -675,7 +920,7 @@ After spec is approved, guide the user to next steps:
 **Saved to:** `docs/spec/[feature-name]-spec.md`
 **Priority:** [Priority Group from PRIORITY_MASTER.md]
 **Roadmap Phase:** [Phase from PRODUCT_ROADMAP.md]
-**Sections completed:** [N] of 15
+**Sections completed:** [N] of 16
 **Quality:** [line count] lines
 
 ### Next Steps
@@ -738,6 +983,10 @@ Objective → API Contracts (canonical) → Control Plane → Gateway → SDK �
 | "Current State isn't needed — this is all new" | Even new features replace or extend something. Without a baseline, `/breakdown-design` over-scopes by 60% (Feb 2026 lesson). |
 | "Security is someone else's concern" | This is a security product. Every feature touches auth, tokens, or data access. Write the security section. |
 | "I'll add the API details during implementation" | Skeletal API contracts → skeletal design doc → `/breakdown-design` has to guess scope. Specify request/response/error NOW. |
+| "IT Admin is the primary user — other personas can wait" | Persona Capability table promises outcomes for Employee/Security/Engineer; without stories, those outcomes are unverifiable. Write all persona sections in the first draft. |
+| "Everyone knows what auto-provision means" | Ambiguous phrases cause wrong implementations. Add Domain Semantics with explicit negatives (what users do NOT do manually). |
+| "The API contract defines the UI" | Endpoints do not specify layout, filters, or empty states. Add §4 delta wireframes for every new/changed route. |
+| "Wireframes belong in the design doc only" | `/spec` §4 captures **delta** screens early; `/create-design-doc` expands to component + API mapping. Skipping §4 delays UI review until after breakdown. |
 
 ## Red Flags
 
@@ -753,6 +1002,14 @@ Objective → API Contracts (canonical) → Control Plane → Gateway → SDK �
 - API Contracts with only a summary table (no request/response/error → skeletal design doc)
 - No Security Considerations (every feature in this product needs one)
 - No Demo Scenarios (can't validate the design against real usage)
+- **Frontend Medium/High impact but §4 missing or N/A without justification** — wireframe parity failure
+- **§4.2 lists routes but subsections lack ASCII wireframes** — incomplete delta coverage
+- **Full parent wireframes duplicated in §4** instead of linking §4.1 — maintainability debt
+- **Only wireframes in §11 Demo Scenarios** — layout must live in §4; journeys reference it
+- **Persona Capability table lists Employee/Security/Engineer but §1 user stories are IT Admin only** — persona parity failure
+- **Flat user story list** without `#### User Stories — [Persona]` headings when multiple personas are affected
+- **Success criteria not grouped by persona** when multiple personas are in scope
+- **Ambiguous feature (auto-provision, narrow, role-based) without Domain Semantics box**
 - Flat file list instead of workstream-grouped file tables
 - **No Priority & Roadmap Mapping section** — every spec must anchor itself to `plans/PRIORITY_MASTER.md` and `plans/PRODUCT_ROADMAP.md` so the delivery sequence is always visible
 - **Metadata header missing `Priority Master` / `Product Roadmap` links** — the header blockquote must include these links so the spec is navigable from the document itself
@@ -766,14 +1023,28 @@ Before proceeding to `/create-design-doc`:
 - [ ] Priority & Roadmap Mapping section is present (immediately after the header, before Table of Contents)
 - [ ] Priority Master table rows filled in from `plans/PRIORITY_MASTER.md` — ✅/⚠️/❌ per group, not placeholders
 - [ ] Product Roadmap table rows filled in from `plans/PRODUCT_ROADMAP.md` — ✅/⚠️/❌ per phase
-- [ ] Persona Capability Unlocked table copied from roadmap's "Persona Capability Timeline"
+- [ ] Persona Capability Unlocked table includes **User Stories** column with §1 anchor links
+- [ ] Persona Capability table has a row for each affected persona (no orphan capability bullets)
 - [ ] "What This Spec Unblocks" table lists downstream priorities / workstreams
+
+**Persona coverage (MANDATORY when >1 persona affected):**
+- [ ] §1 has `#### User Stories — [Persona]` for every persona in capability table
+- [ ] Each persona has ≥2 user stories (≥1 if single narrow outcome) covering all capability bullets
+- [ ] §1 Success Criteria grouped by same persona headings
+- [ ] §11 has ≥1 demo scenario per persona in capability table
+- [ ] Domain Semantics subsection present if spec uses ambiguous product language
+
+**UI wireframes (when frontend impact ≥ Medium or routes change):**
+- [ ] §4.1 parent wireframe reference table present (or §4 marked N/A with justification)
+- [ ] §4.2 screen inventory lists every new/changed route
+- [ ] Each inventory row has matching §4.N subsection with ASCII wireframe
+- [ ] Modified pages link to parent ref; demo scenarios cite §4 (not duplicate layout)
 
 **Content (existing checks):**
 - [ ] Spec is 200+ lines (if less, depth is likely missing)
-- [ ] All 15 sections present (check Table of Contents)
+- [ ] All 16 sections present (check Table of Contents)
 - [ ] Objective is specific and testable (not vague)
-- [ ] Success criteria are measurable
+- [ ] Success criteria are measurable and persona-grouped when applicable
 - [ ] Non-Goals explicitly state what's deferred
 - [ ] Current State documents what exists today (capability table)
 - [ ] Motivation explains business reasons (not just technical)
@@ -803,18 +1074,19 @@ This table shows exactly how `/create-design-doc` transforms each spec section:
 | 1. Objective | Overview | Expand into 1-3 paragraph summary |
 | 2. Goals & Non-Goals | Goals + Non-Goals | Direct transfer |
 | 3. Background | Background | Direct transfer (Current State + Motivation) |
-| 4. Technical Design | Technical Design | Add Mermaid diagrams, expand code detail, add Provider Parity per feature |
-| 5. Data Models | Data Models | Verify column tables are complete, add config YAML |
-| 6. API Contracts | API Contracts (Canonical) | Direct transfer with CANONICAL marker |
-| 7. Security Considerations | Security Considerations | Expand into subsections |
-| 8. Project Structure | Implementation Workstreams | Convert file tables into task tables + file tables per workstream |
-| 9. Testing Strategy | Testing Strategy | Add Technical Requirements if missing |
-| 10. Demo Scenarios | Demo Scenarios / User Journeys | Add ASCII wireframes, expand success criteria |
-| 11. Rollout Plan | Rollout Plan | Add demo impact per phase |
-| 12. Boundaries | *(absorbed into design doc conventions)* | Referenced in Boundaries or Testing |
-| 13. Dependencies & Risks | *(merged into relevant sections)* | Risks → Dependencies & Risks |
-| 14. Open Questions | Open Questions | Direct transfer |
-| 15. References | References | Add links to plan source |
+| 4. UI Wireframes (Delta) | UI Screen Designs | **Expand:** per-page component breakdown, API mapping table, loading/empty/error states (pattern: `docs/design/deeptrail-dashboard-core-pages.md`) |
+| 5. Technical Design | Technical Design | Add Mermaid diagrams, expand code detail, add Provider Parity per feature |
+| 6. Data Models | Data Models | Verify column tables are complete, add config YAML |
+| 7. API Contracts | API Contracts (Canonical) | Direct transfer with CANONICAL marker |
+| 8. Security Considerations | Security Considerations | Expand into subsections |
+| 9. Project Structure | Implementation Workstreams | Convert file tables into task tables + file tables per workstream |
+| 10. Testing Strategy | Testing Strategy | Add Technical Requirements if missing |
+| 11. Demo Scenarios | Demo Scenarios / User Journeys | Expand success criteria; **reference** UI Screen Designs (do not duplicate wireframes) |
+| 12. Rollout Plan | Rollout Plan | Add demo impact per phase |
+| 13. Boundaries | *(absorbed into design doc conventions)* | Referenced in Boundaries or Testing |
+| 14. Dependencies & Risks | *(merged into relevant sections)* | Risks → Dependencies & Risks |
+| 15. Open Questions | Open Questions | Direct transfer |
+| 16. References | References | Add links to plan source |
 
 **Key insight:** The more complete the spec, the less `/create-design-doc` has to generate. Sections marked "Direct transfer" pass through unchanged. Sections marked "Expand" require the design doc command to generate depth — if the spec is skeletal here, the design doc will also be skeletal.
 
@@ -822,9 +1094,9 @@ This table shows exactly how `/create-design-doc` transforms each spec section:
 
 | Spec Quality | `/create-design-doc` Effort | What It Does |
 |---|---|---|
-| **Thorough** (500+ lines, code snippets, Mermaid diagrams, file tables) | Low — focus on 4 delta items only | Restructures Technical Design into per-feature subsections; converts file tables into WS-ID task tables with dependencies; adds Mermaid dependency graph; verifies/completes data model column tables |
-| **Moderate** (200-500 lines, some code, some gaps) | Medium — fill gaps + 4 delta items | Generates missing diagrams, code interfaces, error responses, then applies the 4 delta items |
-| **Skeletal** (under 200 lines, placeholders) | High — full generation | Treats like a plan file — generates depth for all 15 sections |
+| **Thorough** (500+ lines, code snippets, Mermaid diagrams, file tables, §4 wireframes) | Low — focus on 5 delta items only | Restructures Technical Design into per-feature subsections; **expands §4 into UI Screen Designs** (components, API mapping, states); converts file tables into WS-ID task tables; adds Mermaid dependency graph; verifies data model column tables |
+| **Moderate** (200-500 lines, some code, some gaps) | Medium — fill gaps + 5 delta items | Generates missing diagrams, wireframes, code interfaces, error responses, then applies the 5 delta items |
+| **Skeletal** (under 200 lines, placeholders) | High — full generation | Treats like a plan file — generates depth for all 16 sections |
 
 For a thorough spec, consider whether `/create-design-doc` adds enough value to justify running it, or whether you should skip directly to `/breakdown-design` (which generates task tables and dependency analysis as part of its own workflow).
 
@@ -833,11 +1105,14 @@ For a thorough spec, consider whether `/create-design-doc` adds enough value to 
 ## Reference
 
 This command feeds into:
-- `/create-design-doc` — **Next step (mandatory).** Transforms this spec into a 15-section design doc (500–800+ lines)
+- `/create-design-doc` — **Next step (mandatory).** Transforms this spec into a 16-section design doc (500–800+ lines)
 - `/breakdown-design` — Reads the design doc to create workstreams (internally runs `/explore-codebase`)
 - `CLAUDE.md` — Architecture patterns and conventions
 
 See also:
+- `docs/spec/p5.2-it-admin-service-catalog-spec.md` — Gold-standard **spec** §4 (full admin UI wireframes)
+- `docs/spec/p5.1-ui-improvements-spec.md` — Gold-standard **spec** §4 (before/after delta wireframes)
+- `docs/spec/p5.2-gap-closure-spec.md` — Gold-standard **spec** (persona-grouped stories, Domain Semantics box; add §4 delta when frontend in scope)
 - `docs/design/idp-enhanced-sso-features.md` — Gold-standard design doc (what `/create-design-doc` should produce from a good spec)
 - `docs/design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md` — Gold-standard design doc (persona journey depth)
 - `docs/DEVELOPER_WORKFLOW.md` — Full pipeline documentation

@@ -31,10 +31,11 @@ Plan Mode (produces .plan.md) → /create-design-doc → /breakdown-design → .
 ## Quality Bar
 
 The output of this command must match the depth and structure of proven design docs in this project:
-- `docs/design/idp-enhanced-sso-features.md` — 14 sections, 797 lines, 3 features with full API contracts, Mermaid diagrams, code snippets, per-workstream file tables
-- `docs/design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md` — 7 sections, 987 lines, 10-step persona journey with ASCII wireframes, demo scenarios with success criteria
+- `docs/design/deeptrail-dashboard-core-pages.md` — **UI Screen Designs** gold standard: per-page ASCII, component breakdown, API mapping, loading/empty/error states
+- `docs/design/idp-enhanced-sso-features.md` — 797 lines, 3 features with full API contracts, Mermaid diagrams, code snippets, per-workstream file tables
+- `docs/design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md` — 987 lines, 10-step persona journey, demo scenarios with success criteria
 
-**The output should be 500–800+ lines, not a 200-line skeleton.** If the plan lacks detail, the command should generate the missing depth (diagrams, code interfaces, data model tables) rather than leaving placeholders.
+**The output should be 500–800+ lines, not a 200-line skeleton.** If the plan lacks detail, the command should generate the missing depth (UI screen specs from spec §4, diagrams, code interfaces, data model tables) rather than leaving placeholders.
 
 ---
 
@@ -53,17 +54,18 @@ Input priority (check in this order):
 
 **If input is a spec file (`docs/spec/*.md`):**
 
-The spec already contains structured requirements across 15 sections. Determine the spec's depth:
+The spec already contains structured requirements across 16 sections. Determine the spec's depth:
 
-- **Thorough spec (500+ lines, code snippets, Mermaid diagrams, file tables):** Most sections are "direct transfer." Focus generation effort on the **4 delta items** only:
-  1. **Restructure Technical Design** into per-feature subsections (Problem / Architecture diagram / Design Details with code / Provider Parity) — the spec may have a flat component list
-  2. **Convert Project Structure into Implementation Workstreams** with formal WS-ID task tables (Task ID, Description, Dependencies, Complexity, Acceptance Criteria) + file tables per workstream
-  3. **Add Dependency Graph** — Mermaid `flowchart TD` showing inter-task and inter-workstream dependencies
-  4. **Verify/complete Data Models** — ensure full column tables for all models the feature reads from or writes to (not just the models being modified)
+- **Thorough spec (500+ lines, code snippets, Mermaid diagrams, file tables, §4 wireframes):** Most sections are "direct transfer." Focus generation effort on the **5 delta items** only:
+  1. **Expand UI Screen Designs** from spec §4 — per-page ASCII (carry forward), **component breakdown** table, **API mapping** table, and **loading / empty / error** states (pattern: `docs/design/deeptrail-dashboard-core-pages.md`)
+  2. **Restructure Technical Design** into per-feature subsections (Problem / Architecture diagram / Design Details with code / Provider Parity) — the spec may have a flat component list
+  3. **Convert Project Structure into Implementation Workstreams** with formal WS-ID task tables (Task ID, Description, Dependencies, Complexity, Acceptance Criteria) + file tables per workstream
+  4. **Add Dependency Graph** — Mermaid `flowchart TD` showing inter-task and inter-workstream dependencies
+  5. **Verify/complete Data Models** — ensure full column tables for all models the feature reads from or writes to (not just the models being modified)
 
-- **Skeletal spec (under 300 lines, missing sections):** Treat as a plan file — run full generation for all 15 sections.
+- **Skeletal spec (under 300 lines, missing sections):** Treat as a plan file — run full generation for all 16 sections.
 
-See the [Section Mapping table in `/spec`](.cursor/commands/spec.md) (lines 797-819) for the exact transformation rules per section.
+See the [Section Mapping table in `/spec`](.cursor/commands/spec.md#section-mapping-spec--design-doc) for the exact transformation rules per section.
 
 **If input is a plan file (`.plan.md`):**
 
@@ -75,7 +77,7 @@ Extract from the plan:
 - **Implementation details** — directory structure, patterns, conventions
 - **Current state** — what exists today (critical for `/breakdown-design`'s embedded codebase exploration)
 
-Run full generation for all 15 sections — plan files are lightweight and require significant depth generation.
+Run full generation for all 16 sections — plan files are lightweight and require significant depth generation.
 
 ### Step 2: Determine Feature Name
 
@@ -89,7 +91,7 @@ Derive a kebab-case feature name for the output file:
 
 **Output path:** `docs/design/[feature-name].md`
 
-Transform the plan content into the formal design doc structure below. **This is a 15-section template** — all sections are required unless explicitly marked optional. If the source document (spec or plan) doesn't provide enough detail for a section, **generate the content** from context (create diagrams, infer data models, write code interfaces) rather than leaving `[placeholder]` text.
+Transform the plan content into the formal design doc structure below. **This is a 16-section template** — all sections are required unless explicitly marked optional. **UI Screen Designs (§5)** is required when the spec has frontend Medium/High impact or §4 lists delta routes; otherwise mark N/A with justification. If the source document doesn't provide enough detail for a section, **generate the content** from context rather than leaving `[placeholder]` text.
 
 ```markdown
 # [Feature Name] Design Document
@@ -109,17 +111,18 @@ Transform the plan content into the formal design doc structure below. **This is
 2. [Goals](#goals)
 3. [Non-Goals](#non-goals)
 4. [Background](#background)
-5. [Technical Design](#technical-design)
-6. [Data Models](#data-models)
-7. [API Contracts (Canonical Source)](#api-contracts-canonical-source)
-8. [Security Considerations](#security-considerations)
-9. [Implementation Workstreams](#implementation-workstreams)
-10. [Dependency Graph](#dependency-graph)
-11. [Testing Strategy](#testing-strategy)
-12. [Demo Scenarios / User Journeys](#demo-scenarios--user-journeys)
-13. [Rollout Plan](#rollout-plan)
-14. [Open Questions](#open-questions)
-15. [References](#references)
+5. [UI Screen Designs](#ui-screen-designs)
+6. [Technical Design](#technical-design)
+7. [Data Models](#data-models)
+8. [API Contracts (Canonical Source)](#api-contracts-canonical-source)
+9. [Security Considerations](#security-considerations)
+10. [Implementation Workstreams](#implementation-workstreams)
+11. [Dependency Graph](#dependency-graph)
+12. [Testing Strategy](#testing-strategy)
+13. [Demo Scenarios / User Journeys](#demo-scenarios--user-journeys)
+14. [Rollout Plan](#rollout-plan)
+15. [Open Questions](#open-questions)
+16. [References](#references)
 
 ---
 
@@ -164,6 +167,75 @@ Transform the plan content into the formal design doc structure below. **This is
 1. **[Business reason 1.]** [Concrete scenario: "When X happens, users must Y, but today they have to Z..."]
 2. **[Business reason 2.]** [Concrete scenario]
 3. **[Business reason 3.]** [Concrete scenario]
+
+---
+
+## UI Screen Designs
+
+> **Canonical UI section.** Expands spec §4 UI Wireframes (Delta) into implementation-ready screen specs. Pattern: `docs/design/deeptrail-dashboard-core-pages.md` and `docs/spec/frontend-architecture-spec.md` screen-design links.
+>
+> **N/A template** (backend-only spec): *"No frontend changes. UI Screen Designs not applicable."*
+
+### Parent Wireframe References (unchanged screens)
+
+| Screen / Flow | Source | Section | Notes |
+|---------------|--------|---------|-------|
+| [Unchanged page] | `docs/PRODUCT_USE_CASES_BY_PERSONA.md` or parent spec | §[N] | Linked — not redrawn here |
+
+### Screen Inventory (this feature)
+
+| Route | Change | Design § | Frontend file (expected) |
+|-------|--------|----------|--------------------------|
+| `/dashboard/[path]` | New / Modified | §5.1 | `frontend/src/app/(dashboard)/...` |
+
+### Page: [Page Title]
+
+**Route:** `/dashboard/[path]`
+**Purpose:** [One sentence — what the user accomplishes on this screen]
+**Persona:** [Primary persona]
+**Spec wireframe:** [§4.N from source spec]
+
+#### Wireframe
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  [Page Title]                                              [Primary Action]  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  [Filters / tabs / breadcrumbs]                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  [Main content region]                                                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Component Breakdown
+
+| Component | Props / Behavior | Source |
+|-----------|------------------|--------|
+| `[ComponentName]` | `[key props]` | `GET /api/v1/[endpoint]` |
+| `[FilterBar]` | `filters[]`, `onChange` | Query params → list endpoint |
+| `[DataTable]` | `columns[]`, `rowActions` | Response field mapping |
+
+#### API Mapping
+
+| UI Element | Method | Endpoint | Request / Query | Response fields used |
+|------------|--------|----------|-----------------|------------------------|
+| Table rows | GET | `/api/v1/[path]` | `?filter=&page=` | `[field]`, `[field]` |
+| Primary action | POST | `/api/v1/[path]` | `{ ... }` | `[field]` |
+| Detail panel | GET | `/api/v1/[path]/{id}` | — | `[field]` |
+
+#### States
+
+**Loading:** Skeleton matching table/card layout (pulsing blocks).
+
+**Empty:** `[Illustration/message]` + CTA `[action]` → `[route or API]`.
+
+**Error:** `ErrorCard` with `[message]` + Retry; gateway-down banner when `GET [health]` fails.
+
+**Success / edge:** [e.g. pending invite badge, monotonic-narrow disabled controls, read-only revoked row]
+
+### Page: [Next Page Title]
+
+[Repeat Wireframe + Component Breakdown + API Mapping + States for each row in Screen inventory.]
 
 ---
 
@@ -467,7 +539,7 @@ All [N] workstreams are **[fully independent / partially dependent]** and can ex
 
 ## Demo Scenarios / User Journeys
 
-[Walk through 1–3 concrete user journeys that exercise this feature end-to-end. These are the "test cases for the design" — they validate whether the design actually solves the stated problem. The gold-standard `deepsecure-virtual-mcp-server-mvp.md` has a 10-step persona journey with ASCII wireframes; `idp-enhanced-sso-features.md` includes per-feature scenarios.]
+[Walk through concrete user journeys that exercise this feature end-to-end. These validate whether the design solves the stated problem. **Screen layout lives in §5 UI Screen Designs** — journeys reference routes and outcomes (`see §5.1`), they do not replace per-page wireframes. The gold-standard `deepsecure-virtual-mcp-server-mvp.md` pairs persona steps with screen references; backend-only features may use CLI output instead of ASCII.]
 
 ### Scenario 1: [Persona] — [Journey Title]
 
@@ -486,14 +558,12 @@ All [N] workstreams are **[fully independent / partially dependent]** and can ex
 **Expected outcome:** [What the user sees/has when done]
 **Success criteria:** [How to programmatically verify this scenario passed]
 
-[Optional: Include an ASCII wireframe or CLI output showing what the user sees:]
+**Screen reference:** [§5.N UI Screen Designs — or CLI/curl output for backend-only steps]
 
 ` ` `
-┌─────────────────────────────────────────────┐
-│  [Screen/CLI output the user sees]          │
-│                                             │
-│  [Key UI elements or command output]        │
-└─────────────────────────────────────────────┘
+# Backend-only example (when no UI):
+$ curl -s ... | jq '.[field]'
+→ expected value
 ` ` `
 
 ### Scenario 2: [Persona] — [Journey Title]
@@ -544,10 +614,11 @@ All [N] workstreams are **[fully independent / partially dependent]** and can ex
 
 **If input is a spec file (`docs/spec/*.md`):**
 
-Spec files use markdown with 15 numbered sections. Use the [Section Mapping table](.cursor/commands/spec.md) to map each spec section to its design doc counterpart. For a thorough spec:
+Spec files use markdown with 16 numbered sections. Use the [Section Mapping table](.cursor/commands/spec.md) to map each spec section to its design doc counterpart. For a thorough spec:
 - Sections marked "Direct transfer" → copy with minimal reformatting
-- Sections marked "Expand" → add the delta (per-feature subsections, task tables, dependency graph, fuller code interfaces)
-- Section 8 (Project Structure) → becomes Section 9 (Implementation Workstreams) — this is the biggest transformation: add WS-IDs, dependencies, complexity, per-task acceptance criteria
+- Sections marked "Expand" → add the delta (UI Screen Designs from §4, per-feature Technical Design subsections, task tables, dependency graph, fuller code interfaces)
+- Spec §4 (UI Wireframes Delta) → Design §5 (UI Screen Designs) — **mandatory expand** when frontend in scope
+- Section 9 (Project Structure) → becomes Section 10 (Implementation Workstreams) — add WS-IDs, dependencies, complexity, per-task acceptance criteria
 
 **If input is a plan file (`.plan.md`):**
 
@@ -592,11 +663,14 @@ todos:
 | No file tables | Map described changes to actual project file paths |
 | No error responses | Infer error cases (401, 403, 404, 502) from auth/validation requirements |
 | No user journeys | Create persona-based walkthroughs from the feature's goals and API contracts |
+| No §4 wireframes but frontend in scope | Generate §5 from routes in Project Structure + API Contracts; add ASCII + component/API tables |
+| Spec §4 ASCII only | Expand §5 with component breakdown, API mapping, loading/empty/error states per page |
 
-**For thorough spec files (500+ lines)** — focus on the 4 delta items:
+**For thorough spec files (500+ lines)** — focus on the 5 delta items:
 
 | What the Spec Has | What to Add in Design Doc |
 |--------------------|---------------------------|
+| Spec §4 delta ASCII wireframes | §5 UI Screen Designs: component breakdown, API mapping, states per page |
 | Flat "Key Components" list under Technical Design | Per-feature subsections: Problem / Architecture (Mermaid) / Design Details (code) / Provider Parity |
 | Project Structure file tables (file, action, purpose) | Implementation Workstream task tables with WS-IDs, dependencies, complexity, per-task acceptance criteria |
 | No dependency graph | Mermaid `flowchart TD` showing task-level and workstream-level dependencies |
@@ -628,7 +702,7 @@ When converting, apply project-specific conventions:
 
 ### Step 7: Validate Completeness
 
-Before saving, verify the design doc has ALL 15 required sections:
+Before saving, verify the design doc has ALL 16 required sections:
 
 ```markdown
 ## Design Doc Completeness Check
@@ -638,21 +712,23 @@ Before saving, verify the design doc has ALL 15 required sections:
 - [ ] Section 2: Goals (checklist format)
 - [ ] Section 3: Non-Goals (with "when to revisit")
 - [ ] Section 4: Background (Current State table + Motivation)
-- [ ] Section 5: Technical Design (per-feature: Problem + Architecture diagram + Code snippets + Provider Parity)
-- [ ] Section 6: Data Models (full column tables, not placeholders)
-- [ ] Section 7: API Contracts (CANONICAL — full request/response/error for each endpoint)
-- [ ] Section 8: Security Considerations (at least 2 subsections)
-- [ ] Section 9: Implementation Workstreams (task table + files table per workstream)
-- [ ] Section 10: Dependency Graph (Mermaid flowchart)
-- [ ] Section 11: Testing Strategy (unit + integration + E2E tables + technical requirements)
-- [ ] Section 12: Demo Scenarios / User Journeys (at least 1 per primary persona + 1 error path)
-- [ ] Section 13: Rollout Plan (per-phase duration + deliverables + demo impact)
-- [ ] Section 14: Open Questions
-- [ ] Section 15: References (with link back to plan source)
+- [ ] Section 5: UI Screen Designs (per-page ASCII + components + API mapping + states — or explicit N/A)
+- [ ] Section 6: Technical Design (per-feature: Problem + Architecture diagram + Code snippets + Provider Parity)
+- [ ] Section 7: Data Models (full column tables, not placeholders)
+- [ ] Section 8: API Contracts (CANONICAL — full request/response/error for each endpoint)
+- [ ] Section 9: Security Considerations (at least 2 subsections)
+- [ ] Section 10: Implementation Workstreams (task table + files table per workstream)
+- [ ] Section 11: Dependency Graph (Mermaid flowchart)
+- [ ] Section 12: Testing Strategy (unit + integration + E2E tables + technical requirements)
+- [ ] Section 13: Demo Scenarios / User Journeys (at least 1 per primary persona + 1 error path; reference §5)
+- [ ] Section 14: Rollout Plan (per-phase duration + deliverables + demo impact)
+- [ ] Section 15: Open Questions
+- [ ] Section 16: References (with link back to plan source)
 ```
 
 **Minimum quality gates:**
 - At least 1 Mermaid diagram (sequence or flowchart)
+- **When frontend in scope:** every delta route in §5 has wireframe + component table + API mapping + states
 - At least 1 code snippet per feature in Technical Design
 - Full column tables for every new data model
 - Request + Response + Error table for every new API endpoint
@@ -687,7 +763,8 @@ The original source file (spec or plan) remains untouched — the design doc is 
 **Output:** `docs/design/[feature-name].md`
 
 ### Conversion Summary
-- **Sections filled:** [N] of 15
+- **Sections filled:** [N] of 16
+- **UI screens documented:** [N] (wireframe + components + API mapping + states)
 - **Features documented:** [N] (with code-level detail)
 - **Mermaid diagrams:** [N]
 - **API endpoints specified:** [N] (with full request/response/error)
@@ -700,6 +777,7 @@ The original source file (spec or plan) remains untouched — the design doc is 
 - [x] Overview
 - [x] Goals & Non-Goals
 - [x] Background (Current State + Motivation)
+- [x] UI Screen Designs ([N] pages — or N/A)
 - [x] Technical Design ([N] features with diagrams + code)
 - [x] Data Models ([N] models with column tables)
 - [ ] API Contracts ⚠️ [needs human input]
@@ -729,7 +807,7 @@ The original source file (spec or plan) remains untouched — the design doc is 
 **Output:** `docs/design/idp-enhanced-sso-features.md` (797 lines)
 
 **What the conversion produced:**
-- 15 sections with Table of Contents
+- 16 sections with Table of Contents
 - Background section with provider comparison table (Keycloak vs Google capabilities)
 - 3 features in Technical Design, each with: Problem, Mermaid sequence diagram, Design Details with Python code, Provider Parity
 - Full Data Models section: `IdPSession` with 11-column table + `GroupPolicy` YAML config
@@ -753,6 +831,8 @@ The original source file (spec or plan) remains untouched — the design doc is 
 | "Current State isn't needed for a new feature" | Even new features replace or extend something. Document what exists today so `/breakdown-design` can validate during codebase exploration. |
 | "Mermaid diagrams are optional" | Without diagrams, reviewers and downstream commands can't understand the flow. Create them. |
 | "File tables can be figured out during breakdown" | `/breakdown-design` relies on file tables to scope tasks. Missing tables = over-scoped breakdown. |
+| "Spec §4 has wireframes — design doc doesn't need UI section" | §4 is delta ASCII only; §5 must add components, API mapping, and states for implementers. |
+| "Wireframes in demo scenarios are enough" | Journeys are flows, not screen specs. §5 is mandatory when frontend is in scope. |
 
 ## Red Flags
 
@@ -766,13 +846,16 @@ The original source file (spec or plan) remains untouched — the design doc is 
 - No code snippets in Technical Design (implementation approach unclear)
 - No Demo Scenarios / User Journeys (design can't be validated against real usage)
 - No error-path scenario (only happy paths = incomplete design)
+- **Frontend in scope but §5 UI Screen Designs missing or N/A without justification**
+- **§5 pages lack component breakdown or API mapping tables** (ASCII alone is spec-level, not design-level)
+- **Demo scenarios duplicate full wireframes** instead of referencing §5
 
 ## Verification
 
 Before declaring the design doc complete:
 
 - [ ] Document is 500+ lines
-- [ ] All 15 sections present (check Table of Contents)
+- [ ] All 16 sections present (check Table of Contents)
 - [ ] At least 1 Mermaid diagram exists
 - [ ] Every new data model has a full column table
 - [ ] Every new API endpoint has request + response + error detail
@@ -783,6 +866,8 @@ Before declaring the design doc complete:
 - [ ] Provider Parity noted for features touching multiple providers
 - [ ] At least 1 user journey per primary persona
 - [ ] At least 1 error-path / edge-case scenario
+- [ ] **UI (when in scope):** each delta route has §5 page with wireframe, component table, API mapping, states
+- [ ] Demo scenarios reference §5 screen subsections (no duplicate full ASCII layouts)
 
 ---
 
@@ -800,7 +885,10 @@ This command integrates with:
 3. `.cursor/plans/[feature]_[hash].plan.md` — From `CreatePlan` tool (should be moved to `plans/` per workspace rules)
 
 See also:
-- `docs/design/idp-enhanced-sso-features.md` — Gold-standard design doc (14 sections, 797 lines)
+- `docs/design/deeptrail-dashboard-core-pages.md` — Gold-standard **UI Screen Designs** (wireframe + components + API mapping + states)
+- `docs/design/idp-enhanced-sso-features.md` — Gold-standard design doc (797 lines)
 - `docs/design/internal/markdowns/deepsecure-virtual-mcp-server-mvp.md` — Gold-standard design doc (persona journey, 987 lines)
+- `docs/spec/p5.2-it-admin-service-catalog-spec.md` §4 — Gold-standard spec §4 wireframes (input to design §5)
+- `docs/spec/p5.1-ui-improvements-spec.md` §4 — Gold-standard delta/before-after wireframes
 - `CLAUDE.md` → "Codebase Exploration Before Breakdown (CRITICAL)"
 - `docs/DEVELOPER_WORKFLOW.md` → Phase 0: Define
