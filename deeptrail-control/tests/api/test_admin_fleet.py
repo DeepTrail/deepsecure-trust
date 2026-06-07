@@ -538,3 +538,61 @@ def test_identity_stack_no_layer_numbering(client, db):
     raw = resp.text
     for label in ["L0", "L1", "L2", "L3", "L4", "L5"]:
         assert label not in raw or label in "ACTIVE_STATES"
+
+
+# --- Fleet filters (WS-B1) ---
+
+
+def test_fleet_filter_by_user_id(client, db):
+    _create_agent(db, "flt-a1", "Agent One")
+    _create_agent(db, "flt-a2", "Agent Two")
+    _create_delegation(db, "flt-a1", "sarah@test.com")
+    _create_delegation(db, "flt-a2", "dev@test.com")
+
+    resp = client.get("/api/v1/admin/agents?user_id=sarah@test.com")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["agents"][0]["agent_id"] == "flt-a1"
+    assert "summary" in data
+    assert data["summary"]["total_agents"] == 1
+
+
+def test_fleet_filter_by_service(client, db):
+    _create_agent(db, "svc-a1")
+    _create_agent(db, "svc-a2")
+    _create_delegation(db, "svc-a1", "user@test.com", ["notion:pages:read"])
+    _create_delegation(db, "svc-a2", "user@test.com", ["github:repos:read"])
+
+    resp = client.get("/api/v1/admin/agents?service=notion")
+    assert resp.status_code == 200
+    ids = [a["agent_id"] for a in resp.json()["agents"]]
+    assert "svc-a1" in ids
+    assert "svc-a2" not in ids
+
+
+def test_fleet_filter_q_search(client, db):
+    _create_agent(db, "search-target", "Target Agent")
+    _create_agent(db, "other-agent", "Other")
+
+    resp = client.get("/api/v1/admin/agents?q=target")
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["agents"][0]["agent_id"] == "search-target"
+
+
+def test_fleet_invalid_lifecycle_state_returns_422(client, db):
+    resp = client.get("/api/v1/admin/agents?lifecycle_state=invalid")
+    assert resp.status_code == 422
+
+
+def test_fleet_summary_counts(client, db):
+    _create_agent(db, "sum-a1")
+    _create_agent(db, "sum-a2")
+    _create_delegation(db, "sum-a1", "u1@test.com")
+    _create_delegation(db, "sum-a2", "u2@test.com")
+
+    resp = client.get("/api/v1/admin/agents")
+    summary = resp.json()["summary"]
+    assert summary["total_agents"] >= 2
+    assert summary["delegating_users"] >= 2

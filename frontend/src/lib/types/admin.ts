@@ -180,10 +180,26 @@ export interface SessionEventsResponse {
   total: number;
 }
 
+export type AgentLifecycleState =
+  | "registered"
+  | "delegated"
+  | "authenticated"
+  | "active";
+
+export interface FleetSummary {
+  total_agents: number;
+  delegating_users: number;
+  active: number;
+  authenticated: number;
+  delegated: number;
+  registered: number;
+}
+
 export interface AdminAgent {
   agent_id: string;
   name: string;
-  status: "active" | "suspended" | "inactive";
+  status: AgentLifecycleState | "suspended" | "inactive";
+  lifecycle_state?: AgentLifecycleState;
   public_key: string | null;
   platform: string | null;
   selector: string | null;
@@ -201,6 +217,7 @@ export interface AdminAgent {
 export interface AdminAgentListResponse {
   agents: AdminAgent[];
   total: number;
+  summary?: FleetSummary;
 }
 
 export interface AgentSuspendRequest {

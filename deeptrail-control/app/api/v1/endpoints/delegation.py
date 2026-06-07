@@ -335,34 +335,38 @@ def list_user_delegation_templates(
     authorization: str = Header(...),
     db: Session = Depends(deps.get_db),
 ):
-    """List delegation templates available to the current user.
-
-    Visibility rules (any match = visible):
-    - "all" in available_to_roles → visible to everyone
-    - User's email is in available_to_users → visible
-    - Any of user's groups overlap with available_to_groups → visible
-    - All three lists empty → visible to nobody
-    """
+    """List delegation templates available to the current user."""
     from app.models.delegation_template import DelegationTemplate as DT
+    from app.services.available_to import AvailableToEvaluator
+    from app.services.role_resolver import RoleResolver
 
     user_claims = _parse_user_token(authorization)
-    user_email = user_claims.get("sub", "")
-    user_groups = set(user_claims.get("groups", []))
+    groups = user_claims.get("groups", [])
+    if isinstance(groups, str):
+        groups = [groups]
+    roles = user_claims.get("roles", [])
+    if isinstance(roles, str):
+        roles = [roles]
+
+    resolver = RoleResolver()
+    evaluator = AvailableToEvaluator()
+    user_ctx = resolver.resolve_context(
+        sub=user_claims.get("sub", ""),
+        jwt_roles=roles,
+        groups=groups,
+        db=db,
+    )
 
     all_templates = db.query(DT).all()
 
     visible = []
     for t in all_templates:
-        template_roles = t.available_to_roles or []
-        template_groups = getattr(t, "available_to_groups", None) or []
-        template_users = getattr(t, "available_to_users", None) or []
-
-        is_visible = (
-            "all" in template_roles
-            or user_email in template_users
-            or bool(user_groups & set(template_groups))
-        )
-        if is_visible:
+        if evaluator.is_visible(
+            t.available_to_roles,
+            getattr(t, "available_to_groups", None),
+            getattr(t, "available_to_users", None),
+            user_ctx,
+        ):
             visible.append(
                 PublicTemplateResponse(
                     id=str(t.id),

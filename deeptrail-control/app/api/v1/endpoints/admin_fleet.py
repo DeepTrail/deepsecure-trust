@@ -21,7 +21,7 @@ import logging
 from datetime import datetime, time, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -100,10 +100,23 @@ class SessionEventsResponse(BaseModel):
     total: int
 
 
+LIFECYCLE_STATES = frozenset({"registered", "delegated", "authenticated", "active"})
+
+
+class FleetSummary(BaseModel):
+    total_agents: int = 0
+    delegating_users: int = 0
+    active: int = 0
+    authenticated: int = 0
+    delegated: int = 0
+    registered: int = 0
+
+
 class AgentFleetEntry(BaseModel):
     agent_id: str
     name: str = ""
     status: str = "active"
+    lifecycle_state: str = "registered"
     public_key: Optional[str] = None
     platform: Optional[str] = None
     selector: Optional[str] = None
@@ -121,6 +134,58 @@ class AgentFleetEntry(BaseModel):
 class AgentFleetResponse(BaseModel):
     agents: List[AgentFleetEntry]
     total: int
+    summary: FleetSummary = Field(default_factory=FleetSummary)
+
+
+def _matches_fleet_filters(
+    entry: AgentFleetEntry,
+    lifecycle_state: Optional[str],
+    user_id: Optional[str],
+    service: Optional[str],
+    q: Optional[str],
+) -> bool:
+    if lifecycle_state and entry.lifecycle_state != lifecycle_state:
+        return False
+    if user_id:
+        uid = user_id.lower()
+        if not any(u.lower() == uid for u in entry.delegating_users):
+            if not any(d.delegator.lower() == uid for d in entry.delegations):
+                return False
+    if service:
+        svc = service.lower()
+        has_perm = any(
+            svc in (p.split(":")[0].lower() if ":" in p else "")
+            for d in entry.delegations
+            for p in (d.permissions or [])
+        )
+        has_connected = any(
+            cs.service_id.lower() == svc
+            for delegator in entry.delegators
+            for cs in delegator.connected_services
+        )
+        if not has_perm and not has_connected:
+            return False
+    if q:
+        needle = q.lower()
+        if needle not in entry.agent_id.lower() and needle not in entry.name.lower():
+            return False
+    return True
+
+
+def _compute_fleet_summary(entries: List[AgentFleetEntry]) -> FleetSummary:
+    delegators: set[str] = set()
+    counts = {state: 0 for state in LIFECYCLE_STATES}
+    for entry in entries:
+        counts[entry.lifecycle_state] = counts.get(entry.lifecycle_state, 0) + 1
+        delegators.update(entry.delegating_users)
+    return FleetSummary(
+        total_agents=len(entries),
+        delegating_users=len(delegators),
+        active=counts.get("active", 0),
+        authenticated=counts.get("authenticated", 0),
+        delegated=counts.get("delegated", 0),
+        registered=counts.get("registered", 0),
+    )
 
 
 class DelegationListResponse(BaseModel):
@@ -210,10 +275,21 @@ class EmergencyResponse(BaseModel):
 
 @router.get("/agents", response_model=AgentFleetResponse)
 def list_agents_fleet(
+    lifecycle_state: Optional[str] = Query(None, description="Filter by lifecycle state"),
+    user_id: Optional[str] = Query(None, description="Filter by delegating user email"),
+    service: Optional[str] = Query(None, description="Filter by service_id"),
+    q: Optional[str] = Query(None, description="Search agent id or name"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     _admin: dict = Depends(require_admin),
 ):
     """List all agents cross-user with delegation and session counts."""
+    if lifecycle_state and lifecycle_state not in LIFECYCLE_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid lifecycle_state. Must be one of: {', '.join(sorted(LIFECYCLE_STATES))}",
+        )
     import base64
     from sqlalchemy import func as sa_func
     from app.models.connected_service import ConnectedService
@@ -363,6 +439,7 @@ def list_agents_fleet(
             agent_id=agent.agent_id,
             name=agent.name or agent.agent_id,
             status=state,
+            lifecycle_state=state,
             public_key=pub_key_str,
             platform=agent.platform,
             selector=agent.selector,
@@ -376,7 +453,15 @@ def list_agents_fleet(
             sessions=session_summaries,
             delegators=delegator_summaries,
         ))
-    return AgentFleetResponse(agents=entries, total=len(entries))
+
+    filtered = [
+        e
+        for e in entries
+        if _matches_fleet_filters(e, lifecycle_state, user_id, service, q)
+    ]
+    summary = _compute_fleet_summary(filtered)
+    page = filtered[offset : offset + limit]
+    return AgentFleetResponse(agents=page, total=len(filtered), summary=summary)
 
 
 @router.post("/agents/{agent_id}/suspend", response_model=EmergencyResponse)
