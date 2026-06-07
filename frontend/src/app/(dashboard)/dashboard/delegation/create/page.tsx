@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
@@ -67,6 +67,14 @@ type PageState =
   | { kind: "data"; data: PageData };
 
 export default function CreateDelegationPage() {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <CreateDelegationPageInner />
+    </Suspense>
+  );
+}
+
+function CreateDelegationPageInner() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
   const [allowFreeform, setAllowFreeform] = useState<boolean>(true);
   const router = useRouter();
