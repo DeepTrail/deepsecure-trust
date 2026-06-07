@@ -457,6 +457,21 @@ async def sso_callback(
         db.add(new_session)
     db.commit()
 
+    try:
+        from app.services.auto_provision_service import AutoProvisionService
+
+        AutoProvisionService(db).provision_for_user(
+            user_email=user_data["email"],
+            jwt_roles=user_data.get("roles", []),
+            groups=user_data.get("groups", []),
+        )
+    except Exception:
+        logger.warning(
+            "Auto-provision failed for %s — SSO session continues",
+            user_data["email"],
+            exc_info=True,
+        )
+
     # Store IdP tokens for future refresh (Feature 2 — offline access)
     refresh_available = False
     if tokens.refresh_token:

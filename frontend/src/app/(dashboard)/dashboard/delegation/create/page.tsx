@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiClient, ApiError } from "@/lib/api/client";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
@@ -46,11 +46,19 @@ function parsePermissionString(permStr: string): Permission | null {
   return { id: permStr, service, scope, action, locked: false };
 }
 
+interface DelegationSummary {
+  delegation_id: string;
+  agent_id: string;
+  permissions: string[];
+  status?: string;
+}
+
 interface PageData {
   agents: Agent[];
   permissions: Permission[];
   totalServices: number;
   templates: PublicTemplate[];
+  editDelegation?: DelegationSummary;
 }
 
 type PageState =
@@ -62,11 +70,14 @@ export default function CreateDelegationPage() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
   const [allowFreeform, setAllowFreeform] = useState<boolean>(true);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit");
 
   const fetchData = useCallback(async () => {
     setState({ kind: "loading" });
     try {
-      const [agentsResp, permissionsResp, templatesResp, policyResp] = await Promise.all([
+      const [agentsResp, permissionsResp, templatesResp, policyResp, delegationsResp] =
+        await Promise.all([
         apiClient<Agent[] | { agents: Agent[] }>("agents/"),
         apiClient<AvailablePermissionsResponse>(
           "users/me/available-permissions",
@@ -77,6 +88,9 @@ export default function CreateDelegationPage() {
         apiClient<{ allow_freeform: boolean }>(
           "settings/delegation-policy",
         ).catch(() => ({ allow_freeform: true })),
+        editId
+          ? apiClient<DelegationSummary[]>("auth/delegations").catch(() => [])
+          : Promise.resolve([]),
       ]);
 
       setAllowFreeform(policyResp.allow_freeform);
@@ -91,8 +105,15 @@ export default function CreateDelegationPage() {
 
       const totalServices = permissionsResp.total_services ?? 0;
       const templates = templatesResp.templates ?? [];
+      const delegations = Array.isArray(delegationsResp) ? delegationsResp : [];
+      const editDelegation = editId
+        ? delegations.find((d) => d.delegation_id === editId)
+        : undefined;
 
-      setState({ kind: "data", data: { agents, permissions, totalServices, templates } });
+      setState({
+        kind: "data",
+        data: { agents, permissions, totalServices, templates, editDelegation },
+      });
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -100,7 +121,7 @@ export default function CreateDelegationPage() {
           : "Failed to load data";
       setState({ kind: "error", message });
     }
-  }, []);
+  }, [editId]);
 
   useEffect(() => {
     fetchData();
@@ -116,7 +137,8 @@ export default function CreateDelegationPage() {
       <ErrorCard title="Create Delegation" message={state.message} retry={fetchData} />
     );
 
-  const { agents, permissions, totalServices, templates } = state.data;
+  const { agents, permissions, totalServices, templates, editDelegation } = state.data;
+  const isEditMode = !!editDelegation;
 
   if (agents.length === 0) {
     return (
@@ -150,9 +172,13 @@ export default function CreateDelegationPage() {
     <div className="space-y-6">
       <BackLink />
       <div>
-        <h1 className="text-2xl font-bold">Create Delegation</h1>
+        <h1 className="text-2xl font-bold">
+          {isEditMode ? "Edit Delegation" : "Create Delegation"}
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Grant granular permissions to an agent with a time-limited delegation token.
+          {isEditMode
+            ? "Narrow permissions on an existing delegation (widening is not allowed)."
+            : "Grant granular permissions to an agent with a time-limited delegation token."}
         </p>
         <div className="flex gap-2 mt-2">
           <Badge variant="outline">
@@ -173,7 +199,11 @@ export default function CreateDelegationPage() {
         permissions={permissions}
         templates={templates}
         onCreated={handleCreated}
-        requireTemplate={!allowFreeform}
+        requireTemplate={!allowFreeform && !isEditMode}
+        editMode={isEditMode}
+        delegationId={editDelegation?.delegation_id}
+        initialAgentId={editDelegation?.agent_id}
+        initialPermissions={editDelegation?.permissions}
       />
     </div>
   );

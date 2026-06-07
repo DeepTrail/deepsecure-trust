@@ -51,6 +51,10 @@ class Settings(BaseSettings):
         os.getenv("GATEWAY_INTERNAL_TOKEN", "insecure_default_gateway_token_for_dev"),
     )
 
+    DELEGATION_AUTO_PROVISION: bool = os.getenv(
+        "DELEGATION_AUTO_PROVISION", "false"
+    ).lower() in ("1", "true", "yes")
+
     # Add other settings like secret keys, etc.
     # SECRET_KEY: str = os.getenv("SECRET_KEY", "default_secret")
 

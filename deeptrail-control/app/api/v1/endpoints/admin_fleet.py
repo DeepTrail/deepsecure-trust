@@ -246,6 +246,8 @@ class TemplateUpdateRequest(BaseModel):
     max_actions_per_day: Optional[int] = None
     working_hours_start: Optional[str] = None
     working_hours_end: Optional[str] = None
+    auto_provision: Optional[bool] = None
+    provision_mode: Optional[str] = None
 
 
 class TemplateResponse(BaseModel):
@@ -260,9 +262,21 @@ class TemplateResponse(BaseModel):
     max_actions_per_day: Optional[int] = None
     working_hours_start: Optional[str] = None
     working_hours_end: Optional[str] = None
+    auto_provision: bool = False
+    provision_mode: str = "off"
     created_by: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class TemplateInviteRequest(BaseModel):
+    user_emails: List[str] = Field(..., min_length=1)
+
+
+class TemplateInviteResponse(BaseModel):
+    invited: int
+    delegation_ids: List[str]
+    skipped: List[str] = Field(default_factory=list)
 
 
 class DelegationListWrapper(BaseModel):
@@ -881,7 +895,11 @@ def list_delegations(
             delegator=d.delegator,
             delegated_permissions=d.delegated_permissions,
             source=getattr(d, "source", "manual"),
-            status="revoked" if d.revoked_at else ("expired" if d.is_expired else "active"),
+            status=(
+                "revoked"
+                if d.revoked_at
+                else ("expired" if d.is_expired else (d.status or "active"))
+            ),
             created_at=d.created_at.isoformat() if d.created_at else None,
             expires_at=d.expires_at.isoformat() if d.expires_at else None,
             revoked_at=d.revoked_at.isoformat() if d.revoked_at else None,
@@ -974,31 +992,38 @@ def patch_delegation_admin(
 
 # --- Delegation Template Endpoints (D3) ---
 
+def _template_to_response(template: DelegationTemplate) -> TemplateResponse:
+    return TemplateResponse(
+        id=str(template.id),
+        agent_id=template.agent_id,
+        max_permissions=template.max_permissions,
+        blocked_permissions=template.blocked_permissions,
+        default_ttl_days=template.default_ttl_days or 7,
+        available_to_roles=template.available_to_roles,
+        available_to_groups=template.available_to_groups or [],
+        available_to_users=template.available_to_users or [],
+        max_actions_per_day=template.max_actions_per_day,
+        working_hours_start=(
+            str(template.working_hours_start) if template.working_hours_start else None
+        ),
+        working_hours_end=(
+            str(template.working_hours_end) if template.working_hours_end else None
+        ),
+        auto_provision=bool(getattr(template, "auto_provision", False)),
+        provision_mode=getattr(template, "provision_mode", None) or "off",
+        created_by=template.created_by,
+        created_at=template.created_at.isoformat() if template.created_at else None,
+        updated_at=template.updated_at.isoformat() if template.updated_at else None,
+    )
+
+
 @router.get("/delegation-templates", response_model=TemplateListWrapper)
 def list_templates(
     db: Session = Depends(get_db),
     _admin: dict = Depends(require_admin),
 ):
     templates = db.query(DelegationTemplate).all()
-    items = [
-        TemplateResponse(
-            id=str(t.id),
-            agent_id=t.agent_id,
-            max_permissions=t.max_permissions,
-            blocked_permissions=t.blocked_permissions,
-            default_ttl_days=t.default_ttl_days or 7,
-            available_to_roles=t.available_to_roles,
-            available_to_groups=t.available_to_groups or [],
-            available_to_users=t.available_to_users or [],
-            max_actions_per_day=t.max_actions_per_day,
-            working_hours_start=str(t.working_hours_start) if t.working_hours_start else None,
-            working_hours_end=str(t.working_hours_end) if t.working_hours_end else None,
-            created_by=t.created_by,
-            created_at=t.created_at.isoformat() if t.created_at else None,
-            updated_at=t.updated_at.isoformat() if t.updated_at else None,
-        )
-        for t in templates
-    ]
+    items = [_template_to_response(t) for t in templates]
     return TemplateListWrapper(templates=items, total=len(items))
 
 
@@ -1028,20 +1053,7 @@ def create_template(
     db.commit()
     db.refresh(template)
 
-    return TemplateResponse(
-        id=str(template.id),
-        agent_id=template.agent_id,
-        max_permissions=template.max_permissions,
-        blocked_permissions=template.blocked_permissions,
-        default_ttl_days=template.default_ttl_days or 7,
-        available_to_roles=template.available_to_roles,
-        available_to_groups=template.available_to_groups or [],
-        available_to_users=template.available_to_users or [],
-        max_actions_per_day=template.max_actions_per_day,
-        working_hours_start=str(template.working_hours_start) if template.working_hours_start else None,
-        working_hours_end=str(template.working_hours_end) if template.working_hours_end else None,
-        created_by=template.created_by,
-    )
+    return _template_to_response(template)
 
 
 @router.patch("/delegation-templates/{template_id}", response_model=TemplateResponse)
@@ -1056,6 +1068,13 @@ def update_template(
         raise HTTPException(status_code=404, detail="Template not found")
 
     updates = body.model_dump(exclude_none=True)
+    if "provision_mode" in updates:
+        mode = updates["provision_mode"]
+        if mode not in ("off", "on_login", "on_invite"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="provision_mode must be one of: off, on_login, on_invite",
+            )
     for key, value in updates.items():
         if key == "working_hours_start" and value:
             setattr(template, key, time.fromisoformat(value))
@@ -1064,23 +1083,53 @@ def update_template(
         elif hasattr(template, key):
             setattr(template, key, value)
 
+    if updates.get("provision_mode") == "on_login":
+        template.auto_provision = True
+    elif updates.get("provision_mode") == "off":
+        template.auto_provision = False
+
     template.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(template)
 
-    return TemplateResponse(
-        id=str(template.id),
-        agent_id=template.agent_id,
-        max_permissions=template.max_permissions,
-        blocked_permissions=template.blocked_permissions,
-        default_ttl_days=template.default_ttl_days or 7,
-        available_to_roles=template.available_to_roles,
-        available_to_groups=template.available_to_groups or [],
-        available_to_users=template.available_to_users or [],
-        max_actions_per_day=template.max_actions_per_day,
-        working_hours_start=str(template.working_hours_start) if template.working_hours_start else None,
-        working_hours_end=str(template.working_hours_end) if template.working_hours_end else None,
-        created_by=template.created_by,
+    return _template_to_response(template)
+
+
+@router.post(
+    "/delegation-templates/{template_id}/invite",
+    response_model=TemplateInviteResponse,
+    status_code=201,
+)
+def invite_users_to_template(
+    template_id: str,
+    body: TemplateInviteRequest,
+    db: Session = Depends(get_db),
+    admin_claims: dict = Depends(require_admin),
+):
+    """Invite users to accept a pending delegation from a template."""
+    template = (
+        db.query(DelegationTemplate)
+        .filter(DelegationTemplate.id == template_id)
+        .first()
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    actor = admin_claims.get("sub", "admin")
+    service = DelegationService(db)
+    try:
+        result = service.invite_users_to_template(
+            template_id,
+            body.user_emails,
+            actor,
+        )
+    except DelegationNotFoundError:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    return TemplateInviteResponse(
+        invited=result.invited,
+        delegation_ids=result.delegation_ids,
+        skipped=result.skipped,
     )
 
 

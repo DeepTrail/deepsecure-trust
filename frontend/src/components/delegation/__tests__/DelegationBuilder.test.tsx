@@ -59,11 +59,10 @@ describe("DelegationBuilder", () => {
   it("renders TTL options", () => {
     render(<DelegationBuilder agents={AGENTS} permissions={PERMISSIONS} />);
 
-    expect(screen.getByText("15 minutes")).toBeInTheDocument();
-    expect(screen.getByText("1 hour")).toBeInTheDocument();
-    expect(screen.getByText("8 hours")).toBeInTheDocument();
-    expect(screen.getByText("24 hours")).toBeInTheDocument();
+    expect(screen.getByText("1 day")).toBeInTheDocument();
     expect(screen.getByText("7 days")).toBeInTheDocument();
+    expect(screen.getByText("30 days")).toBeInTheDocument();
+    expect(screen.getByText("90 days")).toBeInTheDocument();
   });
 
   it("disables submit button when no agent selected", () => {
@@ -119,7 +118,7 @@ describe("DelegationBuilder", () => {
     );
     fireEvent.click(reposRead!);
 
-    fireEvent.click(screen.getByText("24 hours"));
+    fireEvent.click(screen.getByText("7 days"));
     fireEvent.click(screen.getByRole("button", { name: /create delegation/i }));
 
     await waitFor(() => {
@@ -128,7 +127,7 @@ describe("DelegationBuilder", () => {
         body: JSON.stringify({
           agent_id: "agent-1",
           permissions: ["notion:pages:read", "github:repos:read"],
-          constraints: { expires_in_hours: 24 },
+          constraints: { expires_in_hours: 168 },
         }),
       });
     });
@@ -247,5 +246,29 @@ describe("DelegationBuilder", () => {
     expect(
       screen.getByText("Delegating 0 permission(s) to agent-1"),
     ).toBeInTheDocument();
+  });
+
+  it("submits PATCH in edit mode", async () => {
+    mockApiClient.mockResolvedValueOnce({});
+
+    render(
+      <DelegationBuilder
+        agents={AGENTS}
+        permissions={PERMISSIONS}
+        editMode
+        delegationId="del-edit-1"
+        initialAgentId="agent-1"
+        initialPermissions={["notion:pages:read"]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /update delegation/i }));
+
+    await waitFor(() => {
+      expect(mockApiClient).toHaveBeenCalledWith("delegations/del-edit-1", {
+        method: "PATCH",
+        body: JSON.stringify({ permissions: ["notion:pages:read"] }),
+      });
+    });
   });
 });

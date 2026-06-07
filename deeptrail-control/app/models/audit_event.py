@@ -31,6 +31,9 @@ class AuditEventType(str, enum.Enum):
     DELEGATION_CREATED = "delegation_created"
     DELEGATION_REVOKED = "delegation_revoked"
     DELEGATION_PERMISSIONS_UPDATED = "delegation_permissions_updated"
+    DELEGATION_INVITE_SENT = "delegation_invite_sent"
+    DELEGATION_ACCEPTED = "delegation_accepted"
+    DELEGATION_AUTO_PROVISIONED = "delegation_auto_provisioned"
 
     # Agent session events
     AGENT_SESSION_CREATED = "agent_session_created"

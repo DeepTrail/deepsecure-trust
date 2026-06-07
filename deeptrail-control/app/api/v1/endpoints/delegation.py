@@ -13,9 +13,11 @@ from app.api import deps
 from app.models.connected_service import ConnectedService
 from app.models.delegation import DelegationToken
 from app.services.delegation_service import (
+    AcceptDelegationResult,
     DelegationForbiddenError,
     DelegationInvalidStateError,
     DelegationNotFoundError,
+    DelegationNotPendingError,
     DelegationService,
     PermissionValidationError,
     PermissionWideningError,
@@ -239,6 +241,9 @@ class DelegationSummary(BaseModel):
     permissions: List[str]
     expires_in: int
     created_at: Optional[str] = None
+    status: str = "active"
+    source: str = "manual"
+    template_id: Optional[str] = None
 
 
 @router.delete("/delegations/{delegation_id}")
@@ -316,6 +321,9 @@ def list_user_delegations(
                 permissions=d.delegated_permissions or [],
                 expires_in=expires_in,
                 created_at=d.created_at.isoformat() if d.created_at else None,
+                status=d.status or "active",
+                source=d.source or "manual",
+                template_id=getattr(d, "template_id", None),
             )
         )
     return result
@@ -428,6 +436,76 @@ def patch_user_delegation(
     ) as exc:
         raise_patch_delegation_http_error(exc)
     return build_patch_delegation_response(result)
+
+
+# =============================================================================
+# Accept Pending Delegation Invite
+# =============================================================================
+
+
+class AcceptDelegationResponse(BaseModel):
+    delegation_id: str
+    status: str
+    permissions: List[str]
+    agent_id: str
+
+
+def build_accept_delegation_response(result: AcceptDelegationResult) -> AcceptDelegationResponse:
+    delegation = result.delegation
+    return AcceptDelegationResponse(
+        delegation_id=delegation.id,
+        status=delegation.status,
+        permissions=list(delegation.delegated_permissions or []),
+        agent_id=delegation.agent_id,
+    )
+
+
+def raise_accept_delegation_http_error(exc: Exception) -> None:
+    if isinstance(exc, DelegationNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Delegation not found")
+    if isinstance(exc, DelegationForbiddenError):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    if isinstance(exc, DelegationNotPendingError):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, DelegationInvalidStateError):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, PermissionValidationError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "permission_validation_failed",
+                "message": exc.message,
+                "invalid_permissions": exc.invalid_permissions,
+                "allowed_permissions": exc.allowed_permissions,
+                "hint": "Connect required services before accepting this invite",
+            },
+        )
+    raise exc
+
+
+@user_delegations_router.post(
+    "/{delegation_id}/accept",
+    response_model=AcceptDelegationResponse,
+)
+def accept_user_delegation(
+    delegation_id: str,
+    authorization: str = Header(...),
+    db: Session = Depends(deps.get_db),
+):
+    """Accept a pending delegation invite (delegator only)."""
+    current_user = get_current_user_from_token(authorization)
+    service = DelegationService(db)
+    try:
+        result = service.accept_delegation(delegation_id, current_user)
+    except (
+        DelegationNotFoundError,
+        DelegationForbiddenError,
+        DelegationNotPendingError,
+        DelegationInvalidStateError,
+        PermissionValidationError,
+    ) as exc:
+        raise_accept_delegation_http_error(exc)
+    return build_accept_delegation_response(result)
 
 
 # =============================================================================

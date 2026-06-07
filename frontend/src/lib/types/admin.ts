@@ -237,6 +237,7 @@ export interface AdminDelegation {
   expires_at: string | null;
   revoked_at: string | null;
   source: "manual" | "template" | "invite" | "admin";
+  status: "pending" | "active" | "revoked" | "expired";
   template_id: string | null;
 }
 
@@ -256,6 +257,8 @@ export interface AdminDelegationCreateRequest {
 // Delegation Templates
 // ---------------------------------------------------------------------------
 
+export type ProvisionMode = "off" | "on_login" | "on_invite";
+
 export interface DelegationTemplate {
   id: string;
   agent_id: string;
@@ -268,6 +271,8 @@ export interface DelegationTemplate {
   max_actions_per_day: number | null;
   working_hours_start: string | null;
   working_hours_end: string | null;
+  auto_provision: boolean;
+  provision_mode: ProvisionMode;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -294,6 +299,18 @@ export interface DelegationTemplateUpdateRequest {
   max_actions_per_day?: number | null;
   working_hours_start?: string | null;
   working_hours_end?: string | null;
+  auto_provision?: boolean;
+  provision_mode?: ProvisionMode;
+}
+
+export interface TemplateInviteRequest {
+  user_emails: string[];
+}
+
+export interface TemplateInviteResponse {
+  invited: number;
+  delegation_ids: string[];
+  skipped: string[];
 }
 
 export interface DelegationTemplateListResponse {

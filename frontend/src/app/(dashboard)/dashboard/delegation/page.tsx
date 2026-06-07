@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { PageSkeleton } from "@/components/feedback/page-skeleton";
 import { ErrorCard } from "@/components/feedback/error-card";
 import { EmptyState } from "@/components/feedback/empty-state";
-import { KeyRound, Plus, Shield, Clock, Trash2 } from "lucide-react";
+import { KeyRound, Plus, Shield, Clock, Trash2, Pencil } from "lucide-react";
+import { PendingInviteBanner } from "@/components/delegation/PendingInviteBanner";
 
 interface Agent {
   agent_id: string;
@@ -22,6 +23,9 @@ interface DelegationSummary {
   permissions: string[];
   expires_in: number;
   created_at: string | null;
+  status?: string;
+  source?: string;
+  template_id?: string | null;
 }
 
 function formatTtl(seconds: number): string {
@@ -85,6 +89,8 @@ export default function DelegationPage() {
   const agentNameMap = Object.fromEntries(
     agents.map((a) => [a.agent_id, a.name || a.agent_id])
   );
+  const pendingInvites = delegations.filter((d) => d.status === "pending");
+  const activeDelegations = delegations.filter((d) => d.status !== "pending");
 
   if (delegations.length === 0) {
     return (
@@ -119,8 +125,17 @@ export default function DelegationPage() {
         </Button>
       </div>
 
+      {pendingInvites.map((invite) => (
+        <PendingInviteBanner
+          key={invite.delegation_id}
+          invite={invite}
+          agentName={agentNameMap[invite.agent_id]}
+          onAccepted={fetchData}
+        />
+      ))}
+
       <div className="grid gap-4">
-        {delegations.map((d) => {
+        {activeDelegations.map((d) => {
           const permsByService: Record<string, string[]> = {};
           for (const p of d.permissions ?? []) {
             const parts = p.split(":");
@@ -167,6 +182,19 @@ export default function DelegationPage() {
                   <Badge variant="default">
                     {(d.permissions ?? []).length} permission{(d.permissions ?? []).length !== 1 ? "s" : ""}
                   </Badge>
+                  {!isExpired && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground"
+                      asChild
+                      title="Edit delegation"
+                    >
+                      <Link href={`/dashboard/delegation/create?edit=${d.delegation_id}`}>
+                        <Pencil className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
