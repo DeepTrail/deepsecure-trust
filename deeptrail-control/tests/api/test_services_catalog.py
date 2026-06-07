@@ -32,10 +32,16 @@ def client(db):
     fastapi_app.dependency_overrides.clear()
 
 
-def _make_token(sub: str, groups: list[str] | None = None) -> dict:
+def _make_token(
+    sub: str,
+    groups: list[str] | None = None,
+    roles: list[str] | None = None,
+) -> dict:
     extra = {}
     if groups:
         extra["groups"] = groups
+    if roles:
+        extra["roles"] = roles
     token = create_access_token(
         subject=sub,
         expires_delta=timedelta(minutes=30),
@@ -87,28 +93,34 @@ class TestCatalogEnforcement:
         assert "public-svc" in ids
 
     def test_role_filtering(self, client, db):
-        """Catalog enforces visibility via available_to_users (roles are metadata)."""
+        """Catalog enforces visibility via available_to_roles and JWT roles claim."""
         _seed_services(db, [
             {
                 "service_id": "admin-only",
                 "available_to_roles": ["admin"],
-                "available_to_users": ["admin@test.com"],
+                "available_to_users": [],
             },
             {
                 "service_id": "eng-only",
                 "available_to_roles": ["engineer"],
-                "available_to_users": ["dev@test.com"],
+                "available_to_users": [],
             },
         ])
         _seed_user_session(db, "admin@test.com", "admin")
         _seed_user_session(db, "dev@test.com", "engineer")
 
-        admin_resp = client.get("/api/v1/services/catalog", headers=_make_token("admin@test.com"))
+        admin_resp = client.get(
+            "/api/v1/services/catalog",
+            headers=_make_token("admin@test.com", roles=["admin"]),
+        )
         admin_ids = [s["service_id"] for s in admin_resp.json()["services"]]
         assert "admin-only" in admin_ids
         assert "eng-only" not in admin_ids
 
-        dev_resp = client.get("/api/v1/services/catalog", headers=_make_token("dev@test.com"))
+        dev_resp = client.get(
+            "/api/v1/services/catalog",
+            headers=_make_token("dev@test.com", roles=["engineer"]),
+        )
         dev_ids = [s["service_id"] for s in dev_resp.json()["services"]]
         assert "eng-only" in dev_ids
         assert "admin-only" not in dev_ids

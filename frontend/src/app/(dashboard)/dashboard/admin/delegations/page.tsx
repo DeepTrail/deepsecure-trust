@@ -8,6 +8,8 @@ import {
   RefreshCw,
   Trash2,
   XCircle,
+  Pencil,
+  Mail,
 } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -30,12 +32,15 @@ import { AgentSelector } from "@/components/delegation/AgentSelector";
 import { PermissionPicker } from "@/components/delegation/PermissionPicker";
 import { TTLSelector } from "@/components/delegation/TTLSelector";
 import { AvailableToPicker } from "@/components/admin/AvailableToPicker";
+import { EditDelegationSheet } from "@/components/admin/EditDelegationSheet";
 import type {
   AdminDelegation,
   AdminDelegationListResponse,
   DelegationTemplate,
   DelegationTemplateListResponse,
   DelegationTemplateCreateRequest,
+  DelegationTemplateUpdateRequest,
+  ProvisionMode,
 } from "@/lib/types/admin";
 
 interface Agent {
@@ -240,6 +245,210 @@ function CreateTemplateDialog({
   );
 }
 
+const PROVISION_MODE_LABELS: Record<ProvisionMode, string> = {
+  off: "Off",
+  on_login: "On login",
+  on_invite: "Invite",
+};
+
+function EditTemplateDialog({
+  template,
+  open,
+  onOpenChange,
+  onSaved,
+  onInvite,
+}: {
+  template: DelegationTemplate | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+  onInvite: (template: DelegationTemplate) => void;
+}) {
+  const [provisionMode, setProvisionMode] = useState<ProvisionMode>("off");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleOpen = (isOpen: boolean) => {
+    if (isOpen && template) {
+      setProvisionMode(template.provision_mode || "off");
+      setError(null);
+    }
+    onOpenChange(isOpen);
+  };
+
+  const handleSave = async () => {
+    if (!template) return;
+    setSubmitting(true);
+    setError(null);
+    const body: DelegationTemplateUpdateRequest = {
+      provision_mode: provisionMode,
+      auto_provision: provisionMode === "on_login",
+    };
+    try {
+      await apiClient(`admin/delegation-templates/${template.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update template");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!template) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Template Provisioning</DialogTitle>
+          <DialogDescription>
+            Configure how delegations are provisioned for {template.agent_id}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          {(["off", "on_login", "on_invite"] as ProvisionMode[]).map((mode) => (
+            <label key={mode} className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="radio"
+                name="provision_mode"
+                checked={provisionMode === mode}
+                onChange={() => setProvisionMode(mode)}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium">{PROVISION_MODE_LABELS[mode]}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {mode === "off" && "Template ceiling only — users create delegations manually"}
+                  {mode === "on_login" && "Eligible users receive delegation at SSO login"}
+                  {mode === "on_invite" && "Admin sends pending invites for users to accept"}
+                </span>
+              </span>
+            </label>
+          ))}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+          {provisionMode === "on_invite" && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                onOpenChange(false);
+                onInvite(template);
+              }}
+            >
+              <Mail className="mr-2 h-4 w-4" />
+              Invite users
+            </Button>
+          )}
+          <div className="flex gap-2 ml-auto">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={submitting}>
+              {submitting ? "Saving..." : "Save Template"}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function InviteUsersDialog({
+  template,
+  open,
+  onOpenChange,
+  onInvited,
+}: {
+  template: DelegationTemplate | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onInvited: () => void;
+}) {
+  const [emailsText, setEmailsText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  const handleOpen = (isOpen: boolean) => {
+    if (isOpen) {
+      setEmailsText("");
+      setError(null);
+      setResult(null);
+    }
+    onOpenChange(isOpen);
+  };
+
+  const handleInvite = async () => {
+    if (!template) return;
+    const emails = emailsText
+      .split(/[\n,]+/)
+      .map((e) => e.trim())
+      .filter(Boolean);
+    if (emails.length === 0) {
+      setError("Enter at least one email address");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const data = await apiClient<{ invited: number; skipped: string[] }>(
+        `admin/delegation-templates/${template.id}/invite`,
+        {
+          method: "POST",
+          body: JSON.stringify({ user_emails: emails }),
+        },
+      );
+      setResult(
+        `Invited ${data.invited} user(s)${
+          data.skipped?.length ? ` · skipped ${data.skipped.length}` : ""
+        }`,
+      );
+      onInvited();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send invites");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!template) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Invite to {template.agent_id}</DialogTitle>
+          <DialogDescription>
+            Users receive a pending delegation to accept
+          </DialogDescription>
+        </DialogHeader>
+        <textarea
+          className="min-h-[120px] w-full rounded-md border px-3 py-2 text-sm"
+          placeholder="One email per line"
+          value={emailsText}
+          onChange={(e) => setEmailsText(e.target.value)}
+        />
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        {result && <p className="text-sm text-green-700">{result}</p>}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleInvite} disabled={submitting}>
+            {submitting ? "Sending..." : "Send invites"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function AdminDelegationsPage() {
   const [tab, setTab] = useState<Tab>("templates");
   const [templatesState, setTemplatesState] = useState<TemplatesState>({
@@ -253,6 +462,9 @@ export default function AdminDelegationsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [allowFreeform, setAllowFreeform] = useState<boolean | null>(null);
   const [freeformUpdating, setFreeformUpdating] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<DelegationTemplate | null>(null);
+  const [invitingTemplate, setInvitingTemplate] = useState<DelegationTemplate | null>(null);
+  const [editingDelegation, setEditingDelegation] = useState<AdminDelegation | null>(null);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -397,6 +609,9 @@ export default function AdminDelegationsPage() {
                         ? `Expired · TTL was ${tmpl.default_ttl_days}d · ${expiryDate.toLocaleDateString()}`
                         : `TTL: ${tmpl.default_ttl_days}d · Expires ${expiryDate.toLocaleDateString()}`}
                     </Badge>
+                    <Badge variant="secondary" className="text-xs capitalize">
+                      {PROVISION_MODE_LABELS[tmpl.provision_mode || "off"]}
+                    </Badge>
                     {tmpl.blocked_permissions.length > 0 && (
                       <Badge variant="destructive" className="text-xs">
                         {tmpl.blocked_permissions.length} blocked
@@ -415,14 +630,32 @@ export default function AdminDelegationsPage() {
                     {" · "}Created: {createdDate.toLocaleDateString()}
                   </p>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive shrink-0 ml-2"
-                  onClick={() => handleDeleteTemplate(tmpl.id)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <div className="flex shrink-0 ml-2 gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEditingTemplate(tmpl)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  {tmpl.provision_mode === "on_invite" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setInvitingTemplate(tmpl)}
+                    >
+                      <Mail className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => handleDeleteTemplate(tmpl.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </Card>
           );
@@ -485,9 +718,10 @@ export default function AdminDelegationsPage() {
           </thead>
           <tbody className="divide-y">
             {filtered.map((d) => {
-              const isRevoked = !!d.revoked_at;
+              const isRevoked = !!d.revoked_at || d.status === "revoked";
+              const isPending = d.status === "pending";
               const expiry = formatExpiryInfo(d.created_at, d.expires_at);
-              const isActive = !isRevoked && !expiry.isExpired;
+              const isActive = !isRevoked && !expiry.isExpired && !isPending;
               return (
                 <tr key={d.id} className="hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-3 font-medium">
@@ -521,8 +755,8 @@ export default function AdminDelegationsPage() {
                   <td className="px-4 py-3">
                     <span className="flex items-center gap-1.5">
                       <StatusDot active={isActive} />
-                      <span className={cn("text-xs", isActive ? "text-green-700" : "text-red-700")}>
-                        {isRevoked ? "Revoked" : expiry.isExpired ? "Expired" : "Active"}
+                      <span className={cn("text-xs", isActive ? "text-green-700" : isPending ? "text-amber-700" : "text-red-700")}>
+                        {isPending ? "Invited" : isRevoked ? "Revoked" : expiry.isExpired ? "Expired" : "Active"}
                       </span>
                     </span>
                     {d.revoked_at && (
@@ -532,17 +766,28 @@ export default function AdminDelegationsPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {isActive && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => handleRevokeDelegation(d.id)}
-                      >
-                        <XCircle className="mr-1 h-3.5 w-3.5" />
-                        Revoke
-                      </Button>
-                    )}
+                    <div className="flex justify-end gap-1">
+                      {isActive && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditingDelegation(d)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {(isActive || isPending) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleRevokeDelegation(d.id)}
+                        >
+                          <XCircle className="mr-1 h-3.5 w-3.5" />
+                          Revoke
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -661,6 +906,33 @@ export default function AdminDelegationsPage() {
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
         onCreated={fetchTemplates}
+      />
+
+      <EditTemplateDialog
+        template={editingTemplate}
+        open={!!editingTemplate}
+        onOpenChange={(open) => !open && setEditingTemplate(null)}
+        onSaved={fetchTemplates}
+        onInvite={(tmpl) => setInvitingTemplate(tmpl)}
+      />
+
+      <InviteUsersDialog
+        template={invitingTemplate}
+        open={!!invitingTemplate}
+        onOpenChange={(open) => !open && setInvitingTemplate(null)}
+        onInvited={fetchDelegations}
+      />
+
+      <EditDelegationSheet
+        delegation={editingDelegation}
+        open={!!editingDelegation}
+        onOpenChange={(open) => !open && setEditingDelegation(null)}
+        onSaved={fetchDelegations}
+        agentName={
+          editingDelegation
+            ? agentNameMap[editingDelegation.agent_id]
+            : undefined
+        }
       />
     </div>
   );

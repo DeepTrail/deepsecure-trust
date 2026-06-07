@@ -114,6 +114,11 @@ class ServiceRegistry(Base):
     health_last_checked_at = Column(DateTime(timezone=True), nullable=True)
     health_latency_ms = Column(Integer, nullable=True)
     health_error_count_24h = Column(Integer, server_default="0")
+    health_probe_source = Column(
+        String(20),
+        nullable=True,
+        comment="Last probe origin: gateway or control_plane",
+    )
     organization_id = Column(String(36), nullable=True)
     created_at = Column(
         DateTime(timezone=True),

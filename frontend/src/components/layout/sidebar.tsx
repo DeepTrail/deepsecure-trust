@@ -16,6 +16,7 @@ import {
   HeartPulse,
   Users,
   FileKey2,
+  Fingerprint,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,7 @@ const ADMIN_NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/admin/health", label: "Health & Emergency", icon: HeartPulse },
   { href: "/dashboard/admin/agents", label: "Agent Fleet", icon: Users },
   { href: "/dashboard/admin/delegations", label: "Delegations", icon: FileKey2 },
+  { href: "/dashboard/admin/idp", label: "IdP Integration", icon: Fingerprint },
 ];
 
 export function Sidebar() {

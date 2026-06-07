@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, time, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Column, DateTime, Integer, JSON, String, Time, func
+from sqlalchemy import Boolean, Column, DateTime, Integer, JSON, String, Time, func
 from sqlalchemy.dialects import postgresql
 
 _uuid_str = lambda: str(uuid.uuid4())
@@ -87,6 +87,18 @@ class DelegationTemplate(Base):
         Time,
         nullable=True,
         comment="Latest allowed hour (e.g., 18:00)",
+    )
+    auto_provision = Column(
+        Boolean,
+        nullable=False,
+        server_default="false",
+        comment="When true with on_login mode, eligible users get delegations at SSO",
+    )
+    provision_mode = Column(
+        String(20),
+        nullable=False,
+        server_default="off",
+        comment="off | on_login | on_invite",
     )
     organization_id = Column(String(36), nullable=True)
     created_by = Column(

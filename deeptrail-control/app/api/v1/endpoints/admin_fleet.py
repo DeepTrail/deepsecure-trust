@@ -21,12 +21,26 @@ import logging
 from datetime import datetime, time, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.delegation import (
+    PatchDelegationRequest,
+    PatchDelegationResponse,
+    build_patch_delegation_response,
+    raise_patch_delegation_http_error,
+)
 from app.middleware.admin_auth import require_admin
+from app.services.delegation_service import (
+    DelegationForbiddenError,
+    DelegationInvalidStateError,
+    DelegationNotFoundError,
+    DelegationService,
+    PermissionValidationError,
+    PermissionWideningError,
+)
 from app.models.agent import Agent
 from app.models.agent_session import AgentSession
 from app.models.delegation import DelegationToken
@@ -100,10 +114,23 @@ class SessionEventsResponse(BaseModel):
     total: int
 
 
+LIFECYCLE_STATES = frozenset({"registered", "delegated", "authenticated", "active"})
+
+
+class FleetSummary(BaseModel):
+    total_agents: int = 0
+    delegating_users: int = 0
+    active: int = 0
+    authenticated: int = 0
+    delegated: int = 0
+    registered: int = 0
+
+
 class AgentFleetEntry(BaseModel):
     agent_id: str
     name: str = ""
     status: str = "active"
+    lifecycle_state: str = "registered"
     public_key: Optional[str] = None
     platform: Optional[str] = None
     selector: Optional[str] = None
@@ -121,6 +148,58 @@ class AgentFleetEntry(BaseModel):
 class AgentFleetResponse(BaseModel):
     agents: List[AgentFleetEntry]
     total: int
+    summary: FleetSummary = Field(default_factory=FleetSummary)
+
+
+def _matches_fleet_filters(
+    entry: AgentFleetEntry,
+    lifecycle_state: Optional[str],
+    user_id: Optional[str],
+    service: Optional[str],
+    q: Optional[str],
+) -> bool:
+    if lifecycle_state and entry.lifecycle_state != lifecycle_state:
+        return False
+    if user_id:
+        uid = user_id.lower()
+        if not any(u.lower() == uid for u in entry.delegating_users):
+            if not any(d.delegator.lower() == uid for d in entry.delegations):
+                return False
+    if service:
+        svc = service.lower()
+        has_perm = any(
+            svc in (p.split(":")[0].lower() if ":" in p else "")
+            for d in entry.delegations
+            for p in (d.permissions or [])
+        )
+        has_connected = any(
+            cs.service_id.lower() == svc
+            for delegator in entry.delegators
+            for cs in delegator.connected_services
+        )
+        if not has_perm and not has_connected:
+            return False
+    if q:
+        needle = q.lower()
+        if needle not in entry.agent_id.lower() and needle not in entry.name.lower():
+            return False
+    return True
+
+
+def _compute_fleet_summary(entries: List[AgentFleetEntry]) -> FleetSummary:
+    delegators: set[str] = set()
+    counts = {state: 0 for state in LIFECYCLE_STATES}
+    for entry in entries:
+        counts[entry.lifecycle_state] = counts.get(entry.lifecycle_state, 0) + 1
+        delegators.update(entry.delegating_users)
+    return FleetSummary(
+        total_agents=len(entries),
+        delegating_users=len(delegators),
+        active=counts.get("active", 0),
+        authenticated=counts.get("authenticated", 0),
+        delegated=counts.get("delegated", 0),
+        registered=counts.get("registered", 0),
+    )
 
 
 class DelegationListResponse(BaseModel):
@@ -167,6 +246,8 @@ class TemplateUpdateRequest(BaseModel):
     max_actions_per_day: Optional[int] = None
     working_hours_start: Optional[str] = None
     working_hours_end: Optional[str] = None
+    auto_provision: Optional[bool] = None
+    provision_mode: Optional[str] = None
 
 
 class TemplateResponse(BaseModel):
@@ -181,9 +262,21 @@ class TemplateResponse(BaseModel):
     max_actions_per_day: Optional[int] = None
     working_hours_start: Optional[str] = None
     working_hours_end: Optional[str] = None
+    auto_provision: bool = False
+    provision_mode: str = "off"
     created_by: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class TemplateInviteRequest(BaseModel):
+    user_emails: List[str] = Field(..., min_length=1)
+
+
+class TemplateInviteResponse(BaseModel):
+    invited: int
+    delegation_ids: List[str]
+    skipped: List[str] = Field(default_factory=list)
 
 
 class DelegationListWrapper(BaseModel):
@@ -210,10 +303,21 @@ class EmergencyResponse(BaseModel):
 
 @router.get("/agents", response_model=AgentFleetResponse)
 def list_agents_fleet(
+    lifecycle_state: Optional[str] = Query(None, description="Filter by lifecycle state"),
+    user_id: Optional[str] = Query(None, description="Filter by delegating user email"),
+    service: Optional[str] = Query(None, description="Filter by service_id"),
+    q: Optional[str] = Query(None, description="Search agent id or name"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     _admin: dict = Depends(require_admin),
 ):
     """List all agents cross-user with delegation and session counts."""
+    if lifecycle_state and lifecycle_state not in LIFECYCLE_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid lifecycle_state. Must be one of: {', '.join(sorted(LIFECYCLE_STATES))}",
+        )
     import base64
     from sqlalchemy import func as sa_func
     from app.models.connected_service import ConnectedService
@@ -363,6 +467,7 @@ def list_agents_fleet(
             agent_id=agent.agent_id,
             name=agent.name or agent.agent_id,
             status=state,
+            lifecycle_state=state,
             public_key=pub_key_str,
             platform=agent.platform,
             selector=agent.selector,
@@ -376,7 +481,15 @@ def list_agents_fleet(
             sessions=session_summaries,
             delegators=delegator_summaries,
         ))
-    return AgentFleetResponse(agents=entries, total=len(entries))
+
+    filtered = [
+        e
+        for e in entries
+        if _matches_fleet_filters(e, lifecycle_state, user_id, service, q)
+    ]
+    summary = _compute_fleet_summary(filtered)
+    page = filtered[offset : offset + limit]
+    return AgentFleetResponse(agents=page, total=len(filtered), summary=summary)
 
 
 @router.post("/agents/{agent_id}/suspend", response_model=EmergencyResponse)
@@ -782,7 +895,11 @@ def list_delegations(
             delegator=d.delegator,
             delegated_permissions=d.delegated_permissions,
             source=getattr(d, "source", "manual"),
-            status="revoked" if d.revoked_at else ("expired" if d.is_expired else "active"),
+            status=(
+                "revoked"
+                if d.revoked_at
+                else ("expired" if d.is_expired else (d.status or "active"))
+            ),
             created_at=d.created_at.isoformat() if d.created_at else None,
             expires_at=d.expires_at.isoformat() if d.expires_at else None,
             revoked_at=d.revoked_at.isoformat() if d.revoked_at else None,
@@ -840,7 +957,65 @@ def revoke_delegation_admin(
     db.commit()
 
 
+@router.patch(
+    "/delegations/{delegation_id}",
+    response_model=PatchDelegationResponse,
+)
+def patch_delegation_admin(
+    delegation_id: str,
+    body: PatchDelegationRequest,
+    db: Session = Depends(get_db),
+    admin_claims: dict = Depends(require_admin),
+):
+    """Admin narrow-in-place for any user's delegation."""
+    actor = admin_claims.get("sub", "admin")
+    service = DelegationService(db)
+    try:
+        result = service.patch_delegation_permissions(
+            delegation_id,
+            actor,
+            is_admin=True,
+            new_permissions=body.permissions,
+            constraints=body.constraints,
+            expires_at=body.expires_at,
+        )
+    except (
+        DelegationNotFoundError,
+        DelegationForbiddenError,
+        DelegationInvalidStateError,
+        PermissionWideningError,
+        PermissionValidationError,
+    ) as exc:
+        raise_patch_delegation_http_error(exc)
+    return build_patch_delegation_response(result)
+
+
 # --- Delegation Template Endpoints (D3) ---
+
+def _template_to_response(template: DelegationTemplate) -> TemplateResponse:
+    return TemplateResponse(
+        id=str(template.id),
+        agent_id=template.agent_id,
+        max_permissions=template.max_permissions,
+        blocked_permissions=template.blocked_permissions,
+        default_ttl_days=template.default_ttl_days or 7,
+        available_to_roles=template.available_to_roles,
+        available_to_groups=template.available_to_groups or [],
+        available_to_users=template.available_to_users or [],
+        max_actions_per_day=template.max_actions_per_day,
+        working_hours_start=(
+            str(template.working_hours_start) if template.working_hours_start else None
+        ),
+        working_hours_end=(
+            str(template.working_hours_end) if template.working_hours_end else None
+        ),
+        auto_provision=bool(getattr(template, "auto_provision", False)),
+        provision_mode=getattr(template, "provision_mode", None) or "off",
+        created_by=template.created_by,
+        created_at=template.created_at.isoformat() if template.created_at else None,
+        updated_at=template.updated_at.isoformat() if template.updated_at else None,
+    )
+
 
 @router.get("/delegation-templates", response_model=TemplateListWrapper)
 def list_templates(
@@ -848,25 +1023,7 @@ def list_templates(
     _admin: dict = Depends(require_admin),
 ):
     templates = db.query(DelegationTemplate).all()
-    items = [
-        TemplateResponse(
-            id=str(t.id),
-            agent_id=t.agent_id,
-            max_permissions=t.max_permissions,
-            blocked_permissions=t.blocked_permissions,
-            default_ttl_days=t.default_ttl_days or 7,
-            available_to_roles=t.available_to_roles,
-            available_to_groups=t.available_to_groups or [],
-            available_to_users=t.available_to_users or [],
-            max_actions_per_day=t.max_actions_per_day,
-            working_hours_start=str(t.working_hours_start) if t.working_hours_start else None,
-            working_hours_end=str(t.working_hours_end) if t.working_hours_end else None,
-            created_by=t.created_by,
-            created_at=t.created_at.isoformat() if t.created_at else None,
-            updated_at=t.updated_at.isoformat() if t.updated_at else None,
-        )
-        for t in templates
-    ]
+    items = [_template_to_response(t) for t in templates]
     return TemplateListWrapper(templates=items, total=len(items))
 
 
@@ -896,20 +1053,7 @@ def create_template(
     db.commit()
     db.refresh(template)
 
-    return TemplateResponse(
-        id=str(template.id),
-        agent_id=template.agent_id,
-        max_permissions=template.max_permissions,
-        blocked_permissions=template.blocked_permissions,
-        default_ttl_days=template.default_ttl_days or 7,
-        available_to_roles=template.available_to_roles,
-        available_to_groups=template.available_to_groups or [],
-        available_to_users=template.available_to_users or [],
-        max_actions_per_day=template.max_actions_per_day,
-        working_hours_start=str(template.working_hours_start) if template.working_hours_start else None,
-        working_hours_end=str(template.working_hours_end) if template.working_hours_end else None,
-        created_by=template.created_by,
-    )
+    return _template_to_response(template)
 
 
 @router.patch("/delegation-templates/{template_id}", response_model=TemplateResponse)
@@ -924,6 +1068,13 @@ def update_template(
         raise HTTPException(status_code=404, detail="Template not found")
 
     updates = body.model_dump(exclude_none=True)
+    if "provision_mode" in updates:
+        mode = updates["provision_mode"]
+        if mode not in ("off", "on_login", "on_invite"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="provision_mode must be one of: off, on_login, on_invite",
+            )
     for key, value in updates.items():
         if key == "working_hours_start" and value:
             setattr(template, key, time.fromisoformat(value))
@@ -932,23 +1083,53 @@ def update_template(
         elif hasattr(template, key):
             setattr(template, key, value)
 
+    if updates.get("provision_mode") == "on_login":
+        template.auto_provision = True
+    elif updates.get("provision_mode") == "off":
+        template.auto_provision = False
+
     template.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(template)
 
-    return TemplateResponse(
-        id=str(template.id),
-        agent_id=template.agent_id,
-        max_permissions=template.max_permissions,
-        blocked_permissions=template.blocked_permissions,
-        default_ttl_days=template.default_ttl_days or 7,
-        available_to_roles=template.available_to_roles,
-        available_to_groups=template.available_to_groups or [],
-        available_to_users=template.available_to_users or [],
-        max_actions_per_day=template.max_actions_per_day,
-        working_hours_start=str(template.working_hours_start) if template.working_hours_start else None,
-        working_hours_end=str(template.working_hours_end) if template.working_hours_end else None,
-        created_by=template.created_by,
+    return _template_to_response(template)
+
+
+@router.post(
+    "/delegation-templates/{template_id}/invite",
+    response_model=TemplateInviteResponse,
+    status_code=201,
+)
+def invite_users_to_template(
+    template_id: str,
+    body: TemplateInviteRequest,
+    db: Session = Depends(get_db),
+    admin_claims: dict = Depends(require_admin),
+):
+    """Invite users to accept a pending delegation from a template."""
+    template = (
+        db.query(DelegationTemplate)
+        .filter(DelegationTemplate.id == template_id)
+        .first()
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    actor = admin_claims.get("sub", "admin")
+    service = DelegationService(db)
+    try:
+        result = service.invite_users_to_template(
+            template_id,
+            body.user_emails,
+            actor,
+        )
+    except DelegationNotFoundError:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    return TemplateInviteResponse(
+        invited=result.invited,
+        delegation_ids=result.delegation_ids,
+        skipped=result.skipped,
     )
 
 

@@ -24,9 +24,12 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.models.agent_session import AgentSession
+from app.models.audit_event import AuditEventType
 from app.models.connected_service import ConnectedService
 from app.models.delegation import DelegationToken
 from app.models.delegation_template import DelegationTemplate
+from app.services.audit_logger_service import AuditLoggerService
 from app.services.scope_mapper import ScopeMapper
 
 logger = logging.getLogger(__name__)
@@ -78,6 +81,66 @@ class DelegationNotFoundError(DelegationError):
     """Raised when a delegation is not found."""
 
     pass
+
+
+class DelegationForbiddenError(DelegationError):
+    """Raised when the actor cannot modify the delegation."""
+
+    pass
+
+
+class DelegationInvalidStateError(DelegationError):
+    """Raised when a delegation is revoked or expired."""
+
+    pass
+
+
+class DelegationNotPendingError(DelegationError):
+    """Raised when accept is attempted on a non-pending delegation."""
+
+    pass
+
+
+class PermissionWideningError(DelegationError):
+    """Raised when PATCH attempts to widen permissions beyond current set."""
+
+    def __init__(
+        self,
+        message: str,
+        attempted: List[str],
+        current: List[str],
+        allowed_ceiling: List[str],
+    ):
+        super().__init__(message)
+        self.message = message
+        self.attempted = attempted
+        self.current = current
+        self.allowed_ceiling = allowed_ceiling
+
+
+@dataclass
+class PatchDelegationResult:
+    """Result of a successful delegation permission patch."""
+
+    delegation: DelegationToken
+    sessions_revoked: int
+    previous_permissions: List[str]
+
+
+@dataclass
+class AcceptDelegationResult:
+    """Result of accepting a pending delegation invite."""
+
+    delegation: DelegationToken
+
+
+@dataclass
+class InviteUsersResult:
+    """Result of inviting users to a delegation template."""
+
+    invited: int
+    delegation_ids: List[str]
+    skipped: List[str]
 
 
 class DelegationService:
@@ -502,9 +565,36 @@ class DelegationService:
                 DelegationToken.agent_id == agent_id,
                 DelegationToken.expires_at > now,
                 DelegationToken.revoked_at.is_(None),
+                DelegationToken.status == "active",
             )
             .first()
         )
+
+    def _get_blocking_delegation(
+        self,
+        delegator: str,
+        agent_id: str,
+    ) -> Optional[DelegationToken]:
+        """Return active or pending non-revoked delegation for user+agent."""
+        now = datetime.now(timezone.utc)
+        return (
+            self._db.query(DelegationToken)
+            .filter(
+                DelegationToken.delegator == delegator,
+                DelegationToken.agent_id == agent_id,
+                DelegationToken.expires_at > now,
+                DelegationToken.revoked_at.is_(None),
+                DelegationToken.status.in_(("active", "pending")),
+            )
+            .first()
+        )
+
+    @staticmethod
+    def template_effective_permissions(template: DelegationTemplate) -> List[str]:
+        """Permissions granted from a template (max minus blocked)."""
+        max_perms = set(template.max_permissions or [])
+        blocked = set(template.blocked_permissions or [])
+        return sorted(max_perms - blocked)
 
     def has_permission(self, delegation_id: str, permission: str) -> bool:
         """Check if delegation grants a specific permission.
@@ -595,6 +685,360 @@ class DelegationService:
             "Revoked all delegations for agent: agent=%s count=%d", agent_id, count
         )
         return count
+
+    def _validate_template_ceiling(
+        self,
+        agent_id: str,
+        permissions: List[str],
+    ) -> None:
+        """Ensure permissions respect the admin template ceiling for an agent."""
+        template = (
+            self._db.query(DelegationTemplate)
+            .filter(DelegationTemplate.agent_id == agent_id)
+            .first()
+        )
+        if not template:
+            return
+
+        max_perms = set(template.max_permissions or [])
+        blocked = set(template.blocked_permissions or [])
+
+        blocked_requested = set(permissions) & blocked
+        if blocked_requested:
+            raise PermissionValidationError(
+                message=(
+                    f"Permissions blocked by admin template: "
+                    f"{sorted(blocked_requested)}"
+                ),
+                invalid_permissions=sorted(blocked_requested),
+                allowed_permissions=sorted(max_perms - blocked),
+            )
+
+        if max_perms:
+            over_ceiling = set(permissions) - max_perms
+            if over_ceiling:
+                raise PermissionValidationError(
+                    message=(
+                        f"Permissions exceed admin template ceiling: "
+                        f"{sorted(over_ceiling)}"
+                    ),
+                    invalid_permissions=sorted(over_ceiling),
+                    allowed_permissions=sorted(max_perms - blocked),
+                )
+
+    def patch_delegation_permissions(
+        self,
+        delegation_id: str,
+        actor: str,
+        *,
+        is_admin: bool = False,
+        new_permissions: Optional[List[str]] = None,
+        constraints: Optional[Dict[str, Any]] = None,
+        expires_at: Optional[datetime] = None,
+    ) -> PatchDelegationResult:
+        """Narrow delegation permissions in place (monotonic attenuation).
+
+        Revokes active agent sessions bound to the delegation on success.
+        """
+        delegation = self.get_delegation(delegation_id)
+        if not delegation:
+            raise DelegationNotFoundError(f"Delegation not found: {delegation_id}")
+
+        if not is_admin and delegation.delegator != actor:
+            raise DelegationForbiddenError("Not authorized to modify this delegation")
+
+        if delegation.is_revoked or delegation.is_expired:
+            raise DelegationInvalidStateError(
+                "Delegation is revoked or expired and cannot be patched"
+            )
+
+        if delegation.status == "pending":
+            raise DelegationInvalidStateError(
+                "Pending delegations must be accepted before patching permissions"
+            )
+
+        if (
+            new_permissions is None
+            and constraints is None
+            and expires_at is None
+        ):
+            raise DelegationError("At least one patch field is required")
+
+        previous_permissions = list(delegation.delegated_permissions or [])
+
+        if new_permissions is not None:
+            current_set = set(previous_permissions)
+            new_set = set(new_permissions)
+            if not new_set.issubset(current_set):
+                raise PermissionWideningError(
+                    message="permission_widening_not_allowed",
+                    attempted=list(new_permissions),
+                    current=previous_permissions,
+                    allowed_ceiling=previous_permissions,
+                )
+
+            is_valid, reason, invalid_perms, allowed_perms = (
+                self._validate_permissions_subset(delegation.delegator, new_permissions)
+            )
+            if not is_valid:
+                raise PermissionValidationError(
+                    message=reason or "Permission validation failed",
+                    invalid_permissions=invalid_perms,
+                    allowed_permissions=allowed_perms,
+                )
+
+            self._validate_template_ceiling(delegation.agent_id, new_permissions)
+            delegation.delegated_permissions = new_permissions
+
+        if constraints is not None:
+            merged = dict(delegation.constraints or {})
+            merged.update(constraints)
+            delegation.constraints = merged
+
+        if expires_at is not None:
+            expires_at_aware = expires_at
+            if expires_at_aware.tzinfo is None:
+                expires_at_aware = expires_at_aware.replace(tzinfo=timezone.utc)
+            if expires_at_aware <= datetime.now(timezone.utc):
+                raise DelegationError("expires_at must be in the future")
+            delegation.expires_at = expires_at_aware
+
+        delegation.sync_status()
+
+        active_sessions = (
+            self._db.query(AgentSession)
+            .filter(
+                AgentSession.delegation_id == delegation_id,
+                AgentSession.is_active.is_(True),
+            )
+            .all()
+        )
+        sessions_revoked = 0
+        for session in active_sessions:
+            session.revoke(
+                revoked_by=actor,
+                reason="Delegation permissions updated",
+            )
+            sessions_revoked += 1
+
+        AuditLoggerService(self._db).log_event(
+            event_type=AuditEventType.DELEGATION_PERMISSIONS_UPDATED,
+            on_behalf_of=delegation.delegator,
+            agent_id=delegation.agent_id,
+            delegation_id=delegation.id,
+            extra_data={
+                "previous_permissions": previous_permissions,
+                "new_permissions": list(delegation.delegated_permissions or []),
+                "patched_by": actor,
+                "is_admin": is_admin,
+                "sessions_revoked": sessions_revoked,
+            },
+        )
+
+        self._db.commit()
+        self._db.refresh(delegation)
+
+        logger.info(
+            "Patched delegation %s by %s (admin=%s) sessions_revoked=%d",
+            delegation_id,
+            actor,
+            is_admin,
+            sessions_revoked,
+        )
+
+        return PatchDelegationResult(
+            delegation=delegation,
+            sessions_revoked=sessions_revoked,
+            previous_permissions=previous_permissions,
+        )
+
+    def accept_delegation(
+        self,
+        delegation_id: str,
+        actor: str,
+    ) -> AcceptDelegationResult:
+        """Activate a pending invite with template ceiling permissions."""
+        delegation = self.get_delegation(delegation_id)
+        if not delegation:
+            raise DelegationNotFoundError(f"Delegation not found: {delegation_id}")
+
+        if delegation.delegator != actor:
+            raise DelegationForbiddenError("Not authorized to accept this delegation")
+
+        if delegation.status != "pending":
+            raise DelegationNotPendingError(
+                "Delegation is not pending and cannot be accepted"
+            )
+
+        if delegation.is_revoked or delegation.is_expired:
+            raise DelegationInvalidStateError(
+                "Delegation is revoked or expired and cannot be accepted"
+            )
+
+        if not delegation.template_id:
+            raise DelegationError("Pending delegation has no associated template")
+
+        template = (
+            self._db.query(DelegationTemplate)
+            .filter(DelegationTemplate.id == delegation.template_id)
+            .first()
+        )
+        if not template:
+            raise DelegationError("Associated template not found")
+
+        permissions = self.template_effective_permissions(template)
+        is_valid, reason, invalid_perms, allowed_perms = (
+            self._validate_permissions_subset(delegation.delegator, permissions)
+        )
+        if not is_valid:
+            raise PermissionValidationError(
+                message=reason or "Connected services insufficient for template permissions",
+                invalid_permissions=invalid_perms,
+                allowed_permissions=allowed_perms,
+            )
+
+        delegation.delegated_permissions = permissions
+        delegation.status = "active"
+        delegation.sync_status()
+
+        AuditLoggerService(self._db).log_event(
+            event_type=AuditEventType.DELEGATION_ACCEPTED,
+            on_behalf_of=delegation.delegator,
+            agent_id=delegation.agent_id,
+            delegation_id=delegation.id,
+            extra_data={
+                "template_id": str(delegation.template_id),
+                "permissions": permissions,
+                "accepted_by": actor,
+            },
+        )
+
+        self._db.commit()
+        self._db.refresh(delegation)
+
+        logger.info(
+            "Accepted delegation %s for %s agent=%s permissions=%d",
+            delegation_id,
+            actor,
+            delegation.agent_id,
+            len(permissions),
+        )
+
+        return AcceptDelegationResult(delegation=delegation)
+
+    def invite_users_to_template(
+        self,
+        template_id: str,
+        user_emails: List[str],
+        actor: str,
+    ) -> InviteUsersResult:
+        """Create pending invite delegations for specific users."""
+        template = (
+            self._db.query(DelegationTemplate)
+            .filter(DelegationTemplate.id == template_id)
+            .first()
+        )
+        if not template:
+            raise DelegationNotFoundError(f"Template not found: {template_id}")
+
+        delegation_ids: List[str] = []
+        skipped: List[str] = []
+        ttl_days = template.default_ttl_days or self.DEFAULT_EXPIRY_DAYS
+        expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
+
+        for email in user_emails:
+            normalized = email.strip().lower()
+            if not normalized:
+                continue
+
+            existing = self._get_blocking_delegation(normalized, template.agent_id)
+            if existing:
+                skipped.append(normalized)
+                continue
+
+            delegation_id = f"del-{uuid.uuid4()}"
+            delegation = DelegationToken(
+                id=delegation_id,
+                agent_id=template.agent_id,
+                delegator=normalized,
+                delegated_permissions=[],
+                constraints={},
+                source="invite",
+                status="pending",
+                template_id=str(template.id),
+                expires_at=expires_at,
+                revocation_uri=self._generate_revocation_uri(delegation_id),
+            )
+            self._db.add(delegation)
+            delegation_ids.append(delegation_id)
+
+        if delegation_ids:
+            AuditLoggerService(self._db).log_event(
+                event_type=AuditEventType.DELEGATION_INVITE_SENT,
+                on_behalf_of=actor,
+                agent_id=template.agent_id,
+                extra_data={
+                    "template_id": str(template.id),
+                    "invited_users": [
+                        e.strip().lower()
+                        for e in user_emails
+                        if e.strip().lower() not in skipped
+                    ],
+                    "delegation_ids": delegation_ids,
+                    "skipped": skipped,
+                },
+            )
+            self._db.commit()
+
+        logger.info(
+            "Template %s invite by %s: invited=%d skipped=%d",
+            template_id,
+            actor,
+            len(delegation_ids),
+            len(skipped),
+        )
+
+        return InviteUsersResult(
+            invited=len(delegation_ids),
+            delegation_ids=delegation_ids,
+            skipped=skipped,
+        )
+
+    def create_template_delegation(
+        self,
+        delegator: str,
+        template: DelegationTemplate,
+        *,
+        source: str = "template",
+    ) -> Optional[DelegationToken]:
+        """Create an active delegation from a template if user has required scopes."""
+        if self.get_active_delegation(delegator, template.agent_id):
+            return None
+
+        permissions = self.template_effective_permissions(template)
+        if not permissions:
+            return None
+
+        is_valid, _, _, _ = self._validate_permissions_subset(delegator, permissions)
+        if not is_valid:
+            return None
+
+        ttl_days = template.default_ttl_days or self.DEFAULT_EXPIRY_DAYS
+        delegation_id = f"del-{uuid.uuid4()}"
+        delegation = DelegationToken(
+            id=delegation_id,
+            agent_id=template.agent_id,
+            delegator=delegator,
+            delegated_permissions=permissions,
+            constraints={},
+            source=source,
+            status="active",
+            template_id=str(template.id),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=ttl_days),
+            revocation_uri=self._generate_revocation_uri(delegation_id),
+        )
+        self._db.add(delegation)
+        return delegation
 
     def get_constraint(
         self,

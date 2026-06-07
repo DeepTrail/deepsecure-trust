@@ -109,6 +109,12 @@ class BackendClientAdapter:
         self._clients[backend_id] = client
         logger.info(f"Registered backend client: {backend_id}")
 
+    def unregister_client(self, backend_id: str) -> None:
+        """Remove a backend client from the registry."""
+        if backend_id in self._clients:
+            del self._clients[backend_id]
+            logger.info("Unregistered backend client: %s", backend_id)
+
     @property
     def registered_backends(self) -> list[str]:
         """Get list of registered backend IDs."""
@@ -280,44 +286,43 @@ class BackendClientAdapter:
 # =============================================================================
 
 
-def create_backend_adapter() -> BackendClientAdapter:
+def create_backend_adapter(*, include_builtin: bool | None = None) -> BackendClientAdapter:
     """
-    Create a fully configured BackendClientAdapter.
+    Create a BackendClientAdapter.
 
-    Creates an adapter with all backend clients registered and ready to use.
+    When ``include_builtin`` is True (default in ``hybrid`` registry mode), registers
+    the six built-in DirectClients. In ``dynamic_only`` mode, starts with an empty
+    adapter so the DynamicBackendLoader owns all registrations.
 
     Returns:
         BackendClientAdapter ready for use in tools_call handler
-
-    Usage:
-        from app.backends.adapter import create_backend_adapter
-
-        adapter = create_backend_adapter()
-        configure_tools_call_handler(
-            session_manager=session_manager,
-            backend_client=adapter,
-        )
     """
-    from .notion_client import NotionDirectClient
-    from .slack_client import SlackDirectClient
-    from .hubspot_client import HubSpotDirectClient
-    from .gdrive_client import GDriveDirectClient
-    from .gcalendar_client import GCalendarDirectClient
-    from .gmail_client import GmailDirectClient
+    from app.core.config import get_settings
 
     adapter = BackendClientAdapter()
 
-    # Register all backend clients
-    adapter.register_client("notion", NotionDirectClient())
-    adapter.register_client("slack", SlackDirectClient())
-    adapter.register_client("hubspot", HubSpotDirectClient())
-    adapter.register_client("gdrive", GDriveDirectClient())
-    adapter.register_client("gcalendar", GCalendarDirectClient())
-    adapter.register_client("gmail", GmailDirectClient())
+    if include_builtin is None:
+        include_builtin = get_settings().registry_mode != "dynamic_only"
+
+    if include_builtin:
+        from .notion_client import NotionDirectClient
+        from .slack_client import SlackDirectClient
+        from .hubspot_client import HubSpotDirectClient
+        from .gdrive_client import GDriveDirectClient
+        from .gcalendar_client import GCalendarDirectClient
+        from .gmail_client import GmailDirectClient
+
+        adapter.register_client("notion", NotionDirectClient())
+        adapter.register_client("slack", SlackDirectClient())
+        adapter.register_client("hubspot", HubSpotDirectClient())
+        adapter.register_client("gdrive", GDriveDirectClient())
+        adapter.register_client("gcalendar", GCalendarDirectClient())
+        adapter.register_client("gmail", GmailDirectClient())
 
     logger.info(
-        "BackendClientAdapter created with backends: %s",
+        "BackendClientAdapter created with backends: %s (include_builtin=%s)",
         adapter.registered_backends,
+        include_builtin,
     )
 
     return adapter

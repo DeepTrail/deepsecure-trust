@@ -32,6 +32,10 @@ interface DelegationBuilderProps {
   templates?: PublicTemplate[];
   onCreated?: () => void;
   requireTemplate?: boolean;
+  editMode?: boolean;
+  delegationId?: string;
+  initialAgentId?: string;
+  initialPermissions?: string[];
 }
 
 interface DelegationResult {
@@ -46,9 +50,22 @@ export function DelegationBuilder({
   templates = [],
   onCreated,
   requireTemplate = false,
+  editMode = false,
+  delegationId,
+  initialAgentId = "",
+  initialPermissions = [],
 }: DelegationBuilderProps) {
-  const [selectedAgent, setSelectedAgent] = useState<string>("");
-  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<string>(initialAgentId);
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>(
+    initialPermissions
+      .map((perm) => {
+        const match = permissions.find(
+          (p) => `${p.service}:${p.scope}:${p.action}` === perm,
+        );
+        return match?.id ?? perm;
+      })
+      .filter(Boolean),
+  );
   const [ttlDays, setTtlDays] = useState<number>(DEFAULT_TTL_DAYS);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,21 +111,38 @@ export function DelegationBuilder({
         return perm ? `${perm.service}:${perm.scope}:${perm.action}` : id;
       });
 
-      const data = await apiClient<DelegationResult>("auth/delegate", {
-        method: "POST",
-        body: JSON.stringify({
-          agent_id: selectedAgent,
-          permissions: permissionStrings,
-          constraints: { expires_in_hours: ttlDays * 24 },
-        }),
-      });
-      setResult(data);
-      onCreated?.();
+      if (editMode && delegationId) {
+        await apiClient(`delegations/${delegationId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ permissions: permissionStrings }),
+        });
+        setResult({ delegation_id: delegationId });
+        onCreated?.();
+      } else {
+        const data = await apiClient<DelegationResult>("auth/delegate", {
+          method: "POST",
+          body: JSON.stringify({
+            agent_id: selectedAgent,
+            permissions: permissionStrings,
+            constraints: { expires_in_hours: ttlDays * 24 },
+          }),
+        });
+        setResult(data);
+        onCreated?.();
+      }
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(`Failed to create delegation (${err.status})`);
+        setError(
+          editMode
+            ? `Failed to update delegation (${err.status})`
+            : `Failed to create delegation (${err.status})`,
+        );
       } else {
-        setError("Failed to create delegation. Please try again.");
+        setError(
+          editMode
+            ? "Failed to update delegation. Please try again."
+            : "Failed to create delegation. Please try again.",
+        );
       }
     } finally {
       setSubmitting(false);
@@ -129,16 +163,20 @@ export function DelegationBuilder({
       <Card>
         <CardContent className="flex flex-col items-center gap-4 py-8">
           <CheckCircle2 className="h-12 w-12 text-green-500" />
-          <h3 className="text-lg font-semibold">Delegation Created</h3>
+          <h3 className="text-lg font-semibold">
+            {editMode ? "Delegation Updated" : "Delegation Created"}
+          </h3>
           <p className="text-sm text-muted-foreground">
             Delegation ID:{" "}
             <span className="font-mono" data-testid="delegation-id">
               {result.delegation_id}
             </span>
           </p>
-          <Button variant="outline" onClick={handleReset}>
-            Create Another
-          </Button>
+          {!editMode && (
+            <Button variant="outline" onClick={handleReset}>
+              Create Another
+            </Button>
+          )}
         </CardContent>
       </Card>
     );
@@ -157,7 +195,7 @@ export function DelegationBuilder({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {templates.length > 0 && (
+      {!editMode && templates.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
@@ -214,7 +252,7 @@ export function DelegationBuilder({
         </Card>
       )}
 
-      {requireTemplate && !activeTemplate ? (
+      {!editMode && requireTemplate && !activeTemplate ? (
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-sm text-muted-foreground">
@@ -240,6 +278,7 @@ export function DelegationBuilder({
                 className="w-full rounded-md border px-3 py-2 text-sm"
                 aria-label="Select agent"
                 required
+                disabled={editMode}
               >
                 <option value="">Choose an agent...</option>
                 {agents.map((agent) => (
@@ -309,7 +348,13 @@ export function DelegationBuilder({
               }
             >
               <Send className="mr-2 h-4 w-4" />
-              {submitting ? "Creating..." : "Create Delegation"}
+              {submitting
+                ? editMode
+                  ? "Updating..."
+                  : "Creating..."
+                : editMode
+                  ? "Update Delegation"
+                  : "Create Delegation"}
             </Button>
           </div>
         </>
