@@ -55,6 +55,19 @@ class Settings(BaseSettings):
         "DELEGATION_AUTO_PROVISION", "false"
     ).lower() in ("1", "true", "yes")
 
+    CONTROL_PLANE_HEALTH_POLLER: bool = os.getenv(
+        "CONTROL_PLANE_HEALTH_POLLER", "true"
+    ).lower() in ("1", "true", "yes")
+    HEALTH_POLLER_INTERVAL_SECONDS: int = int(
+        os.getenv("HEALTH_POLLER_INTERVAL_SECONDS", "120")
+    )
+    GATEWAY_STALE_THRESHOLD_SECONDS: int = int(
+        os.getenv("GATEWAY_STALE_THRESHOLD_SECONDS", "180")
+    )
+    SERVICE_HEALTH_STALE_THRESHOLD_SECONDS: int = int(
+        os.getenv("SERVICE_HEALTH_STALE_THRESHOLD_SECONDS", "300")
+    )
+
     # Add other settings like secret keys, etc.
     # SECRET_KEY: str = os.getenv("SECRET_KEY", "default_secret")
 

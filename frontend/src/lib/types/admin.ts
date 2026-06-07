@@ -10,7 +10,7 @@
 
 export type BackendType = "rest" | "mcp";
 export type ServiceStatus = "active" | "sandbox" | "disable";
-export type HealthStatus = "up" | "healthy" | "down" | "slow" | "unknown";
+export type HealthStatus = "up" | "healthy" | "down" | "slow" | "unknown" | "stale";
 export type McpAuthMethod = "none" | "api-key" | "bearer-token" | "oauth";
 export type McpTransport = "rest" | "streamable-http" | "sse";
 export type DataClassification = "internal" | "confidential" | "restricted";
@@ -322,12 +322,18 @@ export interface DelegationTemplateListResponse {
 // Health & Emergency
 // ---------------------------------------------------------------------------
 
+export type GatewayStatus = "up" | "down" | "unknown";
+
 export interface HealthAggregation {
   total_services: number;
   services_up: number;
   services_down: number;
   services_slow: number;
   services_unknown: number;
+  services_stale: number;
+  gateway_status: GatewayStatus;
+  gateway_last_seen_at: string | null;
+  gateway_stale_threshold_seconds: number;
   total_requests_24h: number;
   success_rate_24h: number;
   avg_latency_ms: number;
@@ -339,6 +345,7 @@ export interface BackendHealthEntry {
   display_name: string;
   backend_type: BackendType;
   health_status: HealthStatus;
+  probe_source: "gateway" | "control_plane" | null;
   latency_ms: number | null;
   error_count_24h: number;
   last_checked_at: string | null;

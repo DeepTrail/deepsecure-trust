@@ -193,6 +193,10 @@ class GatewaySettings(BaseSettings):
     )
     registry_refresh_interval: int = Field(default=60)
     registry_health_report_interval: int = Field(default=30)
+    registry_mode: str = Field(
+        default_factory=lambda: os.getenv("GATEWAY_REGISTRY_MODE", "hybrid"),
+        description="'hybrid' registers built-in DirectClients; 'dynamic_only' loads from Control Plane only",
+    )
 
     model_config = {
         "env_prefix": "GATEWAY_",

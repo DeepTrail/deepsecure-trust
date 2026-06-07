@@ -83,6 +83,7 @@ const HEALTH_DOT: Record<string, string> = {
   healthy: "bg-green-500",
   down: "bg-red-500",
   slow: "bg-yellow-500",
+  stale: "bg-orange-400",
   unknown: "bg-gray-400",
 };
 
@@ -91,8 +92,29 @@ const HEALTH_LABEL: Record<string, string> = {
   healthy: "Healthy",
   down: "Down",
   slow: "Slow",
+  stale: "Stale",
   unknown: "Unknown",
 };
+
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "never";
+  const then = new Date(iso).getTime();
+  const diffSec = Math.floor((Date.now() - then) / 1000);
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  return `${diffHr}h ago`;
+}
+
+function probeSourceLabel(
+  source: BackendHealthEntry["probe_source"],
+  status: BackendHealthEntry["health_status"],
+): string {
+  if (!source) return "—";
+  if (status === "stale" && source === "gateway") return "gateway (stale)";
+  return source === "control_plane" ? "control_plane" : "gateway";
+}
 
 export default function AdminHealthPage() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
@@ -115,6 +137,7 @@ export default function AdminHealthPage() {
         display_name: s.display_name as string,
         backend_type: (s.backend_type as string ?? "rest") as BackendHealthEntry["backend_type"],
         health_status: (s.health_status as string ?? "unknown") as BackendHealthEntry["health_status"],
+        probe_source: (s.probe_source as BackendHealthEntry["probe_source"]) ?? null,
         latency_ms: (s.latency_ms as number) ?? null,
         error_count_24h: (s.error_count_24h as number) ?? 0,
         last_checked_at: (s.last_checked as string) ?? null,
@@ -126,6 +149,10 @@ export default function AdminHealthPage() {
         services_down: (raw.down as number) ?? 0,
         services_slow: (raw.slow as number) ?? 0,
         services_unknown: (raw.unknown as number) ?? 0,
+        services_stale: (raw.stale as number) ?? 0,
+        gateway_status: (raw.gateway_status as HealthAggregation["gateway_status"]) ?? "unknown",
+        gateway_last_seen_at: (raw.gateway_last_seen_at as string) ?? null,
+        gateway_stale_threshold_seconds: (raw.gateway_stale_threshold_seconds as number) ?? 180,
         total_requests_24h: 0,
         success_rate_24h: 0,
         avg_latency_ms: latencies.length ? latencies.reduce((a, b) => a + b, 0) / latencies.length : 0,
@@ -211,6 +238,53 @@ export default function AdminHealthPage() {
         </Button>
       </div>
 
+      {/* Gateway liveness banner */}
+      {health.gateway_status === "down" && (
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold">GATEWAY OFFLINE</p>
+              <p className="text-sm">
+                Last heartbeat {formatRelativeTime(health.gateway_last_seen_at)}. MCP routing may
+                be unavailable. Backend probes may be stale.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={fetchHealth}>
+              Refresh
+            </Button>
+          </div>
+        </div>
+      )}
+      {health.gateway_status === "unknown" && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5" />
+            <p className="text-sm font-medium">
+              Gateway status unknown — no heartbeat received yet.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Gateway + backend summary row */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <Badge
+          variant="outline"
+          className={cn(
+            health.gateway_status === "up" && "border-green-500 text-green-700",
+            health.gateway_status === "down" && "border-red-500 text-red-700",
+            health.gateway_status === "unknown" && "border-amber-500 text-amber-700",
+          )}
+        >
+          Gateway: {health.gateway_status.toUpperCase()}
+        </Badge>
+        <span className="text-muted-foreground">
+          Backends: {health.services_up} up / {health.services_down} down
+          {health.services_stale > 0 ? ` / ${health.services_stale} stale` : ""}
+        </span>
+      </div>
+
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="p-4">
@@ -245,6 +319,7 @@ export default function AdminHealthPage() {
                 <th className="px-6 py-3 text-left font-medium text-muted-foreground">Service</th>
                 <th className="px-6 py-3 text-left font-medium text-muted-foreground">Type</th>
                 <th className="px-6 py-3 text-left font-medium text-muted-foreground">Health</th>
+                <th className="px-6 py-3 text-left font-medium text-muted-foreground">Probe Source</th>
                 <th className="px-6 py-3 text-right font-medium text-muted-foreground">Latency</th>
                 <th className="px-6 py-3 text-right font-medium text-muted-foreground">Errors (24h)</th>
                 <th className="px-6 py-3 text-right font-medium text-muted-foreground">Last Checked</th>
@@ -252,7 +327,13 @@ export default function AdminHealthPage() {
             </thead>
             <tbody>
               {health.backends.map((backend: BackendHealthEntry) => (
-                <tr key={backend.service_id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                <tr
+                  key={backend.service_id}
+                  className={cn(
+                    "border-b last:border-0 hover:bg-muted/30 transition-colors",
+                    backend.health_status === "stale" && "opacity-75",
+                  )}
+                >
                   <td className="px-6 py-3">
                     <div>
                       <span className="font-medium">{backend.display_name}</span>
@@ -280,7 +361,15 @@ export default function AdminHealthPage() {
                         )}
                       />
                       <span className="text-sm">{HEALTH_LABEL[backend.health_status] ?? "Unknown"}</span>
+                      {backend.health_status === "stale" && (
+                        <Badge variant="outline" className="ml-1 text-xs border-orange-400 text-orange-700">
+                          STALE
+                        </Badge>
+                      )}
                     </span>
+                  </td>
+                  <td className="px-6 py-3 text-sm text-muted-foreground">
+                    {probeSourceLabel(backend.probe_source, backend.health_status)}
                   </td>
                   <td className="px-6 py-3 text-right">
                     {backend.latency_ms != null ? (

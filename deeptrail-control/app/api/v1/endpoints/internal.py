@@ -119,3 +119,28 @@ def report_service_health(
     if not service:
         raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found")
     return {"status": "ok", "service_id": service_id, "health_status": body.health_status}
+
+
+class GatewayHeartbeatRequest(BaseModel):
+    instance_id: Optional[str] = None
+    reported_at: Optional[str] = None
+
+
+@router.post("/gateway/heartbeat")
+def gateway_heartbeat(
+    body: GatewayHeartbeatRequest,
+    db: Session = Depends(deps.get_db),
+    api_key: str = Depends(verify_internal_api_key),
+):
+    """Gateway reports liveness (piggybacks on health report cycle)."""
+    from datetime import datetime, timezone
+
+    svc = ServiceRegistryService(db=db, kms=get_kms_client())
+    reported_at = None
+    if body.reported_at:
+        try:
+            reported_at = datetime.fromisoformat(body.reported_at.replace("Z", "+00:00"))
+        except ValueError:
+            reported_at = datetime.now(timezone.utc)
+    svc.record_gateway_heartbeat(instance_id=body.instance_id, reported_at=reported_at)
+    return {"status": "ok"}

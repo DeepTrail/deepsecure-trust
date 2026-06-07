@@ -16,7 +16,9 @@ from typing import Any, Dict, List, Optional
 import httpx
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.kms import KMSClient
+from app.models.gateway_health_state import GatewayHealthState
 from app.models.service_registry import ServiceOAuthConfig, ServiceRegistry
 
 logger = logging.getLogger(__name__)
@@ -369,6 +371,7 @@ class ServiceRegistryService:
         health_status: str,
         latency_ms: Optional[int] = None,
         error_count_24h: Optional[int] = None,
+        probe_source: str = "gateway",
     ) -> Optional[ServiceRegistry]:
         service = self.get_service(service_id)
         if not service:
@@ -376,6 +379,7 @@ class ServiceRegistryService:
 
         service.health_status = health_status
         service.health_last_checked_at = datetime.now(timezone.utc)
+        service.health_probe_source = probe_source
         if latency_ms is not None:
             service.health_latency_ms = latency_ms
         if error_count_24h is not None:
@@ -384,6 +388,64 @@ class ServiceRegistryService:
         self.db.refresh(service)
         return service
 
+    # --- Gateway Liveness ---
+
+    def record_gateway_heartbeat(
+        self,
+        instance_id: Optional[str] = None,
+        reported_at: Optional[datetime] = None,
+    ) -> GatewayHealthState:
+        """Update singleton gateway heartbeat timestamp."""
+        now = reported_at or datetime.now(timezone.utc)
+        state = self.db.query(GatewayHealthState).first()
+        if state is None:
+            state = GatewayHealthState(
+                gateway_last_seen_at=now,
+                gateway_instance_id=instance_id,
+            )
+            self.db.add(state)
+        else:
+            state.gateway_last_seen_at = now
+            if instance_id:
+                state.gateway_instance_id = instance_id
+            state.updated_at = now
+        self.db.commit()
+        self.db.refresh(state)
+        return state
+
+    def _resolve_gateway_status(self) -> tuple[str, Optional[datetime]]:
+        """Return (gateway_status, gateway_last_seen_at)."""
+        state = self.db.query(GatewayHealthState).first()
+        if state is None or state.gateway_last_seen_at is None:
+            return "unknown", None
+
+        last_seen = state.gateway_last_seen_at
+        if last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+        age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
+        if age_seconds > settings.GATEWAY_STALE_THRESHOLD_SECONDS:
+            return "down", state.gateway_last_seen_at
+        return "up", state.gateway_last_seen_at
+
+    def _effective_service_status(
+        self,
+        raw_status: str,
+        last_checked: Optional[datetime],
+    ) -> str:
+        """Mark service stale when last check exceeds threshold."""
+        if last_checked is None:
+            return raw_status if raw_status != "unknown" else "unknown"
+
+        checked = last_checked
+        if checked.tzinfo is None:
+            checked = checked.replace(tzinfo=timezone.utc)
+
+        age_seconds = (datetime.now(timezone.utc) - checked).total_seconds()
+        if age_seconds > settings.SERVICE_HEALTH_STALE_THRESHOLD_SECONDS:
+            return "stale"
+        return raw_status
+
     # --- Health Aggregation ---
 
     def get_health_summary(self) -> Dict[str, Any]:
@@ -391,20 +453,41 @@ class ServiceRegistryService:
             ServiceRegistry.status.in_(["active", "sandbox"])
         ).all()
 
+        gateway_status, gateway_last_seen = self._resolve_gateway_status()
+
         summary: Dict[str, Any] = {
-            "total": len(services), "up": 0, "healthy": 0,
-            "down": 0, "slow": 0, "unknown": 0, "services": [],
+            "gateway_status": gateway_status,
+            "gateway_last_seen_at": (
+                gateway_last_seen.isoformat() if gateway_last_seen else None
+            ),
+            "gateway_stale_threshold_seconds": settings.GATEWAY_STALE_THRESHOLD_SECONDS,
+            "total": len(services),
+            "up": 0,
+            "healthy": 0,
+            "down": 0,
+            "slow": 0,
+            "unknown": 0,
+            "stale": 0,
+            "services": [],
         }
         for s in services:
-            status = s.health_status or "unknown"
-            summary[status] = summary.get(status, 0) + 1
+            raw_status = s.health_status or "unknown"
+            effective_status = self._effective_service_status(
+                raw_status, s.health_last_checked_at
+            )
+            summary[effective_status] = summary.get(effective_status, 0) + 1
             summary["services"].append({
                 "service_id": s.service_id,
                 "display_name": s.display_name,
                 "backend_type": s.backend_type or "rest",
-                "health_status": status,
+                "health_status": effective_status,
+                "probe_source": s.health_probe_source,
                 "latency_ms": s.health_latency_ms,
                 "error_count_24h": s.health_error_count_24h or 0,
-                "last_checked": s.health_last_checked_at.isoformat() if s.health_last_checked_at else None,
+                "last_checked": (
+                    s.health_last_checked_at.isoformat()
+                    if s.health_last_checked_at
+                    else None
+                ),
             })
         return summary

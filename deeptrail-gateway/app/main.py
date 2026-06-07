@@ -85,6 +85,7 @@ from .security.prompt_injection import configure_prompt_injection_detector
 from .security.token_exchange import configure_token_exchange_client, TokenExchangeConfig
 from .backends.adapter import create_backend_adapter
 from .backends.dynamic_registry import DynamicBackendLoader
+from .core.config import get_settings
 from .services.cache_subscriber import start_cache_subscriber, stop_cache_subscriber
 
 # C6: Protected Resource Metadata (RFC 9728)
@@ -332,8 +333,15 @@ configure_tools_list_handler(
 # =============================================================================
 # Backend Client Configuration
 # =============================================================================
-backend_client = create_backend_adapter()
-logger.info("Backend client adapter configured for real API calls")
+_gw_settings = get_settings()
+backend_client = create_backend_adapter(
+    include_builtin=_gw_settings.registry_mode != "dynamic_only",
+)
+logger.info(
+    "Backend client adapter configured (registry_mode=%s, backends=%s)",
+    _gw_settings.registry_mode,
+    backend_client.registered_backends,
+)
 
 configure_tools_call_handler(
     session_manager=mcp_session_manager,

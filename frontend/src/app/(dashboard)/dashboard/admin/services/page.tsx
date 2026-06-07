@@ -53,6 +53,7 @@ const HEALTH_COLORS: Record<HealthStatus, string> = {
   healthy: "text-green-600",
   down: "text-red-600",
   slow: "text-yellow-600",
+  stale: "text-orange-600",
   unknown: "text-gray-400",
 };
 
@@ -61,6 +62,7 @@ const HEALTH_LABELS: Record<HealthStatus, string> = {
   healthy: "Healthy",
   down: "Down",
   slow: "Slow",
+  stale: "Stale",
   unknown: "Unknown",
 };
 
