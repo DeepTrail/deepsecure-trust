@@ -26,6 +26,11 @@ api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(delegation.router, prefix="/auth", tags=["auth"])
 api_router.include_router(
+    delegation.user_delegations_router,
+    prefix="/delegations",
+    tags=["delegations"],
+)
+api_router.include_router(
     agent_auth.router,
     prefix="/auth/agent",
     tags=["agent-auth"],

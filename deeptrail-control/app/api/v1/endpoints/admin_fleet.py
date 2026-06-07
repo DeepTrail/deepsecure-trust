@@ -26,7 +26,21 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.delegation import (
+    PatchDelegationRequest,
+    PatchDelegationResponse,
+    build_patch_delegation_response,
+    raise_patch_delegation_http_error,
+)
 from app.middleware.admin_auth import require_admin
+from app.services.delegation_service import (
+    DelegationForbiddenError,
+    DelegationInvalidStateError,
+    DelegationNotFoundError,
+    DelegationService,
+    PermissionValidationError,
+    PermissionWideningError,
+)
 from app.models.agent import Agent
 from app.models.agent_session import AgentSession
 from app.models.delegation import DelegationToken
@@ -923,6 +937,39 @@ def revoke_delegation_admin(
         raise HTTPException(status_code=404, detail="Delegation not found")
     delegation.revoked_at = datetime.now(timezone.utc)
     db.commit()
+
+
+@router.patch(
+    "/delegations/{delegation_id}",
+    response_model=PatchDelegationResponse,
+)
+def patch_delegation_admin(
+    delegation_id: str,
+    body: PatchDelegationRequest,
+    db: Session = Depends(get_db),
+    admin_claims: dict = Depends(require_admin),
+):
+    """Admin narrow-in-place for any user's delegation."""
+    actor = admin_claims.get("sub", "admin")
+    service = DelegationService(db)
+    try:
+        result = service.patch_delegation_permissions(
+            delegation_id,
+            actor,
+            is_admin=True,
+            new_permissions=body.permissions,
+            constraints=body.constraints,
+            expires_at=body.expires_at,
+        )
+    except (
+        DelegationNotFoundError,
+        DelegationForbiddenError,
+        DelegationInvalidStateError,
+        PermissionWideningError,
+        PermissionValidationError,
+    ) as exc:
+        raise_patch_delegation_http_error(exc)
+    return build_patch_delegation_response(result)
 
 
 # --- Delegation Template Endpoints (D3) ---

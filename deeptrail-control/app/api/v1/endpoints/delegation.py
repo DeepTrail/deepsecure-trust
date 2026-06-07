@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 from typing import Any, Dict, List, Optional
 import logging
@@ -12,6 +12,15 @@ from app import models, schemas
 from app.api import deps
 from app.models.connected_service import ConnectedService
 from app.models.delegation import DelegationToken
+from app.services.delegation_service import (
+    DelegationForbiddenError,
+    DelegationInvalidStateError,
+    DelegationNotFoundError,
+    DelegationService,
+    PermissionValidationError,
+    PermissionWideningError,
+    PatchDelegationResult,
+)
 from app.services.macaroon_service import macaroon_service
 from app.services.scope_mapper import ScopeMapper
 from app.core.config import settings
@@ -19,6 +28,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+user_delegations_router = APIRouter()
 
 
 # =============================================================================
@@ -309,6 +319,115 @@ def list_user_delegations(
             )
         )
     return result
+
+
+# =============================================================================
+# PATCH Delegation (narrow permissions in place)
+# =============================================================================
+
+
+class PatchDelegationRequest(BaseModel):
+    permissions: Optional[List[str]] = None
+    constraints: Optional[Dict[str, Any]] = None
+    expires_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def require_at_least_one_field(self) -> "PatchDelegationRequest":
+        if (
+            self.permissions is None
+            and self.constraints is None
+            and self.expires_at is None
+        ):
+            raise ValueError("At least one of permissions, constraints, or expires_at is required")
+        return self
+
+
+class PatchDelegationResponse(BaseModel):
+    delegation_id: str
+    agent_id: str
+    permissions: List[str]
+    source: str
+    template_id: Optional[str] = None
+    status: str
+    expires_at: Optional[str] = None
+    sessions_revoked: int
+
+
+def build_patch_delegation_response(result: PatchDelegationResult) -> PatchDelegationResponse:
+    delegation = result.delegation
+    return PatchDelegationResponse(
+        delegation_id=delegation.id,
+        agent_id=delegation.agent_id,
+        permissions=list(delegation.delegated_permissions or []),
+        source=delegation.source or "manual",
+        template_id=getattr(delegation, "template_id", None),
+        status=delegation.status or "active",
+        expires_at=delegation.expires_at.isoformat() if delegation.expires_at else None,
+        sessions_revoked=result.sessions_revoked,
+    )
+
+
+def raise_patch_delegation_http_error(exc: Exception) -> None:
+    if isinstance(exc, DelegationNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Delegation not found")
+    if isinstance(exc, DelegationForbiddenError):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    if isinstance(exc, DelegationInvalidStateError):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, PermissionWideningError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "permission_widening_not_allowed",
+                "message": exc.message,
+                "attempted": exc.attempted,
+                "current": exc.current,
+                "allowed_ceiling": exc.allowed_ceiling,
+            },
+        )
+    if isinstance(exc, PermissionValidationError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "permission_validation_failed",
+                "message": exc.message,
+                "invalid_permissions": exc.invalid_permissions,
+                "allowed_permissions": exc.allowed_permissions,
+            },
+        )
+    raise exc
+
+
+@user_delegations_router.patch(
+    "/{delegation_id}",
+    response_model=PatchDelegationResponse,
+)
+def patch_user_delegation(
+    delegation_id: str,
+    body: PatchDelegationRequest,
+    authorization: str = Header(...),
+    db: Session = Depends(deps.get_db),
+):
+    """Narrow an existing delegation's permissions (delegator only)."""
+    current_user = get_current_user_from_token(authorization)
+    service = DelegationService(db)
+    try:
+        result = service.patch_delegation_permissions(
+            delegation_id,
+            current_user,
+            new_permissions=body.permissions,
+            constraints=body.constraints,
+            expires_at=body.expires_at,
+        )
+    except (
+        DelegationNotFoundError,
+        DelegationForbiddenError,
+        DelegationInvalidStateError,
+        PermissionWideningError,
+        PermissionValidationError,
+    ) as exc:
+        raise_patch_delegation_http_error(exc)
+    return build_patch_delegation_response(result)
 
 
 # =============================================================================
