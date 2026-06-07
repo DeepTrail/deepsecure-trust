@@ -367,6 +367,51 @@ export interface EmergencyActionResponse {
 }
 
 // ---------------------------------------------------------------------------
+// IdP Group → Role Mappings
+// ---------------------------------------------------------------------------
+
+export type CanonicalRole = "employee" | "engineer" | "sales" | "admin" | "security";
+
+export interface IdpMapping {
+  id: string;
+  idp_issuer: string;
+  group_name: string;
+  role: CanonicalRole;
+  enabled: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface IdpMappingListResponse {
+  mappings: IdpMapping[];
+  total: number;
+  idp_metadata: {
+    provider: string;
+    issuer_url: string;
+  };
+}
+
+export interface IdpMappingCreateRequest {
+  group_name: string;
+  role: CanonicalRole;
+  idp_issuer?: string;
+  enabled?: boolean;
+}
+
+export interface IdpMappingUpdateRequest {
+  group_name?: string;
+  role?: CanonicalRole;
+  enabled?: boolean;
+}
+
+export interface IdpImportYamlResponse {
+  imported: number;
+  skipped: number;
+  idp_issuer: string;
+}
+
+// ---------------------------------------------------------------------------
 // User / Role Management
 // ---------------------------------------------------------------------------
 

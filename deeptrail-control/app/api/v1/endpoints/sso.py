@@ -385,22 +385,28 @@ async def sso_callback(
     # Provision user (applies static _GROUP_TO_ROLE_MAP as a baseline)
     user_data = await provision_user_from_claims(claims)
 
-    # Resolve group policy (merges YAML-driven roles and permissions)
+    # Resolve group policy — DB mappings override YAML for same (issuer, group)
+    idp_issuer = f"https://{idp}"
     if user_data.get("groups"):
+        from app.services.idp_mapping_service import IdpMappingService
+
         group_mapper = _get_group_policy_mapper()
-        policy_result = group_mapper.resolve(user_data["groups"])
-        if policy_result.roles:
+        mapping_svc = IdpMappingService(db)
+        policy_result = mapping_svc.resolve_group_policy_merge(
+            idp_issuer, user_data["groups"], group_mapper
+        )
+        if policy_result["roles"]:
             merged_roles = list(
-                dict.fromkeys(user_data.get("roles", []) + policy_result.roles)
+                dict.fromkeys(user_data.get("roles", []) + policy_result["roles"])
             )
             user_data["roles"] = merged_roles
-        if policy_result.default_permissions:
-            user_data["default_permissions"] = policy_result.default_permissions
+        if policy_result["default_permissions"]:
+            user_data["default_permissions"] = policy_result["default_permissions"]
         logger.info(
             "Group policy resolved: matched=%s roles=%s perms=%d",
-            policy_result.matched_groups,
-            policy_result.roles,
-            len(policy_result.default_permissions),
+            policy_result["matched_groups"],
+            policy_result["roles"],
+            len(policy_result["default_permissions"]),
         )
 
     # Issue DeepSecure session JWT (same shape as POST /login)
@@ -443,13 +449,13 @@ async def sso_callback(
     if existing_session:
         existing_session.session_id = session_id
         existing_session.expires_at = now + timedelta(hours=SSO_SESSION_EXPIRY_HOURS)
-        existing_session.idp_issuer = f"https://{idp}"
+        existing_session.idp_issuer = idp_issuer
         existing_session.role = derived_role
     else:
         new_session = UserSession(
             session_id=session_id,
             user_id=user_data["email"],
-            idp_issuer=f"https://{idp}",
+            idp_issuer=idp_issuer,
             organization_id=user_data.get("organization_id"),
             role=derived_role,
             expires_at=now + timedelta(hours=SSO_SESSION_EXPIRY_HOURS),

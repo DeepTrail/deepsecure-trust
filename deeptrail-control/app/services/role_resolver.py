@@ -41,6 +41,7 @@ class RoleResolver:
         user_session_role: str | None,
         groups: list[str] | None,
         db: Session | None = None,
+        idp_issuer: str | None = None,
     ) -> list[str]:
         """Return deduplicated lowercase role names for visibility checks."""
         if jwt_roles:
@@ -50,7 +51,14 @@ class RoleResolver:
             return self._normalize([user_session_role])
 
         if groups:
-            group_roles = self._get_mapper().resolve(groups).roles
+            if db is not None and idp_issuer:
+                from app.services.idp_mapping_service import IdpMappingService
+
+                group_roles = IdpMappingService(db).resolve_group_roles(
+                    idp_issuer, groups, self._get_mapper()
+                )
+            else:
+                group_roles = self._get_mapper().resolve(groups).roles
             if group_roles:
                 return self._normalize(group_roles)
 
@@ -67,6 +75,7 @@ class RoleResolver:
         from app.models.user_session import UserSession
 
         session_role: str | None = None
+        idp_issuer: str | None = None
         session = (
             db.query(UserSession)
             .filter(
@@ -78,9 +87,12 @@ class RoleResolver:
         )
         if session:
             session_role = session.role
+            idp_issuer = session.idp_issuer
 
         normalized_groups = list(groups or [])
-        roles = self.resolve(jwt_roles, session_role, normalized_groups, db)
+        roles = self.resolve(
+            jwt_roles, session_role, normalized_groups, db, idp_issuer=idp_issuer
+        )
         return UserContext(sub=sub, groups=normalized_groups, roles=roles)
 
     @staticmethod
