@@ -25,8 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageSkeleton, ErrorCard, EmptyState } from "@/components/feedback";
 import { AddServiceModal } from "@/components/admin/AddServiceModal";
 import { AvailableToPicker } from "@/components/admin/AvailableToPicker";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { HealthOAuthCard, type OAuthFormState } from "@/components/admin/HealthOAuthCard";
 import type {
   ServiceRegistryEntry,
   ServiceOAuthConfig,
@@ -145,6 +144,39 @@ function ExpandedPanel({
       .finally(() => setOauthLoading(false));
   }, [isRest, service.service_id]);
 
+  function handleOAuthFormChange(field: keyof OAuthFormState, value: string) {
+    if (field === "clientId") setOaClientId(value);
+    else if (field === "clientSecret") setOaClientSecret(value);
+    else if (field === "authUrl") setOaAuthUrl(value);
+    else if (field === "tokenUrl") setOaTokenUrl(value);
+    else if (field === "scopes") setOaScopes(value);
+  }
+
+  function handleOAuthEditStart() {
+    if (oauthConfig?.source === "env") {
+      if (
+        !confirm(
+          "This service uses centralized credentials from environment configuration. Saving per-service credentials will override them. Continue?"
+        )
+      ) {
+        return;
+      }
+    }
+    setOauthEditing(true);
+  }
+
+  function handleOAuthEditCancel() {
+    setOauthEditing(false);
+    setOauthError(null);
+    if (oauthConfig) {
+      setOaClientId(oauthConfig.client_id);
+      setOaAuthUrl(oauthConfig.auth_url ?? "");
+      setOaTokenUrl(oauthConfig.token_url ?? "");
+      setOaScopes(oauthConfig.scopes?.join(", ") ?? "");
+    }
+    setOaClientSecret("");
+  }
+
   async function handleOauthSave() {
     setOauthSaving(true);
     setOauthError(null);
@@ -245,248 +277,32 @@ function ExpandedPanel({
     );
   }
 
-  function renderOAuthSection(compactView: boolean) {
-    if (!isRest) return null;
-
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-semibold">OAuth Credentials</h4>
-          {!oauthEditing && !oauthLoading && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={() => {
-                if (oauthConfig?.source === "env") {
-                  if (
-                    !confirm(
-                      "This service uses centralized credentials from environment configuration. Saving per-service credentials will override them. Continue?"
-                    )
-                  ) {
-                    return;
-                  }
-                }
-                setOauthEditing(true);
-              }}
-            >
-              <Pencil className="mr-1 h-3 w-3" />
-              {oauthConfig ? "Edit" : "Configure"}
-            </Button>
-          )}
-        </div>
-
-        {oauthLoading ? (
-          <p className="text-xs text-muted-foreground">Loading...</p>
-        ) : oauthEditing ? (
-          <div className="grid gap-2 rounded-md border p-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="grid gap-1">
-                <Label className="text-xs">Client ID</Label>
-                <Input
-                  className="h-8 text-xs"
-                  value={oaClientId}
-                  onChange={(e) => setOaClientId(e.target.value)}
-                  placeholder="OAuth Client ID"
-                />
-              </div>
-              <div className="grid gap-1">
-                <Label className="text-xs">Client Secret</Label>
-                <Input
-                  className="h-8 text-xs"
-                  type="password"
-                  value={oaClientSecret}
-                  onChange={(e) => setOaClientSecret(e.target.value)}
-                  placeholder={
-                    oauthConfig ? "Leave blank to keep current" : "OAuth Client Secret"
-                  }
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="grid gap-1">
-                <Label className="text-xs">Auth URL</Label>
-                <Input
-                  className="h-8 text-xs"
-                  value={oaAuthUrl}
-                  onChange={(e) => setOaAuthUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
-              <div className="grid gap-1">
-                <Label className="text-xs">Token URL</Label>
-                <Input
-                  className="h-8 text-xs"
-                  value={oaTokenUrl}
-                  onChange={(e) => setOaTokenUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
-            </div>
-            <div className="grid gap-1">
-              <Label className="text-xs">Scopes</Label>
-              <Input
-                className="h-8 text-xs"
-                value={oaScopes}
-                onChange={(e) => setOaScopes(e.target.value)}
-                placeholder="comma-separated"
-              />
-            </div>
-            {oauthError && <p className="text-xs text-red-600">{oauthError}</p>}
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleOauthSave}
-                disabled={!oaClientId || oauthSaving}
-              >
-                {oauthSaving ? (
-                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                ) : (
-                  <Save className="mr-1 h-3 w-3" />
-                )}
-                Save Credentials
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => {
-                  setOauthEditing(false);
-                  setOauthError(null);
-                  if (oauthConfig) {
-                    setOaClientId(oauthConfig.client_id);
-                    setOaAuthUrl(oauthConfig.auth_url ?? "");
-                    setOaTokenUrl(oauthConfig.token_url ?? "");
-                    setOaScopes(oauthConfig.scopes?.join(", ") ?? "");
-                  }
-                  setOaClientSecret("");
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : oauthConfig ? (
-          compactView ? (
-            <div className="rounded-md border bg-background p-3">
-              {oauthConfig.source === "env" && (
-                <div className="mb-3 rounded bg-blue-50 px-2 py-1">
-                  <p className="text-xs text-blue-700">
-                    Managed centrally via environment configuration
-                  </p>
-                </div>
-              )}
-              <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                <div>
-                  <dt className="text-xs text-muted-foreground">Client ID</dt>
-                  <dd className="mt-0.5 font-mono text-xs">
-                    {oauthConfig.client_id.slice(0, 12)}…
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Secret</dt>
-                  <dd className="mt-0.5">
-                    <Badge variant="secondary" className="text-xs">
-                      Configured
-                    </Badge>
-                  </dd>
-                </div>
-                {oauthConfig.auth_url && (
-                  <div className="col-span-2">
-                    <dt className="text-xs text-muted-foreground">Auth URL</dt>
-                    <dd className="mt-0.5 font-mono text-xs break-all">
-                      {oauthConfig.auth_url}
-                    </dd>
-                  </div>
-                )}
-                {oauthConfig.token_url && (
-                  <div className="col-span-2">
-                    <dt className="text-xs text-muted-foreground">Token URL</dt>
-                    <dd className="mt-0.5 font-mono text-xs break-all">
-                      {oauthConfig.token_url}
-                    </dd>
-                  </div>
-                )}
-                {oauthConfig.scopes && oauthConfig.scopes.length > 0 && (
-                  <div className="col-span-2">
-                    <dt className="text-xs text-muted-foreground">Scopes</dt>
-                    <dd className="mt-0.5 text-xs">{oauthConfig.scopes.join(", ")}</dd>
-                  </div>
-                )}
-              </dl>
-            </div>
-          ) : (
-            <dl className="space-y-1 text-sm">
-              {oauthConfig.source === "env" && (
-                <div className="mb-2 rounded bg-blue-50 px-2 py-1">
-                  <p className="text-xs text-blue-700">
-                    Managed centrally via environment configuration
-                  </p>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Client ID</dt>
-                <dd className="font-mono text-xs">{oauthConfig.client_id.slice(0, 8)}...</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Secret</dt>
-                <dd>
-                  <Badge variant="secondary" className="text-xs">
-                    Configured
-                  </Badge>
-                </dd>
-              </div>
-              {oauthConfig.auth_url && (
-                <div className="flex justify-between gap-4">
-                  <dt className="shrink-0 text-muted-foreground">Auth URL</dt>
-                  <dd className="font-mono text-xs break-all text-right">{oauthConfig.auth_url}</dd>
-                </div>
-              )}
-              {oauthConfig.token_url && (
-                <div className="flex justify-between gap-4">
-                  <dt className="shrink-0 text-muted-foreground">Token URL</dt>
-                  <dd className="font-mono text-xs break-all text-right">{oauthConfig.token_url}</dd>
-                </div>
-              )}
-              {oauthConfig.scopes && oauthConfig.scopes.length > 0 && (
-                <div className="flex justify-between gap-4">
-                  <dt className="shrink-0 text-muted-foreground">Scopes</dt>
-                  <dd className="text-xs text-right">{oauthConfig.scopes.join(", ")}</dd>
-                </div>
-              )}
-            </dl>
-          )
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            No OAuth credentials configured. Click Configure to add.
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  function renderTestResult() {
-    if (!testResult) return null;
-    return (
-      <div
-        className={cn(
-          "rounded-md border p-3 text-sm",
-          testResult.status === "success"
-            ? "border-green-200 bg-green-50 text-green-800"
-            : "border-red-200 bg-red-50 text-red-800"
-        )}
-      >
-        <p className="font-medium">
-          {testResult.status === "success" ? "Connection successful" : "Connection failed"}
-        </p>
-        <p className="text-xs">{testResult.message}</p>
-        {testResult.latency_ms != null && (
-          <p className="text-xs">Latency: {testResult.latency_ms}ms</p>
-        )}
-      </div>
-    );
-  }
+  const healthOAuthCardProps = {
+    health: {
+      latencyMs: service.health_latency_ms,
+      errorCount24h: service.health_error_count_24h,
+      lastCheckedAt: service.health_last_checked_at,
+      status: service.health_status,
+    },
+    showOAuth: isRest,
+    oauthConfig,
+    oauthLoading,
+    oauthEditing,
+    oauthForm: {
+      clientId: oaClientId,
+      clientSecret: oaClientSecret,
+      authUrl: oaAuthUrl,
+      tokenUrl: oaTokenUrl,
+      scopes: oaScopes,
+    },
+    oauthSaving,
+    oauthError,
+    onOAuthEditStart: handleOAuthEditStart,
+    onOAuthEditCancel: handleOAuthEditCancel,
+    onOAuthSave: handleOauthSave,
+    onOAuthFormChange: handleOAuthFormChange,
+    testResult,
+  };
 
   function renderMcpTools() {
     if (!isMcp || !service.discovered_tools?.length) return null;
@@ -581,28 +397,8 @@ function ExpandedPanel({
           </div>
 
           <div className="space-y-4">
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold">Health & Monitoring</h4>
-              <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                <span>
-                  <span className="text-muted-foreground">Latency </span>
-                  {service.health_latency_ms != null ? `${service.health_latency_ms}ms` : "—"}
-                </span>
-                <span>
-                  <span className="text-muted-foreground">Errors (24h) </span>
-                  {service.health_error_count_24h ?? 0}
-                </span>
-                <span>
-                  <span className="text-muted-foreground">Last checked </span>
-                  {service.health_last_checked_at
-                    ? new Date(service.health_last_checked_at).toLocaleString()
-                    : "Never"}
-                </span>
-              </div>
-            </div>
-            {renderTestResult()}
+            <HealthOAuthCard mode="edit" {...healthOAuthCardProps} />
             {saveError && <p className="text-sm text-red-600">{saveError}</p>}
-            {renderOAuthSection(false)}
             {renderMcpTools()}
           </div>
         </div>
@@ -650,32 +446,7 @@ function ExpandedPanel({
             </dl>
           </div>
 
-          <div className="space-y-2">
-            <h4 className="text-sm font-semibold">Health</h4>
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-              <span>
-                <span className="text-muted-foreground">Latency </span>
-                <span className="font-medium">
-                  {service.health_latency_ms != null ? `${service.health_latency_ms}ms` : "—"}
-                </span>
-              </span>
-              <span>
-                <span className="text-muted-foreground">Errors (24h) </span>
-                <span className="font-medium">{service.health_error_count_24h ?? 0}</span>
-              </span>
-              <span>
-                <span className="text-muted-foreground">Last checked </span>
-                <span className="font-medium">
-                  {service.health_last_checked_at
-                    ? new Date(service.health_last_checked_at).toLocaleString()
-                    : "Never"}
-                </span>
-              </span>
-            </div>
-            {renderTestResult()}
-          </div>
-
-          {renderOAuthSection(true)}
+          <HealthOAuthCard mode="view" {...healthOAuthCardProps} />
           {renderMcpTools()}
         </div>
       )}
