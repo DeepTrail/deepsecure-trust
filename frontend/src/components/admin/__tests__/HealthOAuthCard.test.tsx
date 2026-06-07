@@ -31,7 +31,8 @@ describe("HealthOAuthCard", () => {
     );
 
     expect(screen.getByTestId("health-oauth-card")).toBeInTheDocument();
-    expect(screen.getByText("Health")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Health" })).toBeInTheDocument();
+    expect(screen.getByTestId("health-oauth-unified-card")).toBeInTheDocument();
     expect(screen.getByText("42ms")).toBeInTheDocument();
     expect(screen.getByText("Healthy")).toBeInTheDocument();
   });
@@ -46,6 +47,7 @@ describe("HealthOAuthCard", () => {
     );
 
     expect(screen.getByTestId("oauth-view-card")).toBeInTheDocument();
+    expect(screen.getByTestId("health-oauth-unified-card")).toBeInTheDocument();
     expect(screen.getByText("OAuth Credentials")).toBeInTheDocument();
     expect(screen.getByText("client-id-12…")).toBeInTheDocument();
     expect(screen.getByText("read, write")).toBeInTheDocument();

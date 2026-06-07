@@ -4,7 +4,6 @@ import { Loader2, Pencil, Save } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { ConnectionTestResult, HealthStatus, ServiceOAuthConfig } from "@/lib/types/admin";
 
@@ -37,6 +36,8 @@ export interface HealthOAuthCardProps {
   onOAuthFormChange?: (field: keyof OAuthFormState, value: string) => void;
   testResult?: ConnectionTestResult | null;
 }
+
+const ROW_GRID = "grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-6 gap-y-2 text-sm";
 
 function HealthIndicator({ status }: { status: HealthStatus }) {
   const colors: Record<HealthStatus, string> = {
@@ -95,97 +96,86 @@ function TestResultBanner({ testResult }: { testResult: ConnectionTestResult }) 
   );
 }
 
-function OAuthViewCard({
-  config,
-  compact,
-}: {
-  config: ServiceOAuthConfig;
-  compact: boolean;
-}) {
-  const envBanner = config.source === "env" && (
-    <div className="mb-3 rounded bg-blue-50 px-2 py-1">
-      <p className="text-xs text-blue-700">Managed centrally via environment configuration</p>
-    </div>
-  );
-
-  if (compact) {
-    return (
-      <div className="rounded-md border bg-background p-3" data-testid="oauth-view-card">
-        {envBanner}
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <div>
-            <dt className="text-xs text-muted-foreground">Client ID</dt>
-            <dd className="mt-0.5 font-mono text-xs">{config.client_id.slice(0, 12)}…</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Secret</dt>
-            <dd className="mt-0.5">
-              <Badge variant="secondary" className="text-xs">
-                Configured
-              </Badge>
-            </dd>
-          </div>
-          {config.auth_url && (
-            <div className="col-span-2">
-              <dt className="text-xs text-muted-foreground">Auth URL</dt>
-              <dd className="mt-0.5 font-mono text-xs break-all">{config.auth_url}</dd>
-            </div>
-          )}
-          {config.token_url && (
-            <div className="col-span-2">
-              <dt className="text-xs text-muted-foreground">Token URL</dt>
-              <dd className="mt-0.5 font-mono text-xs break-all">{config.token_url}</dd>
-            </div>
-          )}
-          {config.scopes && config.scopes.length > 0 && (
-            <div className="col-span-2">
-              <dt className="text-xs text-muted-foreground">Scopes</dt>
-              <dd className="mt-0.5 text-xs">{config.scopes.join(", ")}</dd>
-            </div>
-          )}
-        </dl>
-      </div>
-    );
-  }
-
+function SectionDivider({ label, first }: { label: string; first?: boolean }) {
   return (
-    <dl className="space-y-1 text-sm" data-testid="oauth-view-card">
-      {envBanner}
-      <div className="flex justify-between">
-        <dt className="text-muted-foreground">Client ID</dt>
-        <dd className="font-mono text-xs">{config.client_id.slice(0, 8)}...</dd>
-      </div>
-      <div className="flex justify-between">
-        <dt className="text-muted-foreground">Secret</dt>
-        <dd>
-          <Badge variant="secondary" className="text-xs">
-            Configured
-          </Badge>
-        </dd>
-      </div>
-      {config.auth_url && (
-        <div className="flex justify-between gap-4">
-          <dt className="shrink-0 text-muted-foreground">Auth URL</dt>
-          <dd className="font-mono text-xs break-all text-right">{config.auth_url}</dd>
-        </div>
+    <div
+      className={cn(
+        "col-span-2",
+        !first && "mt-1 border-t pt-3"
       )}
-      {config.token_url && (
-        <div className="flex justify-between gap-4">
-          <dt className="shrink-0 text-muted-foreground">Token URL</dt>
-          <dd className="font-mono text-xs break-all text-right">{config.token_url}</dd>
-        </div>
-      )}
-      {config.scopes && config.scopes.length > 0 && (
-        <div className="flex justify-between gap-4">
-          <dt className="shrink-0 text-muted-foreground">Scopes</dt>
-          <dd className="text-xs text-right">{config.scopes.join(", ")}</dd>
-        </div>
-      )}
-    </dl>
+    >
+      <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+    </div>
   );
 }
 
-function OAuthEditForm({
+function HealthRows({ health }: { health: HealthOAuthCardProps["health"] }) {
+  return (
+    <>
+      <SectionDivider label="Health" first />
+      <dt className="text-muted-foreground">Latency</dt>
+      <dd className="font-medium">
+        {health.latencyMs != null ? `${health.latencyMs}ms` : "—"}
+      </dd>
+      <dt className="text-muted-foreground">Errors (24h)</dt>
+      <dd className="font-medium">{health.errorCount24h ?? 0}</dd>
+      <dt className="text-muted-foreground">Last checked</dt>
+      <dd className="font-medium">
+        {health.lastCheckedAt ? new Date(health.lastCheckedAt).toLocaleString() : "Never"}
+      </dd>
+      {health.status && (
+        <>
+          <dt className="text-muted-foreground">Status</dt>
+          <dd>
+            <HealthIndicator status={health.status} />
+          </dd>
+        </>
+      )}
+    </>
+  );
+}
+
+function OAuthViewRows({ config }: { config: ServiceOAuthConfig }) {
+  return (
+    <>
+      {config.source === "env" && (
+        <div className="col-span-2 rounded bg-blue-50 px-2 py-1">
+          <p className="text-xs text-blue-700">
+            Managed centrally via environment configuration
+          </p>
+        </div>
+      )}
+      <dt className="text-muted-foreground">Client ID</dt>
+      <dd className="font-mono text-xs">{config.client_id.slice(0, 12)}…</dd>
+      <dt className="text-muted-foreground">Secret</dt>
+      <dd>
+        <Badge variant="secondary" className="text-xs">
+          Configured
+        </Badge>
+      </dd>
+      {config.auth_url && (
+        <>
+          <dt className="text-muted-foreground">Auth URL</dt>
+          <dd className="font-mono text-xs break-all">{config.auth_url}</dd>
+        </>
+      )}
+      {config.token_url && (
+        <>
+          <dt className="text-muted-foreground">Token URL</dt>
+          <dd className="font-mono text-xs break-all">{config.token_url}</dd>
+        </>
+      )}
+      {config.scopes && config.scopes.length > 0 && (
+        <>
+          <dt className="text-muted-foreground">Scopes</dt>
+          <dd className="text-xs">{config.scopes.join(", ")}</dd>
+        </>
+      )}
+    </>
+  );
+}
+
+function OAuthEditRows({
   form,
   oauthConfig,
   oauthSaving,
@@ -203,59 +193,60 @@ function OAuthEditForm({
   onFormChange?: (field: keyof OAuthFormState, value: string) => void;
 }) {
   return (
-    <div className="grid gap-2 rounded-md border p-3" data-testid="oauth-edit-form">
-      <div className="grid grid-cols-2 gap-2">
-        <div className="grid gap-1">
-          <Label className="text-xs">Client ID</Label>
-          <Input
-            className="h-8 text-xs"
-            value={form.clientId}
-            onChange={(e) => onFormChange?.("clientId", e.target.value)}
-            placeholder="OAuth Client ID"
-          />
-        </div>
-        <div className="grid gap-1">
-          <Label className="text-xs">Client Secret</Label>
-          <Input
-            className="h-8 text-xs"
-            type="password"
-            value={form.clientSecret}
-            onChange={(e) => onFormChange?.("clientSecret", e.target.value)}
-            placeholder={oauthConfig ? "Leave blank to keep current" : "OAuth Client Secret"}
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="grid gap-1">
-          <Label className="text-xs">Auth URL</Label>
-          <Input
-            className="h-8 text-xs"
-            value={form.authUrl}
-            onChange={(e) => onFormChange?.("authUrl", e.target.value)}
-            placeholder="https://..."
-          />
-        </div>
-        <div className="grid gap-1">
-          <Label className="text-xs">Token URL</Label>
-          <Input
-            className="h-8 text-xs"
-            value={form.tokenUrl}
-            onChange={(e) => onFormChange?.("tokenUrl", e.target.value)}
-            placeholder="https://..."
-          />
-        </div>
-      </div>
-      <div className="grid gap-1">
-        <Label className="text-xs">Scopes</Label>
+    <>
+      <SectionDivider label="OAuth (editing)" />
+      <dt className="text-muted-foreground">Client ID</dt>
+      <dd>
+        <Input
+          className="h-8 text-xs"
+          value={form.clientId}
+          onChange={(e) => onFormChange?.("clientId", e.target.value)}
+          placeholder="OAuth Client ID"
+        />
+      </dd>
+      <dt className="text-muted-foreground">Secret</dt>
+      <dd>
+        <Input
+          className="h-8 text-xs"
+          type="password"
+          value={form.clientSecret}
+          onChange={(e) => onFormChange?.("clientSecret", e.target.value)}
+          placeholder={oauthConfig ? "Leave blank to keep current" : "OAuth Client Secret"}
+        />
+      </dd>
+      <dt className="text-muted-foreground">Auth URL</dt>
+      <dd>
+        <Input
+          className="h-8 text-xs"
+          value={form.authUrl}
+          onChange={(e) => onFormChange?.("authUrl", e.target.value)}
+          placeholder="https://..."
+        />
+      </dd>
+      <dt className="text-muted-foreground">Token URL</dt>
+      <dd>
+        <Input
+          className="h-8 text-xs"
+          value={form.tokenUrl}
+          onChange={(e) => onFormChange?.("tokenUrl", e.target.value)}
+          placeholder="https://..."
+        />
+      </dd>
+      <dt className="text-muted-foreground">Scopes</dt>
+      <dd>
         <Input
           className="h-8 text-xs"
           value={form.scopes}
           onChange={(e) => onFormChange?.("scopes", e.target.value)}
           placeholder="comma-separated"
         />
-      </div>
-      {oauthError && <p className="text-xs text-red-600">{oauthError}</p>}
-      <div className="flex gap-2">
+      </dd>
+      {oauthError && (
+        <div className="col-span-2">
+          <p className="text-xs text-red-600">{oauthError}</p>
+        </div>
+      )}
+      <div className="col-span-2 flex gap-2 pt-1">
         <Button
           size="sm"
           className="h-7 text-xs"
@@ -273,7 +264,7 @@ function OAuthEditForm({
           Cancel
         </Button>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -293,107 +284,73 @@ export function HealthOAuthCard({
   onOAuthFormChange,
   testResult,
 }: HealthOAuthCardProps) {
-  const compact = mode === "view";
+  const title = showOAuth ? "Health & OAuth" : "Health";
+  const showOAuthEditButton = showOAuth && !oauthEditing && !oauthLoading;
 
   return (
-    <div className="space-y-4" data-testid="health-oauth-card">
-      <div className="space-y-2">
-        <h4 className="text-sm font-semibold">
-          {mode === "edit" ? "Health & Monitoring" : "Health"}
-        </h4>
-        {compact && health.status ? (
-          <div className="rounded-md border bg-background p-3">
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-              <div>
-                <dt className="text-xs text-muted-foreground">Status</dt>
-                <dd className="mt-0.5">
-                  <HealthIndicator status={health.status} />
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Latency</dt>
-                <dd className="mt-0.5 font-medium">
-                  {health.latencyMs != null ? `${health.latencyMs}ms` : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Errors (24h)</dt>
-                <dd className="mt-0.5 font-medium">{health.errorCount24h ?? 0}</dd>
-              </div>
-              <div className="col-span-2">
-                <dt className="text-xs text-muted-foreground">Last checked</dt>
-                <dd className="mt-0.5 font-medium">
-                  {health.lastCheckedAt
-                    ? new Date(health.lastCheckedAt).toLocaleString()
-                    : "Never"}
-                </dd>
-              </div>
-            </dl>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-            <span>
-              <span className="text-muted-foreground">Latency </span>
-              <span className="font-medium">
-                {health.latencyMs != null ? `${health.latencyMs}ms` : "—"}
-              </span>
-            </span>
-            <span>
-              <span className="text-muted-foreground">Errors (24h) </span>
-              <span className="font-medium">{health.errorCount24h ?? 0}</span>
-            </span>
-            <span>
-              <span className="text-muted-foreground">Last checked </span>
-              <span className="font-medium">
-                {health.lastCheckedAt
-                  ? new Date(health.lastCheckedAt).toLocaleString()
-                  : "Never"}
-              </span>
-            </span>
-          </div>
+    <div className="space-y-2" data-testid="health-oauth-card">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold">{title}</h4>
+        {showOAuthEditButton && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={onOAuthEditStart}
+          >
+            <Pencil className="mr-1 h-3 w-3" />
+            {oauthConfig ? "Edit OAuth" : "Configure OAuth"}
+          </Button>
         )}
       </div>
 
-      {testResult && <TestResultBanner testResult={testResult} />}
+      <div
+        className="rounded-md border bg-background p-3"
+        data-testid="health-oauth-unified-card"
+      >
+        <dl className={ROW_GRID}>
+          <HealthRows health={health} />
 
-      {showOAuth && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold">OAuth Credentials</h4>
-            {!oauthEditing && !oauthLoading && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={onOAuthEditStart}
-              >
-                <Pencil className="mr-1 h-3 w-3" />
-                {oauthConfig ? "Edit" : "Configure"}
-              </Button>
-            )}
-          </div>
-
-          {oauthLoading ? (
-            <p className="text-xs text-muted-foreground">Loading...</p>
-          ) : oauthEditing && oauthForm ? (
-            <OAuthEditForm
-              form={oauthForm}
-              oauthConfig={oauthConfig}
-              oauthSaving={oauthSaving}
-              oauthError={oauthError}
-              onSave={onOAuthSave}
-              onCancel={onOAuthEditCancel}
-              onFormChange={onOAuthFormChange}
-            />
-          ) : oauthConfig ? (
-            <OAuthViewCard config={oauthConfig} compact={compact} />
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No OAuth credentials configured. Click Configure to add.
-            </p>
+          {showOAuth && (
+            <>
+              {oauthLoading ? (
+                <div className="col-span-2 mt-1 border-t pt-3">
+                  <p className="text-xs text-muted-foreground">Loading...</p>
+                </div>
+              ) : oauthEditing && oauthForm ? (
+                <div className="col-span-2 contents" data-testid="oauth-edit-form">
+                  <OAuthEditRows
+                    form={oauthForm}
+                    oauthConfig={oauthConfig}
+                    oauthSaving={oauthSaving}
+                    oauthError={oauthError}
+                    onSave={onOAuthSave}
+                    onCancel={onOAuthEditCancel}
+                    onFormChange={onOAuthFormChange}
+                  />
+                </div>
+              ) : (
+                <>
+                  <SectionDivider label="OAuth Credentials" />
+                  {oauthConfig ? (
+                    <div className="col-span-2 contents" data-testid="oauth-view-card">
+                      <OAuthViewRows config={oauthConfig} />
+                    </div>
+                  ) : (
+                    <div className="col-span-2">
+                      <p className="text-xs text-muted-foreground">
+                        No OAuth credentials configured. Click Configure OAuth to add.
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           )}
-        </div>
-      )}
+        </dl>
+      </div>
+
+      {testResult && <TestResultBanner testResult={testResult} />}
     </div>
   );
 }
