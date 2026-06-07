@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Users,
   ChevronDown,
@@ -27,7 +28,9 @@ import {
 import type {
   AdminAgent,
   AdminAgentListResponse,
+  AgentLifecycleState,
   AgentSuspendRequest,
+  FleetSummary,
 } from "@/lib/types/admin";
 import { CrossUserMappingTable } from "@/components/agents/CrossUserMappingTable";
 import { DelegationsTable } from "@/components/agents/DelegationsTable";
@@ -37,13 +40,24 @@ import { IdentityStackPanel } from "@/components/agents/IdentityStackPanel";
 type PageState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "data"; agents: AdminAgent[] };
+  | { kind: "data"; agents: AdminAgent[]; total: number; summary: FleetSummary | null };
 
-const STATUS_COLORS: Record<AdminAgent["status"], string> = {
+const LIFECYCLE_COLORS: Record<string, string> = {
+  registered: "bg-slate-500/10 text-slate-600 border-slate-200",
+  delegated: "bg-blue-500/10 text-blue-700 border-blue-200",
+  authenticated: "bg-amber-500/10 text-amber-700 border-amber-200",
   active: "bg-green-500/10 text-green-700 border-green-200",
   suspended: "bg-red-500/10 text-red-700 border-red-200",
   inactive: "bg-gray-500/10 text-gray-500 border-gray-200",
 };
+
+const LIFECYCLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "All lifecycles" },
+  { value: "registered", label: "Registered" },
+  { value: "delegated", label: "Delegated" },
+  { value: "authenticated", label: "Authenticated" },
+  { value: "active", label: "Active" },
+];
 
 function formatDate(iso: string | null): string {
   if (!iso) return "Never";
@@ -57,24 +71,63 @@ function truncateKey(key: string | null): string {
 }
 
 export default function AdminAgentFleetPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [state, setState] = useState<PageState>({ kind: "loading" });
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
   const [suspendTarget, setSuspendTarget] = useState<AdminAgent | null>(null);
   const [suspendReason, setSuspendReason] = useState("");
   const [suspending, setSuspending] = useState(false);
 
+  const filters = useMemo(
+    () => ({
+      lifecycle_state: searchParams.get("lifecycle_state") ?? "",
+      user_id: searchParams.get("user_id") ?? "",
+      service: searchParams.get("service") ?? "",
+      q: searchParams.get("q") ?? "",
+    }),
+    [searchParams]
+  );
+
+  const setFilters = useCallback(
+    (next: Partial<typeof filters>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries({ ...filters, ...next })) {
+        if (value) params.set(key, value);
+        else params.delete(key);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `?${qs}` : "?", { scroll: false });
+    },
+    [filters, router, searchParams]
+  );
+
+  const clearFilters = useCallback(() => {
+    router.replace("?", { scroll: false });
+  }, [router]);
+
   const fetchAgents = useCallback(async () => {
     try {
-      const data = await apiClient<AdminAgentListResponse>("admin/agents");
-      setState({ kind: "data", agents: data.agents ?? [] });
+      const query = new URLSearchParams();
+      if (filters.lifecycle_state) query.set("lifecycle_state", filters.lifecycle_state);
+      if (filters.user_id) query.set("user_id", filters.user_id);
+      if (filters.service) query.set("service", filters.service);
+      if (filters.q) query.set("q", filters.q);
+      const path = query.toString() ? `admin/agents?${query}` : "admin/agents";
+      const data = await apiClient<AdminAgentListResponse>(path);
+      setState({
+        kind: "data",
+        agents: data.agents ?? [],
+        total: data.total ?? data.agents?.length ?? 0,
+        summary: data.summary ?? null,
+      });
     } catch (err) {
       setState({
         kind: "error",
         message: err instanceof Error ? err.message : "Failed to load agents",
       });
     }
-  }, []);
+  }, [filters]);
 
   useEffect(() => {
     fetchAgents();
@@ -106,20 +159,13 @@ export default function AdminAgentFleetPage() {
     return <ErrorCard title="Agent Fleet" message={state.message} retry={fetchAgents} />;
   }
 
-  const { agents } = state;
+  const { agents, total, summary } = state;
+  const hasFilters = Boolean(
+    filters.lifecycle_state || filters.user_id || filters.service || filters.q
+  );
 
-  const filtered = agents.filter((a) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (
-      a.agent_id.toLowerCase().includes(q) ||
-      a.name.toLowerCase().includes(q)
-    );
-  });
-
-  const totalDelegations = agents.reduce((sum, a) => sum + a.delegation_count, 0);
-  const activeCount = agents.filter((a) => a.status === "active").length;
-  const suspendedCount = agents.filter((a) => a.status === "suspended").length;
+  const lifecycleLabel = (agent: AdminAgent) =>
+    agent.lifecycle_state ?? agent.status;
 
   return (
     <div className="space-y-6 p-6">
@@ -140,51 +186,88 @@ export default function AdminAgentFleetPage() {
         </Button>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className="p-4">
-          <p className="text-sm text-muted-foreground">Total Agents</p>
-          <p className="text-2xl font-bold">{agents.length}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-muted-foreground">Active</p>
-          <p className="text-2xl font-bold text-green-600">{activeCount}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-muted-foreground">Suspended</p>
-          <p className="text-2xl font-bold text-red-600">{suspendedCount}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-muted-foreground">Total Delegations</p>
-          <p className="text-2xl font-bold">{totalDelegations}</p>
-        </Card>
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Lifecycle</label>
+          <select
+            className="h-9 rounded-md border bg-background px-3 text-sm"
+            value={filters.lifecycle_state}
+            onChange={(e) =>
+              setFilters({ lifecycle_state: e.target.value as AgentLifecycleState | "" })
+            }
+          >
+            {LIFECYCLE_OPTIONS.map((opt) => (
+              <option key={opt.value || "all"} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Delegating user</label>
+          <Input
+            type="email"
+            placeholder="user@company.com"
+            value={filters.user_id}
+            onChange={(e) => setFilters({ user_id: e.target.value })}
+            className="w-52"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Service</label>
+          <Input
+            type="text"
+            placeholder="notion"
+            value={filters.service}
+            onChange={(e) => setFilters({ service: e.target.value })}
+            className="w-36"
+          />
+        </div>
+        <div className="relative space-y-1">
+          <label className="text-xs text-muted-foreground">Search</label>
+          <Search className="absolute left-3 bottom-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Agent name or ID"
+            value={filters.q}
+            onChange={(e) => setFilters({ q: e.target.value })}
+            className="w-52 pl-9"
+          />
+        </div>
+        {hasFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        )}
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          type="text"
-          placeholder="Search agents by name or ID..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
-      </div>
+      {/* Summary bar */}
+      <p className="text-sm text-muted-foreground">
+        Summary: {summary?.total_agents ?? total} agents |{" "}
+        {summary?.delegating_users ?? 0} delegating users |{" "}
+        {summary?.active ?? 0} active | {summary?.authenticated ?? 0} auth&apos;d |{" "}
+        {summary?.registered ?? 0} reg&apos;d
+      </p>
 
       {/* Agent List */}
-      {filtered.length === 0 ? (
+      {agents.length === 0 ? (
         <EmptyState
-          title="No agents found"
+          title="No agents match these filters"
           description={
-            search
-              ? "Try a different search term"
+            hasFilters
+              ? "Try clearing filters or adjusting your search"
               : "No agents have been registered yet"
+          }
+          action={
+            hasFilters
+              ? { label: "Clear filters", onClick: clearFilters }
+              : undefined
           }
         />
       ) : (
         <div className="space-y-2">
-          {filtered.map((agent) => {
+          {agents.map((agent) => {
             const isExpanded = expandedId === agent.agent_id;
             return (
               <Card key={agent.agent_id} className="overflow-hidden">
@@ -214,10 +297,11 @@ export default function AdminAgentFleetPage() {
                       variant="outline"
                       className={cn(
                         "text-xs capitalize",
-                        STATUS_COLORS[agent.status]
+                        LIFECYCLE_COLORS[lifecycleLabel(agent)] ??
+                          LIFECYCLE_COLORS.inactive
                       )}
                     >
-                      {agent.status}
+                      {lifecycleLabel(agent)}
                     </Badge>
 
                     <span className="text-sm text-muted-foreground whitespace-nowrap">

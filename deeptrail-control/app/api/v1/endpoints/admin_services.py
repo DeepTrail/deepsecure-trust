@@ -119,11 +119,16 @@ class ConnectionTestResponse(BaseModel):
 
 
 class HealthSummaryResponse(BaseModel):
+    gateway_status: str
+    gateway_last_seen_at: Optional[str] = None
+    gateway_stale_threshold_seconds: int
     total: int
     up: int
     down: int
     slow: int
     unknown: int
+    stale: int = 0
+    healthy: int = 0
     services: List[Dict[str, Any]]
 
 

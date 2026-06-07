@@ -138,6 +138,13 @@ class DelegationToken(Base):
         comment="How this delegation was created: 'manual', 'template', 'invite', 'admin'",
     )
 
+    status = Column(
+        String(20),
+        nullable=False,
+        server_default="active",
+        comment="Lifecycle status: pending, active, revoked, expired",
+    )
+
     # Lifecycle timestamps
     created_at = Column(
         DateTime(timezone=True),
@@ -275,6 +282,16 @@ class DelegationToken(Base):
     def revoke(self) -> None:
         """Revoke this delegation immediately."""
         self.revoked_at = datetime.now(timezone.utc)
+        self.status = "revoked"
+
+    def sync_status(self) -> None:
+        """Keep persisted status aligned with revocation/expiry timestamps."""
+        if self.revoked_at is not None:
+            self.status = "revoked"
+        elif self.is_expired:
+            self.status = "expired"
+        elif self.status not in ("pending", "active"):
+            self.status = "active"
 
     def to_claims_dict(self) -> Dict[str, Any]:
         """Serialize to JWT-compatible claims dictionary.

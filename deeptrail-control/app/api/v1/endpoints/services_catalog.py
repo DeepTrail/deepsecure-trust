@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.models.connected_service import ConnectedService
 from app.models.service_registry import ServiceRegistry
+from app.services.available_to import AvailableToEvaluator
+from app.services.role_resolver import RoleResolver
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,10 @@ def get_current_user_claims(
         groups = payload.get("groups", [])
         if isinstance(groups, str):
             groups = [groups]
-        return {"sub": sub, "groups": groups}
+        roles = payload.get("roles", [])
+        if isinstance(roles, str):
+            roles = [roles]
+        return {"sub": sub, "groups": groups, "roles": roles}
     except pyjwt.exceptions.PyJWTError as e:
         logger.warning(f"JWT decode failed: {e}")
         raise HTTPException(
@@ -87,16 +92,15 @@ def get_service_catalog(
     db: Session = Depends(get_db),
     claims: dict = Depends(get_current_user_claims),
 ):
-    """Return services visible to the current user based on Available To rules.
-
-    A service is visible if ANY of:
-    - "all" in available_to_roles (Everyone toggle)
-    - no groups AND no users specified (legacy: defaults to everyone)
-    - user's email is in available_to_users
-    - any of user's groups is in available_to_groups
-    """
-    user_email = claims["sub"]
-    user_groups = claims.get("groups", [])
+    """Return services visible to the current user based on Available To rules."""
+    resolver = RoleResolver()
+    evaluator = AvailableToEvaluator()
+    user_ctx = resolver.resolve_context(
+        sub=claims["sub"],
+        jwt_roles=claims.get("roles"),
+        groups=claims.get("groups", []),
+        db=db,
+    )
 
     services = (
         db.query(ServiceRegistry)
@@ -104,27 +108,23 @@ def get_service_catalog(
         .all()
     )
 
-    visible = []
-    for svc in services:
-        roles = svc.available_to_roles if svc.available_to_roles is not None else ["all"]
-        groups = svc.available_to_groups if svc.available_to_groups is not None else []
-        users = svc.available_to_users if svc.available_to_users is not None else []
-
-        if "all" in roles:
-            visible.append(svc)
-        elif not groups and not users:
-            visible.append(svc)
-        elif user_email in users:
-            visible.append(svc)
-        elif any(g in groups for g in user_groups):
-            visible.append(svc)
+    visible = [
+        svc
+        for svc in services
+        if evaluator.is_visible(
+            svc.available_to_roles,
+            svc.available_to_groups,
+            svc.available_to_users,
+            user_ctx,
+        )
+    ]
 
     connected_map: dict = {}
     if visible:
         connected = (
             db.query(ConnectedService)
             .filter(
-                ConnectedService.user_id == user_email,
+                ConnectedService.user_id == user_ctx.sub,
                 ConnectedService.service_id.in_([s.service_id for s in visible]),
                 ConnectedService.disconnected_at.is_(None),
             )

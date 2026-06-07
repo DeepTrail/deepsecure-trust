@@ -21,9 +21,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db.base import Base
 from app.models.connected_service import ConnectedService
 from app.models.delegation import DelegationToken
+from app.models.agent_session import AgentSession, PartyType
 from app.services.delegation_service import (
+    DelegationForbiddenError,
+    DelegationInvalidStateError,
+    DelegationNotFoundError,
     DelegationService,
     PermissionValidationError,
+    PermissionWideningError,
 )
 
 
@@ -977,6 +982,155 @@ class TestConstraints:
         value = service.get_constraint("del-unknown", "any_key", default=0)
 
         assert value == 0
+
+
+# ============================================================================
+# PATCH Delegation Permissions
+# ============================================================================
+
+
+class TestPatchDelegationPermissions:
+    """Tests for patch_delegation_permissions (monotonic narrowing)."""
+
+    def test_patch_narrows_permissions(self, service: DelegationService, db_session: Session):
+        user_id = unique_user_id()
+        agent_id = unique_agent_id()
+        create_connected_service(
+            db_session, user_id, "notion", ["read_pages", "search_content"]
+        )
+        delegation = service.create_delegation(
+            delegator=user_id,
+            agent_id=agent_id,
+            permissions=["notion:pages:read", "notion:pages:search"],
+        )
+        db_session.commit()
+
+        result = service.patch_delegation_permissions(
+            str(delegation.id),
+            user_id,
+            new_permissions=["notion:pages:read"],
+        )
+
+        assert result.delegation.delegated_permissions == ["notion:pages:read"]
+        assert result.sessions_revoked == 0
+
+    def test_patch_widening_rejected(self, service: DelegationService, db_session: Session):
+        user_id = unique_user_id()
+        agent_id = unique_agent_id()
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
+        delegation = service.create_delegation(
+            delegator=user_id,
+            agent_id=agent_id,
+            permissions=["notion:pages:read"],
+        )
+        db_session.commit()
+
+        with pytest.raises(PermissionWideningError) as exc_info:
+            service.patch_delegation_permissions(
+                str(delegation.id),
+                user_id,
+                new_permissions=["notion:pages:read", "notion:pages:search"],
+            )
+        assert exc_info.value.message == "permission_widening_not_allowed"
+
+    def test_patch_revokes_agent_sessions(self, service: DelegationService, db_session: Session):
+        user_id = unique_user_id()
+        agent_id = unique_agent_id()
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
+        delegation = service.create_delegation(
+            delegator=user_id,
+            agent_id=agent_id,
+            permissions=["notion:pages:read", "notion:pages:search"],
+        )
+        session = AgentSession(
+            agent_id=agent_id,
+            delegation_id=delegation.id,
+            owner_email=user_id,
+            scoped_permissions=["notion:pages:read"],
+            party_type=PartyType.FIRST_PARTY,
+            is_active=True,
+        )
+        db_session.add(session)
+        db_session.commit()
+
+        result = service.patch_delegation_permissions(
+            str(delegation.id),
+            user_id,
+            new_permissions=["notion:pages:read"],
+        )
+
+        db_session.refresh(session)
+        assert result.sessions_revoked == 1
+        assert session.is_active is False
+
+    def test_patch_forbidden_for_other_user(self, service: DelegationService, db_session: Session):
+        user_id = unique_user_id()
+        other_user = unique_user_id()
+        agent_id = unique_agent_id()
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
+        delegation = service.create_delegation(
+            delegator=user_id,
+            agent_id=agent_id,
+            permissions=["notion:pages:read"],
+        )
+        db_session.commit()
+
+        with pytest.raises(DelegationForbiddenError):
+            service.patch_delegation_permissions(
+                str(delegation.id),
+                other_user,
+                new_permissions=[],
+            )
+
+    def test_patch_admin_can_modify_any_delegation(
+        self, service: DelegationService, db_session: Session
+    ):
+        user_id = unique_user_id()
+        agent_id = unique_agent_id()
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
+        delegation = service.create_delegation(
+            delegator=user_id,
+            agent_id=agent_id,
+            permissions=["notion:pages:read", "notion:pages:search"],
+        )
+        db_session.commit()
+
+        result = service.patch_delegation_permissions(
+            str(delegation.id),
+            "admin@test.com",
+            is_admin=True,
+            new_permissions=["notion:pages:read"],
+        )
+        assert result.delegation.delegated_permissions == ["notion:pages:read"]
+
+    def test_patch_revoked_delegation_returns_invalid_state(
+        self, service: DelegationService, db_session: Session
+    ):
+        user_id = unique_user_id()
+        agent_id = unique_agent_id()
+        create_connected_service(db_session, user_id, "notion", ["read_pages"])
+        delegation = service.create_delegation(
+            delegator=user_id,
+            agent_id=agent_id,
+            permissions=["notion:pages:read"],
+        )
+        service.revoke_delegation(str(delegation.id))
+        db_session.commit()
+
+        with pytest.raises(DelegationInvalidStateError):
+            service.patch_delegation_permissions(
+                str(delegation.id),
+                user_id,
+                new_permissions=[],
+            )
+
+    def test_patch_not_found(self, service: DelegationService):
+        with pytest.raises(DelegationNotFoundError):
+            service.patch_delegation_permissions(
+                "del-does-not-exist",
+                "user@test.com",
+                new_permissions=[],
+            )
 
 
 # ============================================================================

@@ -10,7 +10,7 @@
 
 export type BackendType = "rest" | "mcp";
 export type ServiceStatus = "active" | "sandbox" | "disable";
-export type HealthStatus = "up" | "healthy" | "down" | "slow" | "unknown";
+export type HealthStatus = "up" | "healthy" | "down" | "slow" | "unknown" | "stale";
 export type McpAuthMethod = "none" | "api-key" | "bearer-token" | "oauth";
 export type McpTransport = "rest" | "streamable-http" | "sse";
 export type DataClassification = "internal" | "confidential" | "restricted";
@@ -180,10 +180,26 @@ export interface SessionEventsResponse {
   total: number;
 }
 
+export type AgentLifecycleState =
+  | "registered"
+  | "delegated"
+  | "authenticated"
+  | "active";
+
+export interface FleetSummary {
+  total_agents: number;
+  delegating_users: number;
+  active: number;
+  authenticated: number;
+  delegated: number;
+  registered: number;
+}
+
 export interface AdminAgent {
   agent_id: string;
   name: string;
-  status: "active" | "suspended" | "inactive";
+  status: AgentLifecycleState | "suspended" | "inactive";
+  lifecycle_state?: AgentLifecycleState;
   public_key: string | null;
   platform: string | null;
   selector: string | null;
@@ -201,6 +217,7 @@ export interface AdminAgent {
 export interface AdminAgentListResponse {
   agents: AdminAgent[];
   total: number;
+  summary?: FleetSummary;
 }
 
 export interface AgentSuspendRequest {
@@ -220,6 +237,7 @@ export interface AdminDelegation {
   expires_at: string | null;
   revoked_at: string | null;
   source: "manual" | "template" | "invite" | "admin";
+  status: "pending" | "active" | "revoked" | "expired";
   template_id: string | null;
 }
 
@@ -239,6 +257,8 @@ export interface AdminDelegationCreateRequest {
 // Delegation Templates
 // ---------------------------------------------------------------------------
 
+export type ProvisionMode = "off" | "on_login" | "on_invite";
+
 export interface DelegationTemplate {
   id: string;
   agent_id: string;
@@ -251,6 +271,8 @@ export interface DelegationTemplate {
   max_actions_per_day: number | null;
   working_hours_start: string | null;
   working_hours_end: string | null;
+  auto_provision: boolean;
+  provision_mode: ProvisionMode;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -277,6 +299,18 @@ export interface DelegationTemplateUpdateRequest {
   max_actions_per_day?: number | null;
   working_hours_start?: string | null;
   working_hours_end?: string | null;
+  auto_provision?: boolean;
+  provision_mode?: ProvisionMode;
+}
+
+export interface TemplateInviteRequest {
+  user_emails: string[];
+}
+
+export interface TemplateInviteResponse {
+  invited: number;
+  delegation_ids: string[];
+  skipped: string[];
 }
 
 export interface DelegationTemplateListResponse {
@@ -288,12 +322,18 @@ export interface DelegationTemplateListResponse {
 // Health & Emergency
 // ---------------------------------------------------------------------------
 
+export type GatewayStatus = "up" | "down" | "unknown";
+
 export interface HealthAggregation {
   total_services: number;
   services_up: number;
   services_down: number;
   services_slow: number;
   services_unknown: number;
+  services_stale: number;
+  gateway_status: GatewayStatus;
+  gateway_last_seen_at: string | null;
+  gateway_stale_threshold_seconds: number;
   total_requests_24h: number;
   success_rate_24h: number;
   avg_latency_ms: number;
@@ -305,6 +345,7 @@ export interface BackendHealthEntry {
   display_name: string;
   backend_type: BackendType;
   health_status: HealthStatus;
+  probe_source: "gateway" | "control_plane" | null;
   latency_ms: number | null;
   error_count_24h: number;
   last_checked_at: string | null;
@@ -323,6 +364,51 @@ export interface EmergencyActionResponse {
   executed_by: string;
   timestamp: string;
   message?: string;
+}
+
+// ---------------------------------------------------------------------------
+// IdP Group → Role Mappings
+// ---------------------------------------------------------------------------
+
+export type CanonicalRole = "employee" | "engineer" | "sales" | "admin" | "security";
+
+export interface IdpMapping {
+  id: string;
+  idp_issuer: string;
+  group_name: string;
+  role: CanonicalRole;
+  enabled: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface IdpMappingListResponse {
+  mappings: IdpMapping[];
+  total: number;
+  idp_metadata: {
+    provider: string;
+    issuer_url: string;
+  };
+}
+
+export interface IdpMappingCreateRequest {
+  group_name: string;
+  role: CanonicalRole;
+  idp_issuer?: string;
+  enabled?: boolean;
+}
+
+export interface IdpMappingUpdateRequest {
+  group_name?: string;
+  role?: CanonicalRole;
+  enabled?: boolean;
+}
+
+export interface IdpImportYamlResponse {
+  imported: number;
+  skipped: number;
+  idp_issuer: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -190,6 +190,27 @@ class TestDynamicBackendLoader:
         mock_tool_cache.invalidate.assert_called_once_with("old-service")
 
     @pytest.mark.asyncio
+    async def test_periodic_refresh_unregisters_rest_adapter(self, loader, mock_adapter, mock_connection_manager, mock_tool_cache):
+        """REST backends are removed from adapter on disable."""
+        mock_adapter.unregister_client = MagicMock()
+        loader._known_services["custom-rest"] = ServiceConfig(
+            service_id="custom-rest", display_name="Custom", backend_type="rest",
+            endpoint_url="https://custom.example.com",
+        )
+
+        with patch("app.backends.dynamic_registry.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.get = AsyncMock(return_value=_registry_response([]))
+            mock_client_cls.return_value = mock_client
+
+            await loader.periodic_refresh()
+
+        mock_adapter.unregister_client.assert_called_once_with("custom-rest")
+        mock_connection_manager.unregister_backend.assert_called_once_with("custom-rest")
+
+    @pytest.mark.asyncio
     async def test_mcp_backend_sets_tools_in_cache(self, loader, mock_tool_cache):
         """MCP backends with discovered_tools populate the tool cache."""
         services = [
@@ -244,7 +265,7 @@ class TestDynamicBackendLoader:
 
             await loader.report_health()
 
-        assert mock_client.post.call_count >= 2
+        assert mock_client.post.call_count >= 3  # 2 service health + 1 gateway heartbeat
 
     def test_stop(self, loader):
         loader._running = True
@@ -263,3 +284,26 @@ class TestDynamicBackendLoader:
             ),
         }
         assert set(loader.known_service_ids) == {"a", "b"}
+
+
+class TestCreateBackendAdapter:
+    def test_dynamic_only_starts_empty(self, monkeypatch):
+        monkeypatch.setenv("GATEWAY_REGISTRY_MODE", "dynamic_only")
+        from app.core.config import reset_settings
+        from app.backends.adapter import create_backend_adapter
+
+        reset_settings()
+        adapter = create_backend_adapter()
+        assert adapter.registered_backends == []
+        reset_settings()
+
+    def test_hybrid_registers_builtin(self, monkeypatch):
+        monkeypatch.setenv("GATEWAY_REGISTRY_MODE", "hybrid")
+        from app.core.config import reset_settings
+        from app.backends.adapter import create_backend_adapter
+
+        reset_settings()
+        adapter = create_backend_adapter()
+        assert "notion" in adapter.registered_backends
+        assert "hubspot" in adapter.registered_backends
+        reset_settings()

@@ -1,5 +1,6 @@
 """Main FastAPI application entrypoint."""
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -68,10 +69,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Token refresh scheduler init skipped: %s", e)
 
+    poller_task = None
+    health_poller = None
+    if settings.CONTROL_PLANE_HEALTH_POLLER:
+        try:
+            from app.services.health_poller import HealthPoller
+
+            health_poller = HealthPoller()
+            poller_task = asyncio.create_task(health_poller.run_loop())
+            logger.info("HealthPoller background task started")
+        except Exception as e:
+            logger.warning("HealthPoller init skipped: %s", e)
+
     yield
 
     # Shutdown
     logger.info("Shutting down DeepSecure Control Plane...")
+    if health_poller is not None:
+        health_poller.stop()
+    if poller_task is not None:
+        poller_task.cancel()
     if scheduler is not None:
         scheduler.shutdown()
     close_publisher()

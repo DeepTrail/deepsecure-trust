@@ -1,7 +1,7 @@
 """Seed script to set initial admin users and default service registry.
 
 Reads ADMIN_EMAILS env var (comma-separated) and sets role='admin'
-on matching user_sessions rows. Also seeds the 5 default REST services
+on matching user_sessions rows. Also seeds the 6 default REST services
 into the service_registry table if they don't already exist.
 
 Usage:
@@ -40,6 +40,13 @@ DEFAULT_SERVICES = [
         "description": "Search messages and send notifications",
         "backend_type": "rest",
         "endpoint_url": "https://slack.com/api",
+    },
+    {
+        "service_id": "hubspot",
+        "display_name": "HubSpot",
+        "description": "Manage contacts, deals, and CRM data",
+        "backend_type": "rest",
+        "endpoint_url": "https://api.hubapi.com",
     },
     {
         "service_id": "gmail",

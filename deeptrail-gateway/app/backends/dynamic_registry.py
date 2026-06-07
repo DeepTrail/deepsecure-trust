@@ -194,6 +194,8 @@ class DynamicBackendLoader:
             error_count = self._error_counts.pop(service_id, 0)
             await self._post_health(service_id, health_status, latency_ms, error_count)
 
+        await self._post_gateway_heartbeat()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -224,6 +226,9 @@ class DynamicBackendLoader:
             return
 
         if svc.backend_type == "mcp":
+            self.connection_manager.unregister_backend(service_id)
+        else:
+            self.adapter.unregister_client(service_id)
             self.connection_manager.unregister_backend(service_id)
         self._error_counts.pop(service_id, None)
         self.tool_cache.invalidate(service_id)
@@ -356,6 +361,26 @@ class DynamicBackendLoader:
                 )
         except Exception as e:
             logger.debug("Failed to post health for '%s': %s", service_id, e)
+
+    async def _post_gateway_heartbeat(self) -> None:
+        """POST gateway liveness heartbeat to Control Plane."""
+        import os
+        from datetime import datetime, timezone
+
+        url = f"{self.control_plane_url}/api/v1/internal/gateway/heartbeat"
+        instance_id = os.getenv("GATEWAY_INSTANCE_ID", os.getenv("HOSTNAME", "gateway"))
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    url,
+                    headers={"X-Internal-API-Token": self.internal_api_token},
+                    json={
+                        "instance_id": instance_id,
+                        "reported_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+        except Exception as e:
+            logger.debug("Failed to post gateway heartbeat: %s", e)
 
     @property
     def known_service_ids(self) -> list[str]:
