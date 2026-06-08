@@ -6,7 +6,6 @@ import logging
 from typing import Optional, List, Dict, Any, Tuple
 
 from ._core.base_client import BaseClient
-from ._core.vault_client import VaultClient
 from ._core.agent_client import AgentClient
 from ._core.exceptions import (
     ApiError,
@@ -25,10 +24,6 @@ from ._core.config import get_effective_deeptrail_control_url, get_effective_dee
 from .resources.agent import Agent
 from .exceptions import DeepSecureClientError
 from .types import Secret as SecretResourceType
-from ._core.policy_client import PolicyClient
-from .integrations.gateway import GatewayClient
-from .integrations.openai import OpenAIIntegration
-from .integrations.anthropic import AnthropicIntegration
 from . import __version__
 
 logger = logging.getLogger(__name__)
@@ -118,23 +113,8 @@ class Client(BaseClient):
         # Share authentication state with the AgentClient
         self.agents._parent_client = self
         
-        # Initialize policy client for policy management
-        self.policy = PolicyClient(api_url=base_url, silent_mode=silent_mode)
-        
-        # Initialize vault client for secret management
-        self.vault = VaultClient(self)
-        
-        # Initialize generic gateway client for model-agnostic API proxying
-        self.gateway = GatewayClient(self)
-        
-        # Initialize OpenAI integration for gateway-proxied OpenAI calls
-        # Uses the gateway client underneath for consistent behavior
-        self.openai = OpenAIIntegration(self)
-        
-        # Initialize Anthropic integration for gateway-proxied Claude calls
-        self.anthropic = AnthropicIntegration(self)
-        
-        # Initialize credentials namespace for issue/verify/revoke operations
+        self._base_url = base_url
+        self._silent_mode_init = silent_mode
         self._credentials_namespace = CredentialsNamespace(self)
         
         # Store control URL for external access
@@ -144,6 +124,58 @@ class Client(BaseClient):
     def control_url(self) -> str:
         """The URL of the DeepSecure Control Plane."""
         return self._control_url
+
+    @property
+    def vault(self):
+        """Vault client for secret management (requires ``pip install deepsecure[admin]``)."""
+        if not hasattr(self, "_vault"):
+            try:
+                from ._core.vault_client import VaultClient
+            except ImportError:
+                raise ImportError(
+                    "Vault operations require admin extras. "
+                    "Install with: pip install deepsecure[admin]"
+                )
+            self._vault = VaultClient(self)
+        return self._vault
+
+    @property
+    def policy(self):
+        """Policy client for policy management (requires ``pip install deepsecure[admin]``)."""
+        if not hasattr(self, "_policy"):
+            try:
+                from ._core.policy_client import PolicyClient
+            except ImportError:
+                raise ImportError(
+                    "Policy operations require admin extras. "
+                    "Install with: pip install deepsecure[admin]"
+                )
+            self._policy = PolicyClient(api_url=self._base_url, silent_mode=self._silent_mode_init)
+        return self._policy
+
+    @property
+    def gateway(self):
+        """Gateway client for model-agnostic API proxying."""
+        if not hasattr(self, "_gateway"):
+            from .integrations.gateway import GatewayClient
+            self._gateway = GatewayClient(self)
+        return self._gateway
+
+    @property
+    def openai(self):
+        """OpenAI integration for gateway-proxied OpenAI calls."""
+        if not hasattr(self, "_openai"):
+            from .integrations.openai import OpenAIIntegration
+            self._openai = OpenAIIntegration(self)
+        return self._openai
+
+    @property
+    def anthropic(self):
+        """Anthropic integration for gateway-proxied Claude calls."""
+        if not hasattr(self, "_anthropic"):
+            from .integrations.anthropic import AnthropicIntegration
+            self._anthropic = AnthropicIntegration(self)
+        return self._anthropic
     
     @property
     def version(self) -> str:
@@ -777,9 +809,12 @@ class DeepSecure:
         if self._agent_id:
             self.authenticate(self._agent_id)
 
-        # Initialize sub-clients, passing the authenticated BaseClient instance
         self.agents = AgentClient(api_url=self.base_url, silent_mode=self.silent_mode)
-        self.vault = VaultClient(self._client)
+        try:
+            from ._core.vault_client import VaultClient
+            self.vault = VaultClient(self._client)
+        except ImportError:
+            pass
 
     def _create_identity_providers(self) -> List[IdentityProvider]:
         """

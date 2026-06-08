@@ -164,10 +164,10 @@ class EnvironmentDetector:
         
         # Check for EC2 instance metadata service
         try:
-            import requests
-            response = requests.get(
+            import httpx
+            response = httpx.get(
                 "http://169.254.169.254/latest/meta-data/instance-id",
-                timeout=2
+                timeout=2.0
             )
             if response.status_code == 200:
                 confidence += 0.5
@@ -224,11 +224,11 @@ class EnvironmentDetector:
         
         # Check for Azure Instance Metadata Service (IMDS)
         try:
-            import requests
-            response = requests.get(
+            import httpx
+            response = httpx.get(
                 "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
                 headers={"Metadata": "true"},
-                timeout=2
+                timeout=2.0
             )
             if response.status_code == 200:
                 confidence += 0.6

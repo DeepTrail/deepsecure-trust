@@ -6,7 +6,9 @@ from rich.table import Table
 from typing import List, Optional
 import uuid
 
-from deepsecure.policy import policy as policy_client
+from deepsecure._core.policy_client import PolicyClient
+
+policy_client = PolicyClient()
 from deepsecure.utils import handle_api_error
 
 app = typer.Typer(help="Manage policies for agents.")

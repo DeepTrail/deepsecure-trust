@@ -3,7 +3,6 @@
 import os
 import re
 from typing import Dict, Any, Optional, List
-import requests
 import logging
 from datetime import datetime, timedelta
 import jwt
