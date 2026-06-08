@@ -11,6 +11,7 @@ from .commands import (
     configure,
     policy,
     gateway,
+    bootstrap,
     # invoke removed
 )
 from . import __version__
@@ -45,7 +46,7 @@ app.add_typer(agent.app, name="agent", help="Manage agents.")
 app.add_typer(configure.app, name="configure", help="Configure the DeepSecure CLI.")
 app.add_typer(policy.app, name="policy", help="Manage security policies.")
 app.add_typer(gateway.app, name="gateway", help="Manage and monitor the DeepSecure gateway service.")
-# app.add_typer(invoke.app, name="invoke") # Removed invoke command group
+app.add_typer(bootstrap.app, name="bootstrap", help="Bootstrap agent identity and obtain a JWT.")
 
 # Register other commands as they're implemented
 # app.add_typer(audit.app, name="audit")
