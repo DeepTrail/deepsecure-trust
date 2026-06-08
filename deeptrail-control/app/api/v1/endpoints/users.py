@@ -396,9 +396,12 @@ def get_available_permissions(
     """Get all permissions available for delegation based on connected services.
 
     Returns:
-        AvailablePermissionsResponse with services map and flat permission list
+        AvailablePermissionsResponse with services map and flat permission list.
+        Includes both OAuth-connected services and MCP services with discovered tools.
     """
-    # Get all active connected services for user
+    from app.models.service_registry import ServiceRegistry
+
+    # Get all active connected services for user (OAuth-based)
     connections = (
         db.query(ConnectedService)
         .filter(
@@ -412,7 +415,6 @@ def get_available_permissions(
     all_permissions: set = set()
 
     for conn in connections:
-        # Get permissions for this service's scopes
         scopes = conn.scopes_granted or []
         perms = ScopeMapper.get_permissions_for_scopes(conn.service_id, scopes)
 
@@ -424,6 +426,33 @@ def get_available_permissions(
             connected_at=conn.connected_at.isoformat() if conn.connected_at else None,
         )
 
+        all_permissions.update(perms)
+
+    # Include MCP services with discovered tools
+    mcp_services = (
+        db.query(ServiceRegistry)
+        .filter(
+            ServiceRegistry.backend_type == "mcp",
+            ServiceRegistry.status.in_(["active", "sandbox"]),
+            ServiceRegistry.discovered_tools.isnot(None),
+        )
+        .all()
+    )
+
+    for svc in mcp_services:
+        if svc.service_id in services:
+            continue
+        perm_map = svc.permission_map or {}
+        perms = sorted(set(perm_map.values()))
+        if not perms:
+            continue
+
+        services[svc.service_id] = ServicePermissions(
+            connected=True,
+            service_name=svc.display_name or svc.service_id,
+            scopes_granted=["mcp:tools"],
+            available_permissions=perms,
+        )
         all_permissions.update(perms)
 
     return AvailablePermissionsResponse(

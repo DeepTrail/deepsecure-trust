@@ -24,6 +24,10 @@ ALGORITHM = settings.ALGORITHM
 SECRET_KEY = settings.SECRET_KEY
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
+JWT_ISSUER = "deeptrail-control"
+JWT_AUDIENCE = "deeptrail-gateway"
+
+
 def create_access_token(
     subject: Union[str, Any],
     expires_delta: Optional[timedelta] = None,
@@ -34,6 +38,10 @@ def create_access_token(
 ) -> str:
     """
     Generates a new JWT access token.
+
+    Always includes ``iss`` and ``aud`` claims so the Gateway can validate
+    the token origin. These match the constants the Gateway checks
+    (``EXPECTED_ISSUER`` / ``EXPECTED_AUDIENCE``).
     """
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -43,6 +51,8 @@ def create_access_token(
         )
     
     to_encode: dict[str, Any] = {
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
         "exp": expire,
         "iat": datetime.now(timezone.utc),
         "agent_id": str(subject),

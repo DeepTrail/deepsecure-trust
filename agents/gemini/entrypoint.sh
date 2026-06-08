@@ -19,6 +19,7 @@ TAGGED_PROMPTS=(
   "gdrive|You have access to tools via the deepsecure MCP server. Call gdrive.search_files with query 'quarterly report' and limit 5. List the file name, type, and last modified date for each result."
   "gcalendar|You have access to tools via the deepsecure MCP server. Call gcalendar.list_events with calendar_id 'primary' and limit 5. Summarize each event: title, start time, and attendees."
   "slack,notion,gmail|You have access to tools via the deepsecure MCP server. First call slack.list_channels (limit 3), then call notion.search_pages with query 'meeting notes' (limit 3), then call gmail.search_messages with query 'action items' (limit 3). Write a brief summary of what you found across all three services."
+  "exa|You have access to tools via the deepsecure MCP server. IMPORTANT: Tool names use dot notation like 'backend.tool_name'. For Exa tools, the names are exactly 'exa.web_search_exa' and 'exa.web_fetch_exa' (dot-separated, not colon or slash). Call the tool named exa.web_search_exa with query 'DeepSecure AI agent security platform' and numResults 3. Show the title and URL of each result."
 )
 
 # === Bootstrap Function (Phase 1: OIDC → Discovery JWT) ===
