@@ -79,7 +79,7 @@ class ServiceConfig:
             transport=data.get("transport", "rest"),
             mcp_auth_method=data.get("mcp_auth_method", "none"),
             mcp_auth_header=data.get("mcp_auth_header"),
-            mcp_auth_value_decrypted=data.get("mcp_auth_value_decrypted"),
+            mcp_auth_value_decrypted=data.get("mcp_auth_value_decrypted") or data.get("mcp_auth_value"),
             mcp_protocol_version=data.get("mcp_protocol_version", "2024-11-05"),
             discovered_tools=data.get("discovered_tools"),
             permission_map=data.get("permission_map"),
@@ -263,15 +263,41 @@ class DynamicBackendLoader:
 
     def _instantiate_mcp_backend(self, service: ServiceConfig) -> None:
         """Register a GenericMCPClient via BackendConnectionManager."""
+        default_headers: dict[str, str] | None = None
+        if (
+            service.mcp_auth_method
+            and service.mcp_auth_method != "none"
+            and service.mcp_auth_header
+            and service.mcp_auth_value_decrypted
+        ):
+            default_headers = {service.mcp_auth_header: service.mcp_auth_value_decrypted}
+            logger.info(
+                "MCP backend '%s' configured with auth header '%s'",
+                service.service_id,
+                service.mcp_auth_header,
+            )
         config = BackendConfig(
             backend_id=service.service_id,
             base_url=service.endpoint_url,
+            default_headers=default_headers,
         )
         self.connection_manager.register_backend(config)
 
         if service.discovered_tools:
             tools = [CachedTool(**t) for t in service.discovered_tools]
             self.tool_cache.set_tools(service.service_id, tools)
+
+        if service.permission_map:
+            from app.mcp.permission_mapper import PermissionMapper
+
+            for tool_name, perm_string in service.permission_map.items():
+                namespaced = f"{service.service_id}.{tool_name}"
+                PermissionMapper.add_mapping(namespaced, perm_string)
+            logger.info(
+                "Registered %d permission mappings for MCP backend '%s'",
+                len(service.permission_map),
+                service.service_id,
+            )
 
     async def _fetch_registry(self) -> list[ServiceConfig]:
         """GET /api/v1/internal/services/registry from Control Plane."""

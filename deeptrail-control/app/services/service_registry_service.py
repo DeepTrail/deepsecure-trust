@@ -338,10 +338,10 @@ class ServiceRegistryService:
     # --- Internal API (for Gateway) ---
 
     def get_registry_for_gateway(self) -> List[Dict[str, Any]]:
-        """Return active services with decrypted credentials for gateway internal API."""
+        """Return active/sandbox services with decrypted credentials for gateway internal API."""
         services = (
             self.db.query(ServiceRegistry)
-            .filter(ServiceRegistry.status == "active")
+            .filter(ServiceRegistry.status.in_(["active", "sandbox"]))
             .all()
         )
         result = []

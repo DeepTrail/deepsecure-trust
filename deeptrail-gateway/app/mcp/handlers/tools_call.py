@@ -766,31 +766,45 @@ async def _forward_to_backend(
     )
     
     if not injection_result.success:
-        # C7 Fail-closed: No credential = request denied
-        error_msg = injection_result.error_message or "Credential error"
-        logger.warning(
-            "Credential injection failed for backend %s: %s",
-            backend_id,
-            injection_result.error.value if injection_result.error else "unknown",
-        )
-        
-        # E3: Log credential error to audit
-        if agent_context:
-            audit_middleware = get_audit_middleware()
-            await audit_middleware.log_credential_error(
-                agent_context=agent_context,
-                tool_name=f"{backend_id}.{tool_name}",
-                error_message=error_msg,
-                mcp_session_id=backend_session.mcp_session_id,
+        # Dynamic MCP backends (e.g., Exa) are not OAuth-connected services
+        # and have no per-user credential ref.  If the backend is registered in
+        # the connection manager, allow the call to proceed — the connection
+        # manager injects any configured default_headers (API key) automatically,
+        # or the backend works without auth (free plan).
+        _is_dynamic_mcp = False
+        if _backend_client is not None and hasattr(_backend_client, "_connection_manager"):
+            _cm = _backend_client._connection_manager
+            if _cm is not None and _cm.is_backend_registered(backend_id):
+                _is_dynamic_mcp = True
+                logger.info(
+                    "OAuth credential N/A for dynamic MCP backend '%s'; proceeding without OAuth",
+                    backend_id,
+                )
+
+        if not _is_dynamic_mcp:
+            error_msg = injection_result.error_message or "Credential error"
+            logger.warning(
+                "Credential injection failed for backend %s: %s",
+                backend_id,
+                injection_result.error.value if injection_result.error else "unknown",
             )
-        
-        raise MCPError(
-            ToolsCallErrorCode.CREDENTIAL_ERROR,
-            error_msg
-        )
+
+            if agent_context:
+                audit_middleware = get_audit_middleware()
+                await audit_middleware.log_credential_error(
+                    agent_context=agent_context,
+                    tool_name=f"{backend_id}.{tool_name}",
+                    error_message=error_msg,
+                    mcp_session_id=backend_session.mcp_session_id,
+                )
+
+            raise MCPError(
+                ToolsCallErrorCode.CREDENTIAL_ERROR,
+                error_msg
+            )
     
     # C7: Get auth headers (agent never sees these)
-    auth_headers = injection_result.headers
+    auth_headers = injection_result.headers if injection_result.success else {}
     
     if _backend_client is not None:
         # Production: Use configured backend client with injected credentials

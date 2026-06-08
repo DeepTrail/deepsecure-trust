@@ -10,6 +10,7 @@ declare -A SERVICES=(
   ["deeptrail-control"]="deeptrail-control"
   ["deeptrail-gateway"]="deeptrail-gateway"
   ["frontend"]="frontend"
+  ["keycloak"]="keycloak"
 )
 
 if [[ $# -eq 0 ]]; then
@@ -53,6 +54,12 @@ for SERVICE_NAME in "${SELECTED[@]}"; do
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --image="${IMAGE}"
+
+  # Ensure traffic routes to the latest revision
+  gcloud run services update-traffic "${SERVICE_NAME}" \
+    --to-latest \
+    --region="${REGION}" \
+    --project="${PROJECT_ID}" 2>/dev/null || true
 
   echo "✅ ${SERVICE_NAME} deployed"
 done

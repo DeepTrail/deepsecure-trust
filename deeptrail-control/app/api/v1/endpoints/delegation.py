@@ -142,7 +142,30 @@ def create_user_delegation(
         .all()
     )
     
-    if not connections:
+    from app.models.service_registry import ServiceRegistry
+
+    # Build allowed permissions from OAuth-connected services
+    connected_services = [
+        (conn.service_id, conn.scopes_granted or [])
+        for conn in connections
+    ]
+    allowed = ScopeMapper.get_all_allowed_permissions(connected_services)
+
+    # Also include MCP-discovered permissions
+    mcp_services = (
+        db.query(ServiceRegistry)
+        .filter(
+            ServiceRegistry.backend_type == "mcp",
+            ServiceRegistry.status.in_(["active", "sandbox"]),
+            ServiceRegistry.discovered_tools.isnot(None),
+        )
+        .all()
+    )
+    for svc in mcp_services:
+        perm_map = svc.permission_map or {}
+        allowed.update(perm_map.values())
+
+    if not connections and not mcp_services:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -151,21 +174,10 @@ def create_user_delegation(
                 "hint": "Connect a service before creating delegations",
             },
         )
-    
-    # Build list of (service_id, scopes) for ScopeMapper
-    connected_services = [
-        (conn.service_id, conn.scopes_granted or [])
-        for conn in connections
-    ]
-    
-    # Validate permissions using ScopeMapper
-    is_valid, invalid_perms = ScopeMapper.validate_permissions(
-        request.permissions,
-        connected_services,
-    )
-    
-    if not is_valid:
-        allowed = ScopeMapper.get_all_allowed_permissions(connected_services)
+
+    invalid_perms = [p for p in request.permissions if p not in allowed]
+
+    if invalid_perms:
         logger.warning(
             "Permission validation failed: user=%s invalid=%s",
             current_user,

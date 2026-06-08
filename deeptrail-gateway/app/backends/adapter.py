@@ -85,7 +85,13 @@ class BackendClientAdapter:
     def __init__(self) -> None:
         """Initialize the adapter with empty client registry."""
         self._clients: dict[str, BackendClient] = {}
+        self._connection_manager = None
         logger.info("BackendClientAdapter initialized")
+
+    def set_connection_manager(self, connection_manager: "BackendConnectionManager") -> None:
+        """Set the connection manager for dynamic MCP backend fallback."""
+        from .connection_manager import BackendConnectionManager
+        self._connection_manager = connection_manager
 
     def register_client(self, backend_id: str, client: BackendClient) -> None:
         """
@@ -161,8 +167,19 @@ class BackendClientAdapter:
             bool(auth_token),
         )
 
-        # Get client for this backend
+        # Get client for this backend (DirectClient or dynamic MCP fallback)
         client = self._clients.get(backend_id)
+        if client is None and self._connection_manager is not None:
+            if self._connection_manager.is_backend_registered(backend_id):
+                from .base_mcp_client import GenericMCPClient
+
+                client = GenericMCPClient(
+                    self._connection_manager,
+                    backend_id=backend_id,
+                    auto_initialize=True,
+                )
+                self._clients[backend_id] = client
+                logger.info("Auto-registered GenericMCPClient for dynamic backend: %s", backend_id)
         if client is None:
             logger.error("No client registered for backend: %s", backend_id)
             return self._error_response(f"Unknown backend: {backend_id}")

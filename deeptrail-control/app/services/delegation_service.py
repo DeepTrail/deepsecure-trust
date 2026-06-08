@@ -240,24 +240,35 @@ class DelegationService:
             .all()
         )
 
-        if not connections:
-            return False, "User has no connected services", [], []
+        from app.models.service_registry import ServiceRegistry
 
-        # Build list of (service_id, scopes) for ScopeMapper
+        # Build allowed permissions from OAuth-connected services
         connected_services = [
             (conn.service_id, conn.scopes_granted or [])
             for conn in connections
         ]
+        allowed = ScopeMapper.get_all_allowed_permissions(connected_services)
 
-        # Validate each requested permission using ScopeMapper
-        is_valid, invalid_perms = ScopeMapper.validate_permissions(
-            requested_permissions,
-            connected_services,
+        # Also include MCP-discovered permissions
+        mcp_services = (
+            self._db.query(ServiceRegistry)
+            .filter(
+                ServiceRegistry.backend_type == "mcp",
+                ServiceRegistry.status.in_(["active", "sandbox"]),
+                ServiceRegistry.discovered_tools.isnot(None),
+            )
+            .all()
         )
+        for svc in mcp_services:
+            perm_map = svc.permission_map or {}
+            allowed.update(perm_map.values())
 
-        if not is_valid:
-            # Get allowed permissions for error message
-            allowed = ScopeMapper.get_all_allowed_permissions(connected_services)
+        if not connections and not mcp_services:
+            return False, "User has no connected services", [], []
+
+        invalid_perms = [p for p in requested_permissions if p not in allowed]
+
+        if invalid_perms:
             return (
                 False,
                 f"Permissions not allowed by connected scopes: {invalid_perms}",

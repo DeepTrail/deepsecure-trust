@@ -579,7 +579,7 @@ function ServiceCredentialsTab({ encBadge }: { encBadge: React.ReactNode }) {
               <tr className="border-b bg-muted/50">
                 <th className="px-4 py-3 text-left font-medium">Service</th>
                 <th className="px-4 py-3 text-left font-medium">Type</th>
-                <th className="px-4 py-3 text-left font-medium">Auth</th>
+                <th className="px-4 py-3 text-left font-medium">Auth Method</th>
                 <th className="px-4 py-3 text-left font-medium">Status</th>
               </tr>
             </thead>
@@ -591,13 +591,15 @@ function ServiceCredentialsTab({ encBadge }: { encBadge: React.ReactNode }) {
                     <Badge variant="outline">{s.backend_type.toUpperCase()}</Badge>
                   </td>
                   <td className="px-4 py-3">
-                    {s.mcp_auth_method ? (
+                    {s.backend_type === "rest" || s.backend_type === "oauth" ? (
+                      <span className="text-muted-foreground">OAuth</span>
+                    ) : s.mcp_auth_method && s.mcp_auth_method !== "none" ? (
                       <div className="flex items-center gap-1">
-                        <span className="capitalize">{s.mcp_auth_method}</span>
+                        <span className="capitalize">{s.mcp_auth_method.replace(/_/g, " ")}</span>
                         {s.mcp_auth_configured && <Badge variant="secondary" className="text-[10px]">Configured</Badge>}
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">OAuth / REST</span>
+                      <span className="text-muted-foreground">None</span>
                     )}
                   </td>
                   <td className="px-4 py-3">

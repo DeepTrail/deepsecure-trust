@@ -92,6 +92,7 @@ class BackendConfig:
     max_connections: int = 10
     retry_attempts: int = 3
     retry_delay_seconds: float = 1.0
+    default_headers: dict[str, str] | None = None
     
     def __post_init__(self) -> None:
         """Validate configuration."""
@@ -487,7 +488,8 @@ class BackendConnectionManager:
         
         try:
             client = await self._get_or_create_client(backend_id)
-            response = await client.get(config.health_endpoint)
+            health_url = f"{config.base_url}{config.health_endpoint}"
+            response = await client.get(health_url)
             
             if response.status_code == 200:
                 state.mark_healthy()
@@ -604,8 +606,15 @@ class BackendConnectionManager:
         config = state.config
         client = await self._get_or_create_client(backend_id)
         
-        # Build headers
-        headers: dict[str, str] = {"Content-Type": "application/json"}
+        # Build headers — default_headers from config are applied first,
+        # then explicit auth_header/extra_headers can override them.
+        # Accept both JSON and SSE per MCP Streamable HTTP spec.
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        if config.default_headers:
+            headers.update(config.default_headers)
         if auth_header:
             headers["Authorization"] = auth_header
         if extra_headers:
@@ -616,18 +625,34 @@ class BackendConnectionManager:
         for attempt in range(config.retry_attempts):
             try:
                 response = await client.post(
-                    "/",  # MCP endpoint is typically at root
+                    config.base_url,
                     json=request.to_dict(),
                     headers=headers,
                 )
                 
                 # Parse response
                 if response.status_code == 200:
-                    data = response.json()
-                    state.mark_healthy()  # Successful request = healthy
+                    content_type = response.headers.get("content-type", "")
+                    try:
+                        if "text/event-stream" in content_type:
+                            data = self._parse_sse_response(response.text)
+                        else:
+                            data = response.json()
+                    except Exception as parse_err:
+                        logger.warning(
+                            "Backend %s response parse error: %s (ct=%s, body=%s)",
+                            backend_id, parse_err, content_type,
+                            response.text[:200],
+                        )
+                        return MCPResponse.from_error(
+                            code=-32000,
+                            message=f"Response parse error: {parse_err}",
+                            request_id=request.request_id,
+                        )
+                    state.mark_healthy()
                     return MCPResponse.from_dict(data)
                 else:
-                    error_text = response.text[:200]  # Truncate for logging
+                    error_text = response.text[:200]
                     logger.warning(
                         "Backend %s returned %s: %s",
                         backend_id,
@@ -665,6 +690,21 @@ class BackendConnectionManager:
         state.mark_unhealthy(str(last_error))
         raise last_error or BackendRequestError(f"Request to {backend_id} failed")
     
+    @staticmethod
+    def _parse_sse_response(text: str) -> dict[str, Any]:
+        """Extract the last JSON-RPC payload from an SSE stream."""
+        import json as _json
+        data_lines: list[str] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("data:"):
+                payload = stripped[5:].lstrip()
+                if payload:
+                    data_lines.append(payload)
+        if data_lines:
+            return _json.loads(data_lines[-1])
+        return _json.loads(text)
+
     async def send_tools_list(
         self,
         backend_id: str,
@@ -737,7 +777,10 @@ class BackendConnectionManager:
         Returns:
             MCPResponse containing server info
         """
-        params: dict[str, Any] = {}
+        params: dict[str, Any] = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+        }
         if client_info:
             params["clientInfo"] = client_info
         
