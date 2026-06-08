@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepsecure-proxy"
+version = "0.1.0"
+description = "Stdio MCP proxy with transparent JWT refresh for DeepSecure"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27",
+    "typer>=0.9",
+    "deepsecure",
+]
+
+[project.scripts]
+deepsecure-proxy = "deepsecure_proxy.cli:app"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
