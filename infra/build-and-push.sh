@@ -41,9 +41,17 @@ for IMAGE_NAME in "${SELECTED[@]}"; do
   FULL_TAG="${REGISTRY}/${IMAGE_NAME}:${TAG}"
   LATEST_TAG="${REGISTRY}/${IMAGE_NAME}:latest"
 
+  BUILD_OPTS=(--platform linux/amd64)
+  if [[ "${NO_CACHE:-}" == "1" ]]; then
+    BUILD_OPTS+=(--no-cache --pull)
+  fi
+
   echo ""
   echo "--- Building ${IMAGE_NAME} from ${BUILD_CONTEXT}/ ---"
-  docker build --platform linux/amd64 -t "${FULL_TAG}" -t "${LATEST_TAG}" "${BUILD_CONTEXT}/"
+  if [[ "${NO_CACHE:-}" == "1" ]]; then
+    echo "(no-cache build)"
+  fi
+  docker build "${BUILD_OPTS[@]}" -t "${FULL_TAG}" -t "${LATEST_TAG}" "${BUILD_CONTEXT}/"
 
   echo "--- Pushing ${IMAGE_NAME} ---"
   docker push "${FULL_TAG}"

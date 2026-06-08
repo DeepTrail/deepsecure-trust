@@ -332,22 +332,93 @@ def set_oauth_config(
 
 
 @router.post("/services/{service_id}/discover-tools")
-def discover_tools(
+async def discover_tools(
     service_id: str,
     svc: ServiceRegistryService = Depends(get_service),
     _admin: dict = Depends(require_admin),
 ):
+    """Call the MCP server's tools/list and store discovered tools + permissions."""
+    import httpx
+    from datetime import datetime, timezone
+
     service = svc.get_service(service_id)
     if not service:
         raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found")
     if service.backend_type != "mcp":
         raise HTTPException(status_code=400, detail="Tool discovery only available for MCP services")
 
+    endpoint = service.endpoint_url
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Service has no endpoint_url configured")
+
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        init_resp = await client.post(endpoint, json={
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "deepsecure-discovery", "version": "1.0.0"},
+            },
+        }, headers=headers)
+
+        if init_resp.status_code not in (200, 202):
+            raise HTTPException(
+                status_code=502,
+                detail=f"MCP initialize failed: HTTP {init_resp.status_code} — {init_resp.text[:200]}",
+            )
+
+        session_id = init_resp.headers.get("Mcp-Session-Id")
+        list_headers = {**headers}
+        if session_id:
+            list_headers["Mcp-Session-Id"] = session_id
+
+        list_resp = await client.post(endpoint, json={
+            "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
+        }, headers=list_headers)
+
+        if list_resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"MCP tools/list failed: HTTP {list_resp.status_code} — {list_resp.text[:200]}",
+            )
+
+    content_type = list_resp.headers.get("content-type", "")
+    if "text/event-stream" in content_type:
+        import json as _json
+        data = {}
+        for line in list_resp.text.split("\n"):
+            if line.startswith("data:"):
+                data = _json.loads(line[5:].strip())
+                break
+    else:
+        data = list_resp.json()
+    tools_raw = data.get("result", {}).get("tools", [])
+
+    discovered = []
+    permission_map = {}
+    for t in tools_raw:
+        name = t.get("name", "")
+        discovered.append({
+            "name": name,
+            "description": t.get("description", ""),
+            "inputSchema": t.get("inputSchema", {}),
+        })
+        perm_string = f"{service_id}:tools:{name}"
+        permission_map[name] = perm_string
+
+    svc.update_service(service_id, {
+        "discovered_tools": discovered,
+        "permission_map": permission_map,
+        "tools_last_discovered_at": datetime.now(timezone.utc).isoformat(),
+    })
+
     return {
         "service_id": service_id,
-        "message": "Tool discovery placeholder — requires gateway proxy in production",
-        "discovered_tools": service.discovered_tools or [],
-        "permission_map": service.permission_map or {},
+        "tools_discovered": len(discovered),
+        "tools": [{"name": t["name"], "description": t["description"]} for t in discovered],
+        "permission_map": permission_map,
     }
 
 

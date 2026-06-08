@@ -1,7 +1,7 @@
 # AFK (Away From Keyboard) Workflows for DeepSecure
 
 > **Goal:** Enable developers to write a spec, walk away, and come back to passing tests and open PRs.
-> This document synthesizes research from 20 industry sources into a concrete implementation plan for DeepSecure.
+> This document synthesizes research from 48 industry sources into a concrete implementation plan for DeepSecure.
 
 ---
 
@@ -9,7 +9,7 @@
 
 - [Research Sources](#research-sources)
 - [Design Principles](#design-principles) (13 principles)
-- [Industry Consensus: 8 Pillars of AFK Development](#industry-consensus-8-pillars-of-afk-development) (+ Pillar 9: Dynamic Workflows)
+- [Industry Consensus: 8 Pillars of AFK Development](#industry-consensus-8-pillars-of-afk-development) (+ Pillars 9-11)
   - [1. Plan First, Execute Autonomously](#1-plan-first-execute-autonomously)
   - [2. Fresh Context Per Iteration (Ralph Wiggum Pattern)](#2-fresh-context-per-iteration-the-ralph-wiggum-pattern)
   - [3. Manual First, Automate Second](#3-manual-first-automate-second)
@@ -19,6 +19,10 @@
   - [7. Notification When Stuck or Done](#7-notification-when-stuck-or-done)
   - [8. CLAUDE.md as Table of Contents](#8-claudemd-as-table-of-contents-not-encyclopedia)
   - [9. Dynamic Workflows](#9-dynamic-workflows-claude-code-may-2026)
+  - [10. Routines (Cloud-Based Scheduled Agents)](#10-routines-cloud-based-scheduled-agents)
+  - [11. Agent View and Background Sessions](#11-agent-view-and-background-sessions)
+- [Production Failure Modes](#production-failure-modes)
+- [AFK Cost Economics](#afk-cost-economics)
 - [DeepSecure on Shapiro's Five Levels](#where-deepsecure-sits-on-shapiros-five-levels)
 - [DeepSecure as AFK Security Infrastructure](#deepsecure-as-afk-security-infrastructure-dog-fooding)
 - [What DeepSecure Already Has](#what-deepsecure-already-has)
@@ -34,8 +38,9 @@
   - [Phase 6: Parallel Orchestration](#phase-6-sandcastle-style-parallel-orchestration)
 - [Priority Ranking](#priority-ranking)
 - [Architectural Decision: Ralph Loop vs /run-batch](#architectural-decision-ralph-loop-vs-run-batch)
-- [Verified Claude Code API Surface](#verified-claude-code-api-surface-may-2026)
+- [Verified Claude Code API Surface](#verified-claude-code-api-surface-june-2026)
 - [Machine Sleep and Recovery Protocol](#machine-sleep-and-recovery-protocol)
+- [Competitive Landscape (June 2026)](#competitive-landscape-june-2026)
 - [The Contrarian Views](#the-contrarian-views)
 - [Key Takeaways by Practitioner](#key-takeaways-by-practitioner)
 
@@ -78,6 +83,21 @@
 | 31 | Sandcastle Framework | Matt Pocock | TypeScript library for parallel sandboxed agents, worktree + Docker isolation, branch strategies | [github.com/mattpocock/sandcastle](https://github.com/mattpocock/sandcastle) |
 | 32 | The Creator of OpenCode on AI Productivity | Codacy / Dax Raad | "The productivity feeling is real, the productivity isn't", one fast agent > many slow, wait for users | [blog.codacy.com](https://blog.codacy.com/the-creator-of-opencode-thinks-youre-fooling-yourself-about-ai-productivity) |
 | 33 | 2026 Agentic Coding Trends Report | Anthropic | Industry-wide adoption metrics, permission modes, hook patterns, enterprise deployment patterns | [resources.anthropic.com](https://resources.anthropic.com/hubfs/2026%20Agentic%20Coding%20Trends%20Report.pdf) |
+| 34 | Agent View Documentation | Anthropic | `claude agents` dashboard, supervisor process, background sessions, `/bg`, session lifecycle | [code.claude.com](https://code.claude.com/docs/en/agent-view) |
+| 35 | /goal Command Documentation | Anthropic | Evaluator-based autonomous completion, Haiku-class checker, turn/time bounds, `/goal` vs `/loop` | [code.claude.com](https://code.claude.com/docs/en/goal) |
+| 36 | Routines Documentation | Anthropic (Noah Zweben) | Cloud-based scheduled agents, API/GitHub/cron triggers, `/schedule`, daily caps, branch permissions | [code.claude.com](https://code.claude.com/docs/en/routines) |
+| 37 | Dynamic Workflows Blog | Anthropic | 6 composition patterns, JS orchestration, `ultracode` effort, `/deep-research`, 1000 subagent cap | [claude.com/blog](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code) |
+| 38 | A Harness for Every Task | Anthropic (Boris Cherny) | Fan-out-synthesize, adversarial verification, tournament, classify-and-act, generate-and-filter, loop-until-done | [claude.com/blog](https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code) |
+| 39 | Opus 4.8 Announcement | Anthropic | Adaptive thinking, effort levels, SWE-Bench Pro 69.2%, dynamic workflows launch, fast mode 3x cheaper | [anthropic.com](https://www.anthropic.com/news/claude-opus-4-8) |
+| 40 | Ralph Claude Code v0.11.5 | frankbria | Circuit breaker, dual-condition exit gate, rate limiting, 5-hour API detection, session continuity | [github.com](https://github.com/frankbria/ralph-claude-code) |
+| 41 | Peter Steinberger (steipete) | steipete.me | Anti-infrastructure: no worktrees, no MCP, no subagents, pointer-style AGENTS.MD, iterative rules | [steipete.me](https://steipete.me/posts/just-talk-to-it) |
+| 42 | Agent AFK | Mike Piccolo | Local-first control plane, 11 skills, adversarial re-derivation, Telegram oversight, `npm install -g agent-afk` | [agentafk.com](https://www.agentafk.com/) |
+| 43 | Afkode | Afkode.ai | Desktop orchestrator, 8-phase planning, 16 model slots, operational journal, worktree isolation | [afkode.ai](https://afkode.ai/docs) |
+| 44 | Background Claude | Cyrus | Headless/scheduled/managed AFK modes, `--permission-mode dontAsk`, cost management patterns | [backgroundclaude.com](https://backgroundclaude.com/) |
+| 45 | Hermes Agent v0.14.0 | Nous Research | `/handoff` live model switch, cross-session prompt caching, OpenAI-compatible proxy, 22 platforms | [github.com](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.5.16) |
+| 46 | OWASP Top 10 for Agentic Applications | OWASP | ASI05 hardware-enforced sandboxing, ASI04 short-lived credentials, ASI08 resource exhaustion | [genai.owasp.org](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) |
+| 47 | Anthropic 50-Day Degradation Postmortem | InfoQ / VentureBeat | Reasoning effort downgrade, caching bug, system prompt verbosity, 73% thinking collapse, silent fallbacks | [infoq.com](https://www.infoq.com/news/2026/05/anthropic-claude-code-postmortem/) |
+| 48 | Agent SDK Billing Change (June 15) | Anthropic | `claude -p` headless gets separate credit pool ($20-200/mo), hard failure on exhaustion, no fallback | [support.claude.com](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) |
 
 ---
 
@@ -267,6 +287,46 @@ The lesson: upgrading the model from Sonnet to Opus matters less than ensuring t
 
 **For DeepSecure:** Before investing in more sophisticated orchestration, ensure `docker compose up` is fast and reliable, test suites run quickly, and the Ralph prompt loads the right context.
 
+### Principle 14: Silent Degradation is the Real Enemy (Anthropic Postmortem + Community)
+
+> "50 days of quality collapse across three overlapping product-layer changes, and no user-facing notification." — InfoQ, May 2026
+
+The March-April 2026 degradation incident proved that AFK workflows face threats beyond model capability:
+
+1. **Reasoning effort was silently downgraded** (high to medium) for UI latency — reverted April 7
+2. **A caching bug** cleared thinking blocks every turn instead of once per idle session — users with 900K tokens faced full cache misses — fixed April 10
+3. **System prompt verbosity limit** ("keep text between tool calls to 25 words") caused 3% quality drop — reverted April 20
+
+Independent audit (Stella Laurenzo, AMD): 6,852 sessions analyzed. Median visible thinking collapsed 73% (2,200 chars in Jan to 600 chars in March). API calls required up to 80x more retries.
+
+**The lesson for AFK:** Product-layer changes can break autonomous workflows without any model change. AFK workflows must include their own quality monitoring — not just "did the task complete" but "did the output quality degrade."
+
+**Context budget thresholds (observed):**
+
+| Context Usage | Behavior |
+|---------------|----------|
+| 0-20% | Peak performance |
+| ~20% | Circular reasoning can appear |
+| ~40% | Context compression kicks in, degradation starts |
+| ~48% | Model recommends fresh session |
+| ~80% | Auto-compaction fires |
+
+**Critical:** Verbal constraints set during a session ("don't modify file X") are lost during compaction. Only CLAUDE.md rules survive compaction (re-injected at session start). All critical AFK constraints must be in CLAUDE.md or the prompt file, never set conversationally.
+
+### Principle 15: Cost Isolation for Headless Agents (Anthropic, June 2026)
+
+> "Automated requests fail — they do not queue, do not fall back to a lower-cost model, and do not notify the user in real time." — Anthropic Agent SDK billing docs
+
+**Effective June 15, 2026:** `claude -p` (headless mode) draws from a separate Agent SDK credit pool, not the interactive subscription.
+
+| Plan | Agent SDK Credits/Month | Hard Failure On Exhaustion |
+|------|------------------------|---------------------------|
+| Pro | $20 | Yes — requests fail silently |
+| Max 5x / Team Premium | $100 | Yes |
+| Max 20x / Enterprise Premium | $200 | Yes |
+
+This means a heavy AFK Ralph loop could exhaust Pro credits ($20) in hours. The previous subscription was subsidizing agent usage by 15-30x versus API pricing. AFK workflows must include cost monitoring and overflow configuration (opt-in "usage credits" toggle, OFF by default).
+
 ---
 
 ## Industry Consensus: 8 Pillars of AFK Development
@@ -302,7 +362,7 @@ Run the agent in a `while true` loop, each iteration starting with a clean conte
 1. A bash loop repeatedly invokes `claude` with a prompt file
 2. Each iteration: agent reads a PRD + progress file, finds the next unchecked task, implements it, commits, updates progress
 3. Fresh context window each iteration -- avoids context pollution from long sessions
-4. Originally by Geoffrey Huntley; Ryan Carson built the [snarktank/ralph](https://github.com/snarktank/ralph/) repo (17k stars); Matt Pocock popularized and refined the workflow
+4. Originally by Geoffrey Huntley; Ryan Carson built the [snarktank/ralph](https://github.com/snarktank/ralph/) repo (17k stars); Matt Pocock popularized and refined the workflow; frankbria/ralph-claude-code v0.11.5 added production-grade reliability features
 
 ```bash
 # The core Ralph pattern (simplified)
@@ -360,6 +420,41 @@ loop:
 ```
 
 Each task has explicit acceptance criteria. `passes: false` -> `passes: true` only when criteria are satisfied.
+
+**Ralph v0.11.5 Production Features (frankbria/ralph-claude-code):**
+
+The community fork has matured significantly with 784 tests at 100% pass rate:
+
+| Feature | How It Works |
+|---------|-------------|
+| **Dual-Condition Exit Gate** | Both `completion_indicators >= 2` AND `EXIT_SIGNAL: true` in RALPH_STATUS block required — prevents premature exit |
+| **Circuit Breaker** | 3 loops no progress OR 5 loops same error → OPEN state; 30min cooldown; state machine CLOSED → OPEN → HALF_OPEN → CLOSED |
+| **Rate Limiting** | Default 100 calls/hour (`MAX_CALLS_PER_HOUR`), optional `MAX_TOKENS_PER_HOUR` |
+| **5-Hour API Limit Detection** | Three-layer verification (timeout guard, JSON parsing, filtered text fallback) |
+| **Session Continuity** | `--resume <session_id>` with 24hr expiry |
+| **GitHub Integration** | Issue import, lifecycle management, queue processing, follow-up issue creation |
+
+Modern CLI: `--monitor` (tmux dashboard), `--live` (streaming), `--dry-run`, `--backup`/`--rollback`, `--notify`. Config via `.ralphrc` file.
+
+**`/goal` as Ralph Alternative (v2.1.139+):**
+
+The `/goal` command provides a built-in alternative to the Ralph loop for single-session autonomous work:
+- Sets a completion condition; Claude keeps working across turns until met
+- After each turn, a **separate Haiku-class evaluator** checks the condition (not the worker model)
+- If "no" → Claude starts another turn with the evaluator's reason as guidance
+- If "yes" → goal clears automatically
+
+```bash
+# Non-interactive /goal usage
+claude -p "/goal all acceptance criteria in TASK.md are verified and tests pass, or stop after 20 turns"
+```
+
+| Approach | Next turn starts when | Stops when | Best for |
+|----------|----------------------|------------|----------|
+| Ralph loop | Previous iteration finishes | Sentinel or max iterations | Multi-task workstreams with fresh context |
+| `/goal` | Previous turn finishes | Evaluator confirms condition | Single complex task within one session |
+| `/loop` | Time interval elapses | User stops or Claude decides | Recurring/polling tasks |
+| Stop hook | Previous turn finishes | Your script decides | Custom completion logic |
 
 ---
 
@@ -610,32 +705,209 @@ The tension: CLAUDE.md should compound learnings, but it shouldn't grow unbounde
 
 ### 9. Dynamic Workflows (Claude Code, May 2026)
 
-**NEW (May 28, 2026):** Claude Code now supports JavaScript orchestration scripts that the agent writes for your task, executed by a separate runtime in the background. This is a potential replacement for Phase 6's manual parallel orchestration.
+**NEW (May 28, 2026):** Claude Code now supports JavaScript orchestration scripts that the agent writes for your task, executed by a separate runtime in the background. Launched alongside Opus 4.8, this is the most significant change to Claude Code's autonomous capabilities. Requires **v2.1.154+**.
 
 **How it works:**
+- Claude writes the orchestration script; a separate runtime executes it in the background
 - Up to **16 concurrent subagents** per workflow, max 1,000 agents total per run
-- Subagents inherit your tool allowlist and run in `acceptEdits` mode
-- Triggered by including the word "workflow" in your prompt, or via `/deep-research`
-- `/effort ultracode` enables automatic workflow orchestration with xhigh reasoning
-- Intermediate state stored in script variables, isolated from conversation context
-- Saved workflows can be reused like slash commands via `/workflows` then pressing `s`
+- Subagents inherit your tool allowlist and run in `acceptEdits` mode (file edits auto-approved; shell commands and MCP tools not in allowlist can still prompt)
+- Intermediate results stay in script variables, isolated from Claude's context window
+- Workflows are resumable within the same session
+- Saved workflows stored in `.claude/workflows/` (project) or `~/.claude/workflows/` (global) — reusable like slash commands
 - `alt+w` bypasses workflow routing if triggered accidentally
 
+**Activation methods:**
+
+| Method | How | When |
+|--------|-----|------|
+| Direct prompt | Include "workflow" in your prompt | On-demand |
+| `/effort ultracode` | Combines `xhigh` reasoning + automatic workflow orchestration | For substantive tasks |
+| `/deep-research` | Built-in fan-out web research workflow | For research tasks |
+| Agent SDK | `"ultracode": true` in settings | Programmatic |
+
+**Boris Cherny's 6 Composition Patterns:**
+
+| # | Pattern | How It Works | Best For |
+|---|---------|-------------|----------|
+| 1 | **Classify-and-act** | Classifier agent decides task type, routes to different agents/behavior | Mixed workloads, triage |
+| 2 | **Fan-out-and-synthesize** | Split into parallel clean-context agents, merge structured outputs at barrier | Research, exploration |
+| 3 | **Adversarial verification** | Separate agent challenges each output against a rubric (counters self-preferential bias) | Code review, security audit |
+| 4 | **Generate-and-filter** | Multiple candidate solutions, filter by rubric/verification | Approach exploration |
+| 5 | **Tournament** | Competing agents, pairwise comparison by judges until winner | Optimization, best-of-N |
+| 6 | **Loop until done** | Iterative agents until stopping conditions met | Converging tasks |
+
+**Key primitives:** `agent()`, `parallel([fns])`, `pipeline(items, ...stages)`. Per-agent control: model selection, worktree isolation, token budgets (e.g., `"use 10k tokens"`).
+
+**Failure modes addressed:**
+- **Agentic laziness** — premature task completion claims (adversarial verification catches)
+- **Self-preferential bias** — overvaluing own results during verification (separate verifier agent)
+- **Goal drift** — fidelity loss post-compaction (fresh-context subagents)
+
+**Proof at scale:** Jarred Sumner ported Bun from Zig to Rust using dynamic workflows: 750,000 lines, 99.8% test pass rate, 11 days.
+
 **What this replaces:**
+
 | Phase 6 Script | Dynamic Workflow Equivalent |
 |----------------|----------------------------|
 | `parallel-build.sh` + worktrees | Single `workflow` prompt spawns N subagents |
-| `parallel-build-tmux.sh` | Built-in -- no tmux needed |
+| `parallel-build-tmux.sh` | Built-in — no tmux needed |
 | `merge-parallel.sh` | Subagents commit to branches, workflow merges |
 | Manual tmux session management | Automatic lifecycle management |
 
 **What this does NOT replace:**
-- The Ralph loop (fresh context per iteration) -- workflows run within a session
-- The planning pipeline (`/run-plan`, `/breakdown-design`) -- workflows are execution, not planning
-- Merge point verification -- workflows don't know about `execute_merge_point.sh`
-- Docker sandbox isolation -- workflows run in the host environment
+- The Ralph loop (fresh context per iteration) — workflows run within a session
+- The planning pipeline (`/run-plan`, `/breakdown-design`) — workflows are execution, not planning
+- Merge point verification — workflows don't know about `execute_merge_point.sh`
+- Docker sandbox isolation — workflows run in the host environment
 
-**Recommended approach:** Use Dynamic Workflows for intra-batch parallelism (multiple independent tasks within one batch), but keep the Ralph loop for inter-batch sequencing (fresh context between batches).
+**Recommended approach:** Use Dynamic Workflows for intra-batch parallelism (multiple independent tasks within one batch), but keep the Ralph loop for inter-batch sequencing (fresh context between batches). Consider the fan-out-and-synthesize pattern for DeepSecure's dual-service architecture (parallel control plane + gateway tasks).
+
+---
+
+### 10. Routines (Cloud-Based Scheduled Agents)
+
+**NEW (April 14, 2026 — Research Preview):** Routines are cloud-based agents that run on Anthropic infrastructure. They persist when your laptop is closed, when you're away, when you're sleeping. This is the closest to true AFK — no local machine required.
+
+**Three trigger types:**
+
+| Trigger | How | Example |
+|---------|-----|---------|
+| **Scheduled** | Hourly, daily, weekdays, weekly, custom cron, one-off timestamp | `daily at 9am: review open PRs` |
+| **API** | HTTP POST to per-routine endpoint with bearer token | Sentry alert → routine fires |
+| **GitHub** | `pull_request` or `release` events with filters | New PR → auto-review |
+
+**GitHub event filters:** author, title, body, base branch, head branch, labels, is draft, is merged. Operators: equals, contains, starts with, is one of, is not one of, matches regex.
+
+**CLI commands:**
+
+```bash
+# Create scheduled routine conversationally
+/schedule
+
+# Create with description
+/schedule daily PR review at 9am
+
+# One-off future task
+/schedule in 2 weeks, open a cleanup PR
+
+# List routines
+/schedule list
+
+# Trigger immediately
+/schedule run
+
+# Update existing routine (can set custom cron)
+/schedule update
+```
+
+**API trigger example:**
+
+```bash
+curl -X POST https://api.anthropic.com/v1/claude_code/routines/trig_01.../fire \
+  -H "Authorization: Bearer sk-ant-oat01-xxxxx" \
+  -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Sentry alert SEN-4521 fired in prod."}'
+# Returns: {"type": "routine_fire", "claude_code_session_id": "...", "claude_code_session_url": "..."}
+```
+
+**Daily caps:**
+
+| Plan | Runs/Day | One-Off Exempt? |
+|------|----------|----------------|
+| Pro | 5 | Yes |
+| Max | 15 | Yes |
+| Team/Enterprise | 25 | Yes |
+
+**Constraints:**
+- Minimum cron interval: 1 hour
+- Default push only to `claude/`-prefixed branches (configurable per repo)
+- All MCP connectors included by default — remove unneeded ones
+- Network access: Default "Trusted" allowlist, configurable to Custom or Full
+- Admins can disable via toggle at `claude.ai/admin-settings/claude-code`
+
+**AFK implications for DeepSecure:**
+
+| Use Case | Routine Setup |
+|----------|---------------|
+| Overnight PR review | `/schedule daily at 11pm: review all open PRs on dev branch` |
+| CI failure auto-fix | GitHub trigger on `pull_request` with failing checks |
+| Docs sync | `/schedule weekdays at 6am: sync API docs with implementation` |
+| Security scan | `/schedule daily: run bandit and safety check, open PR if issues found` |
+| Dependency updates | `/schedule weekly: check for dependency updates, test, open PR` |
+
+**Routines vs Ralph loop:** Routines run on Anthropic's cloud — no laptop, no `caffeinate`, no crash recovery needed. But they have daily caps and limited local environment access. Use Routines for recurring maintenance tasks; use Ralph for intensive multi-task workstreams that need full dev environment access.
+
+---
+
+### 11. Agent View and Background Sessions
+
+**NEW (May 11, 2026 — Research Preview):** Agent View (`claude agents`) provides a unified terminal dashboard for managing all Claude Code sessions — foreground, background, and interactive. Requires **v2.1.139+**.
+
+**Core commands:**
+
+| Command | Function |
+|---------|----------|
+| `claude agents` | Open the dashboard |
+| `claude --bg "prompt"` | Launch session directly to background |
+| `claude --bg --name "name" "prompt"` | Background session with display name |
+| `claude --bg --exec 'command'` | Run shell command as background job (no model) |
+| `claude --bg --agent <name> "prompt"` | Run specific subagent as background session |
+| `claude attach <id>` | Attach to session |
+| `claude logs <id>` | View recent output |
+| `claude stop <id>` / `claude kill <id>` | Stop session |
+| `claude respawn <id>` | Restart with conversation intact |
+| `claude respawn --all` | Restart all sessions (e.g., after binary update) |
+| `claude rm <id>` | Remove session |
+| `claude daemon status` | Supervisor state |
+
+**In-session commands:**
+
+| Command | Action |
+|---------|--------|
+| `/bg` or `/background` | Move current session to background |
+| `left-arrow` on empty prompt | Background and open agent view |
+| `/stop` | End a background session from inside |
+
+**Session states:** Working (animated), Needs input (yellow), Idle (dimmed), Completed (green), Failed (red), Stopped (grey). Process icons: `*` (alive), `.` (exited, restarts on attach), `+` (/loop session sleeping).
+
+**Supervisor process:**
+- Per-user, auto-starts, manages all background sessions
+- Sessions preserved across terminal close, shell exit, and macOS sleep (but not shutdown)
+- Idle sessions stopped after ~1 hour (pinned sessions exempt — `Ctrl+T` to pin)
+- Auto-detects Claude Code binary updates and restarts into new version
+- State stored at: `~/.claude/daemon.log`, `~/.claude/daemon/roster.json`, `~/.claude/jobs/<id>/`
+- `CLAUDE_JOB_DIR` env var: each background session gets its own scratch directory at `$CLAUDE_JOB_DIR/tmp`
+
+**Background session isolation:** Before editing files, Claude automatically moves background sessions into isolated git worktrees under `.claude/worktrees/`. Disable with `worktree.bgIsolation: "none"` setting (v2.1.143+).
+
+**Dispatch input prefixes (from agent view):**
+- `<agent-name> <prompt>` — run as that subagent
+- `@<agent-name>` — mention subagent anywhere in prompt
+- `@<repo>` — target specific repo directory
+- `/<command>` — suggest skills/commands
+- `! <command>` — run shell command as background job
+- `#<number>` or PR URL — select existing session for that PR
+
+**Configuration flags carry through to background:** `--mcp-config`, `--settings`, `--add-dir`, `--plugin-dir`, `--fallback-model`, `--permission-mode`, `--model`, `--effort`, `--agent`.
+
+**AFK implications for DeepSecure:**
+
+| Old AFK Pattern | New Agent View Pattern |
+|-----------------|----------------------|
+| `nohup ralph.sh &` + `caffeinate` | `claude --bg --name "ws-a1" "prompt"` — supervisor handles lifecycle |
+| `tmux` sessions for parallel agents | Agent View dashboard — all sessions in one view |
+| Manual crash recovery (`afk-recover.sh`) | `claude respawn <id>` or `claude respawn --all` |
+| `ralph_progress.json` polling | Agent View shows session state in real-time |
+| SSH/remote terminal for monitoring | `claude agents --json` for scripting, `claude logs <id>` for output |
+
+**Session forking for safety:**
+```bash
+# Fork before risky operation — original session preserved if it fails
+claude --resume <id> --fork-session
+```
+`/branch` does the same from within a session. Both create independent copies with all context preserved — a safety mechanism for AFK agents attempting risky operations.
 
 ---
 
@@ -670,6 +942,110 @@ The tension: CLAUDE.md should compound learnings, but it shouldn't grow unbounde
 > "Skills decay. A Next.js skill from six months ago may conflict with your current component library. He'd gladly pay for a system that audits his skills library, flags conflicts, and surfaces what's gone stale."
 
 This applies to DeepSecure's CLAUDE.md and skills -- they need a staleness audit mechanism (see `doc-gardener` agent in Phase 4).
+
+---
+
+## Production Failure Modes
+
+Real-world AFK workflows fail in ways that testing doesn't predict. These are documented failure modes from production deployments:
+
+### The 50-Day Silent Degradation (March-April 2026)
+
+Three overlapping Anthropic product-layer changes caused quality collapse without any model change:
+
+| Date | Change | Impact | Reverted |
+|------|--------|--------|----------|
+| March 4 | Reasoning effort downgraded (high → medium) for UI latency | Reduced thinking depth | April 7 |
+| March 26 | Caching bug — thinking blocks cleared every turn instead of once per idle session | 900K token users faced full cache misses every turn | April 10 |
+| April 16 | System prompt verbosity limit ("keep text to 25 words between tool calls") | 3% quality drop measured | April 20 |
+
+Independent audit (Stella Laurenzo, AMD): 6,852 sessions. Median visible thinking collapsed 73% (2,200 chars → 600 chars). API calls required up to 80x more retries. Claude shifted from research-first to edit-first behavior.
+
+**Lesson:** AFK workflows need their own quality monitoring independent of Anthropic's platform health. Track: thinking depth, retry frequency, task completion rate, output token counts.
+
+### Silent Model Fallbacks
+
+Claude Code silently falls back from Opus to Sonnet when usage caps are hit. In automated pipelines, this quality drop remains invisible until 3+ tasks downstream when outputs start failing verification.
+
+**Mitigation:** Check model identity in `--output-format json` output. Alert when the model changes mid-workflow.
+
+### Context Compaction Destroys Session State
+
+Rules set via conversation ("don't modify file X", "always run tests before committing") are summarized and eventually dropped during compaction. Only CLAUDE.md content survives (re-injected at session start).
+
+**Mitigation:** All critical AFK constraints must be in CLAUDE.md or the ralph-prompt.md file, never set conversationally.
+
+### Debugging Loops Without Session Budgets
+
+Without a session length budget, debugging loops can run 90+ minutes. The model loses track of fixes already tried and re-suggests changes rejected 40 messages earlier.
+
+**Mitigation:** Set `--max-turns` and `--max-budget-usd` on every AFK session. The Ralph pattern enforces this structurally (fresh context each iteration).
+
+### AFK-Specific Anti-Patterns
+
+| Anti-Pattern | Symptom | Fix |
+|-------------|---------|-----|
+| No cost ceiling | $50+ overnight bill | `--max-budget-usd` per iteration |
+| No turn limit | 200-turn debugging spiral | `--max-turns 50` |
+| Silent Opus→Sonnet | Quality drops 3 tasks later | Check model in JSON output |
+| Conversational constraints | Rules vanish after compaction | Put in CLAUDE.md |
+| No dirty-tree guard | Agent builds on broken state | `git status --short` check at iteration start |
+| No stdin redirect | Background agent hangs silently | `< /dev/null` on every headless invocation |
+| Infinite retry loop | Agent retries same fix forever | Circuit breaker (Ralph v0.11.5 pattern) |
+
+---
+
+## AFK Cost Economics
+
+**CRITICAL (Effective June 15, 2026):** Headless `claude -p` invocations draw from a separate Agent SDK credit pool, not the interactive subscription.
+
+### Credit Pools
+
+| Plan | Interactive (Terminal) | Agent SDK (`claude -p`, GitHub Actions, SDK apps) |
+|------|----------------------|---------------------------------------------------|
+| Pro ($20/mo) | Included in subscription | $20/month separate pool |
+| Max 5x ($100/mo) | Included | $100/month separate pool |
+| Max 20x ($200/mo) | Included | $200/month separate pool |
+
+### What Counts as Agent SDK
+
+| Usage | Pool |
+|-------|------|
+| Interactive `claude` terminal | Interactive (subscription) |
+| `claude -p "prompt"` (headless) | **Agent SDK** |
+| Claude Code GitHub Actions | **Agent SDK** |
+| Python/TypeScript Agent SDK | **Agent SDK** |
+| Routines (`/schedule`) | Cloud infrastructure (separate) |
+
+### Cost Estimation for AFK
+
+Approximate token costs at API rates (Opus 4.8: $5/$25 per MTok input/output):
+
+| AFK Pattern | Est. Cost/Iteration | Pro Budget Lasts |
+|-------------|--------------------|--------------------|
+| Simple Ralph iteration (50 turns) | $0.50-2.00 | 10-40 iterations |
+| Complex Ralph iteration (80 turns) | $2.00-5.00 | 4-10 iterations |
+| Dynamic Workflow (16 subagents) | $5.00-15.00 | 1-4 runs |
+| Overnight Ralph (10 iterations) | $5.00-20.00 | 1-4 nights |
+
+**When credits exhaust:** Automated requests fail silently. No queue, no fallback model, no real-time notification. The AFK agent simply stops working.
+
+**Overflow configuration:** Opt-in "usage credits" toggle (OFF by default) bills additional usage at API rates. Enable at `claude.ai/settings`.
+
+### Cost Monitoring for AFK
+
+```bash
+# Track per-iteration costs in ralph.sh
+ITERATION_OUTPUT=$(claude --print --output-format json --prompt-file ralph-prompt.md --max-budget-usd 5.00 < /dev/null)
+COST=$(echo "$ITERATION_OUTPUT" | jq -r '.usage.cost // "unknown"')
+echo "Iteration $i cost: $COST" >> .afk/cost-log.txt
+
+# Alert if approaching budget
+TOTAL_COST=$(awk '{sum += $NF} END {print sum}' .afk/cost-log.txt)
+if (( $(echo "$TOTAL_COST > 15" | bc -l) )); then
+  scripts/notify.sh "AFK Cost Alert" "Total spend: \$$TOTAL_COST" urgent
+fi
+```
 
 ---
 
@@ -2538,7 +2914,7 @@ The critical distinction: Hermes should gain authority gradually, not all at onc
 
 ---
 
-## Priority Ranking (Revised May 2026)
+## Priority Ranking (Revised June 2026)
 
 | Priority | Action | Effort | Impact | What It Enables |
 |----------|--------|--------|--------|-----------------|
@@ -2546,6 +2922,7 @@ The critical distinction: Hermes should gain authority gradually, not all at onc
 | **P0** | Permission allowlisting (1a) | 30 min | High | Unblocks all AFK work |
 | **P0** | Stop hook enhancement (1b) | 30 min | High | Prevents premature agent stopping |
 | **P0** | Notification hook (1f) | 15 min | High | Know when agent is blocked on permission |
+| **P0** | Configure Agent SDK billing overflow | 15 min | BLOCKER | Prevents silent credit exhaustion during AFK (Principle 15) |
 | **P1** | `afk-once.sh` with dirty-tree guard (2a) | 2 hr | High | Learn failure domains before automating |
 | **P1** | `ralph.sh` with JSON progress + sentinel + caffeinate (2b) | 3 hr | Very High | Core AFK execution engine |
 | **P1** | JSON progress template (2d) | 30 min | High | Reliable state tracking (Principle 12) |
@@ -2554,13 +2931,17 @@ The critical distinction: Hermes should gain authority gradually, not all at onc
 | **P1** | PostToolUse auto-format (1c) | 1 hr | Medium | Eliminates CI format failures |
 | **P1** | Notification system (Phase 3) | 2 hr | High | Know when to come back |
 | **P1** | `.afk/learnings.md` (2c) | 30 min | Medium | Systematic failure capture |
-| **P2** | AFK security profile + Docker sandbox (3.5) | 3 hr | High | Safe unsupervised execution |
+| **P1** | Evaluate `/goal` for single-task AFK | 1 hr | High | Built-in autonomous completion with evaluator |
+| **P1** | Evaluate Agent View for AFK monitoring | 1 hr | High | May replace custom monitoring scripts |
+| **P2** | AFK security profile + Docker sandbox (3.5) | 3 hr | High | Safe unsupervised execution (OWASP ASI05) |
 | **P2** | `/afk` toggle command | 2 hr | High | One-command AFK mode switching |
 | **P2** | `/babysit-pr` skill | 4 hr | High | Autonomous PR lifecycle |
 | **P2** | `/autofix-pr` skill | 4 hr | High | Autonomous CI fixing |
 | **P2** | `/security-scan` skill | 3 hr | High | Prevent vulnerable code in AFK commits |
 | **P2** | Agent frontmatter upgrade (1.5) | 2 hr | Medium | Correct tool access and model selection |
 | **P2** | Evaluate Dynamic Workflows for Phase 6 | 4 hr | High | May eliminate custom parallel scripts |
+| **P2** | Set up Routines for recurring tasks | 2 hr | High | Cloud-based AFK — no laptop needed |
+| **P2** | AFK cost monitoring + alerting | 2 hr | High | Prevent billing surprises (Agent SDK credits) |
 | **P3** | CLAUDE.md refactoring (Phase 5) — **AFTER** 1d hook verified | 4 hr | Medium | Token savings, progressive disclosure |
 | **P3** | `/grill-me` skill | 2 hr | Medium | Better specs before implementation |
 | **P3** | `/verify-app` skill | 4 hr | Medium | End-to-end feature verification |
@@ -2569,19 +2950,25 @@ The critical distinction: Hermes should gain authority gradually, not all at onc
 | **P3** | Parallel orchestration scripts (Phase 6) — only if Dynamic Workflows insufficient | 10 hr | Very High | Multi-service parallel AFK |
 | **P3** | `/identity-management` skill | 4 hr | Medium | Zero-trust AFK agent identity |
 | **P3** | Skill `gotchas.md` files | 3 hr | Medium | Domain-specific pitfall prevention |
+| **P3** | AFK quality monitoring (Principle 14) | 3 hr | Medium | Detect silent degradation, model fallbacks |
 | **P4** | Zero-trust AFK identity integration | 8 hr | High | Dog-food DeepSecure for AFK security |
 | **P4** | Fast-merge policy + automated rollback | 6 hr | Medium | Remove human bottleneck at scale |
-| **P4** | Hermes Agent evaluation | 6 hr | Medium | Evaluate as orchestration layer |
+| **P4** | Hermes Agent v0.14.0 evaluation | 6 hr | Medium | Evaluate `/handoff`, cross-session caching, proxy |
 | **P4** | One-minute build rule enforcement | 3 hr | Medium | Force smaller, faster feedback loops |
 
-**Total estimated effort:** ~86 hours across all phases (revised up from 74 — original estimates were systematically optimistic, per review finding)
+**Total estimated effort:** ~99 hours across all phases (revised up from 86 — new items: Agent SDK billing, /goal eval, Agent View eval, Routines, cost monitoring, quality monitoring, Hermes v0.14.0)
 
 **Recommended order:**
-1. **P0 items first** (3.25 hours) — verify API surface (BLOCKER), then unblock AFK
-2. **P1 items next** (11.5 hours) — gives you a working AFK loop with JSON progress, dirty-tree guard, sentinel detection, cost ceiling, sleep prevention, notifications, and context recovery
-3. **P2 items** (22 hours) — completes autonomous PR lifecycle with Docker sandbox, Dynamic Workflows eval, AFK toggle, vulnerability scanning
-4. **P3 items** (29 hours) — optimization, scaling, identity management, and maintenance automation
-5. **P4 items** (23 hours) — zero-trust dog-fooding, fast-merge policy, Hermes Agent evaluation, build speed enforcement
+1. **P0 items first** (3.5 hours) — verify API surface (BLOCKER), configure billing overflow, then unblock AFK
+2. **P1 items next** (13.5 hours) — gives you a working AFK loop with JSON progress, dirty-tree guard, sentinel detection, cost ceiling, sleep prevention, notifications, context recovery, plus evaluation of `/goal` and Agent View as potential simplifications
+3. **P2 items** (26 hours) — completes autonomous PR lifecycle with Docker sandbox (OWASP ASI05), Dynamic Workflows eval, Routines for cloud-based AFK, cost monitoring, AFK toggle, vulnerability scanning
+4. **P3 items** (32 hours) — optimization, scaling, identity management, quality monitoring, and maintenance automation
+5. **P4 items** (23 hours) — zero-trust dog-fooding, fast-merge policy, Hermes Agent v0.14.0 evaluation, build speed enforcement
+
+**Game-changers to evaluate early:**
+- **Routines** may eliminate the need for local AFK infrastructure entirely (no laptop, no caffeinate, no crash recovery) — but limited to 5-25 runs/day and restricted branch access
+- **`/goal`** may replace the Ralph loop for single-task AFK — built-in evaluator, no custom scripts
+- **Agent View supervisor** may replace `nohup` + `caffeinate` + PID tracking — but doesn't survive shutdown
 
 ---
 
@@ -2646,7 +3033,7 @@ The key insight: **Option C is the wrong architecture for AFK.** A single long s
 
 ---
 
-## Verified Claude Code API Surface (May 2026)
+## Verified Claude Code API Surface (June 2026)
 
 **CRITICAL (P0 BLOCKER):** Before implementing any phase, verify every assumed Claude Code feature against the actual binary. This section documents what was verified vs. what needs testing.
 
@@ -2654,8 +3041,8 @@ The key insight: **Option C is the wrong architecture for AFK.** A single long s
 
 | Flag | Status | Notes |
 |------|--------|-------|
-| `--print` / `-p` | **Verified** | Non-interactive headless mode |
-| `--output-format json` | **Verified** | JSON output (includes metadata) |
+| `--print` / `-p` | **Verified** | Non-interactive headless mode (draws from Agent SDK credits after June 15) |
+| `--output-format json` | **Verified** | JSON output (includes metadata, cost, model identity) |
 | `--prompt-file <path>` | **Verified** | Load prompt from file |
 | `--allowedTools <list>` | **Verified** | Restrict available tools |
 | `--max-turns N` | **Verified** | Cap reasoning iterations |
@@ -2668,6 +3055,52 @@ The key insight: **Option C is the wrong architecture for AFK.** A single long s
 | `--teleport` | **Needs testing** | Hand work between local and web sessions |
 | `--worktree` | **Needs testing** | Auto-create git worktree for isolation |
 | `--tmux` | **Needs testing** | Run in tmux session |
+| `--bg "prompt"` | **Documented** | Launch session to background (v2.1.139+) |
+| `--bg --name "name"` | **Documented** | Background with display name |
+| `--bg --exec 'cmd'` | **Documented** | Run shell command as background job (no model) |
+| `--bg --agent <name>` | **Documented** | Run specific subagent as background (v2.1.157+) |
+| `--resume <id>` | **Documented** | Resume a previous session |
+| `--resume <id> --fork-session` | **Documented** | Fork session (copy context, new ID) |
+| `--add-dir <path>` | **Documented** | Grant file access to additional directories |
+| `--fallback-model <model>` | **Documented** | Retry turn on fallback model for non-retryable errors |
+| `--name "name"` | **Documented** | Set session display name |
+| `--effort <level>` | **Documented** | low/medium/high/xhigh/max reasoning (v2.1.142+) |
+| `--model <alias>` | **Documented** | Model selection (default/best/sonnet/opus/haiku/opus[1m]/sonnet[1m]) |
+
+### Commands (In-Session)
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `/goal <condition>` | **Documented** (v2.1.139+) | Evaluator-based autonomous completion; Haiku-class checker |
+| `/goal clear` | **Documented** | Stop/cancel active goal (aliases: stop, off, reset, none, cancel) |
+| `/schedule` | **Documented** | Create/manage cloud-based Routines |
+| `/bg` or `/background` | **Documented** | Move current session to background |
+| `/branch` | **Documented** | Fork session (same as `--fork-session`) |
+| `/fast` | **Documented** | Toggle 2.5x faster Opus responses (higher cost) |
+| `/effort ultracode` | **Documented** | xhigh reasoning + automatic workflow orchestration |
+| `/deep-research` | **Documented** | Built-in fan-out research workflow |
+| `/memory` | **Documented** | Configure auto-memory and auto-dream |
+| `/compact <hint>` | **Documented** | Manual compaction with steering focus |
+| `/context` | **Documented** | Show what's using context space |
+| `/add-dir <path>` | **Documented** | Add directory access during session |
+| `/rewind` | **Documented** | Jump to prior message (Esc Esc) |
+
+### Agent Management Commands
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `claude agents` | **Documented** (v2.1.139+) | Open agent dashboard |
+| `claude agents --json` | **Documented** | JSON output for scripting |
+| `claude agents --cwd <path>` | **Documented** | Filter to one project |
+| `claude attach <id>` | **Documented** | Attach to session |
+| `claude logs <id>` | **Documented** | View recent output |
+| `claude stop <id>` | **Documented** | Stop session |
+| `claude kill <id>` | **Documented** | Force-stop session |
+| `claude respawn <id>` | **Documented** | Restart with conversation intact |
+| `claude respawn --all` | **Documented** | Restart all sessions (post-update recovery) |
+| `claude rm <id>` | **Documented** | Remove session |
+| `claude daemon status` | **Documented** | Supervisor process state |
+| `claude daemon stop --any` | **Documented** | Stop supervisor (--keep-workers optional) |
 
 ### Hook Events
 
@@ -2830,6 +3263,58 @@ Each phase reads artifacts from disk (not conversation context), does work, comm
 
 **Why time-boxing matters:** Even within a single Ralph iteration, a complex task can consume the full context window. Time-boxing (via `--max-budget-usd` as a proxy) prevents any single iteration from running long enough to hit the sediment problem.
 
+### Agent View Supervisor as Recovery Infrastructure (June 2026)
+
+The Agent View supervisor process (v2.1.139+) changes the recovery picture significantly:
+
+| Old Recovery (ralph.sh) | New Recovery (Agent View) |
+|-------------------------|--------------------------|
+| `caffeinate -s -w $$` to prevent sleep | Supervisor preserves sessions across sleep (not shutdown) |
+| `afk-recover.sh` for crash detection | `claude respawn <id>` restarts with conversation intact |
+| Manual PID tracking | `claude agents --json` shows all session states |
+| `nohup ralph.sh &` + `< /dev/null` | `claude --bg "prompt"` — supervisor manages lifecycle |
+| No update resilience | Auto-detects binary updates, restarts sessions on new version |
+
+**Recovery commands:**
+```bash
+# Check all session states after wakeup
+claude agents --json | jq '.[] | {id, state, name}'
+
+# Restart a failed session
+claude respawn <session-id>
+
+# Restart all sessions (e.g., after update)
+claude respawn --all
+
+# View what happened during sleep
+claude logs <session-id>
+```
+
+**Limitation:** Supervisor does not survive machine shutdown (only sleep). For overnight runs that span a potential shutdown, use Routines (cloud-based) instead of local background sessions.
+
+---
+
+## Competitive Landscape (June 2026)
+
+The AFK coding space has converged rapidly. All major tools now offer background agents, subagent orchestration, and parallel execution.
+
+| Tool | Background Agents | Subagent Orchestration | Max Parallelism | Pricing |
+|------|-------------------|----------------------|-----------------|---------|
+| **Claude Code** | Agent View supervisor + Routines | Dynamic Workflows (JS) | 16 concurrent, 1,000 total | $20/mo Pro + Agent SDK credits |
+| **Cursor** | Cloud agents (v2.5) | Nested subagents, async tree | Build in Parallel | $20/mo Pro, $200/mo Ultra |
+| **Devin Desktop** (formerly Windsurf) | Cloud-native | Subagent support | — | $20/mo Core + $2.25/ACU |
+| **GitHub Copilot** | Agent mode | Multi-model (Claude/Codex/Copilot) | Same issue → all 3 models | Credit-based ($0.01/credit) |
+| **Antigravity 2.0** (Google) | Scheduled background tasks | Dynamic subagents | — | Free to $200/mo |
+| **Kiro** (AWS) | — | Parallel spec tasks (4x faster) | — | — |
+| **Ramp Inspect** | Cloud sandboxes (Modal) | Child sessions | Unlimited concurrent | Internal |
+
+**Notable shifts:**
+- **Devin price collapse:** $500/mo → $20/mo Core — removes price barrier for background agents
+- **Copilot multi-model:** Can assign same issue to Claude, Codex, and Copilot simultaneously — tournament pattern built-in
+- **Convergence on JS/TS orchestration:** Claude (Dynamic Workflows), Cursor (skills), Antigravity (Go SDK) — all moving toward programmable agent composition
+
+**DeepSecure positioning:** Claude Code's Dynamic Workflows (1,000 subagent cap) represent the most scalable orchestration, and Routines provide true cloud-based AFK (no laptop required). The main risk is Agent SDK billing limiting headless usage to $20-200/mo.
+
 ---
 
 ## The Contrarian Views
@@ -2861,6 +3346,41 @@ Explicitly argues against multi-agent coordination:
 
 Advocates single-process, single-task execution. The deliberate simplicity is the feature. Complexity in orchestration adds non-determinism on top of non-determinism.
 
+### Peter Steinberger (steipete — Anti-Infrastructure)
+
+The most radical contrarian in the AFK space. Former PSPDFKit founder, now builds with AI agents daily. His positions challenge nearly every pillar:
+
+> "No git worktree from CLI sessions unless user asks." — steipete's AGENTS.MD
+
+**What he rejects:**
+
+| Convention | steipete's Take | Reasoning |
+|-----------|-----------------|-----------|
+| Git worktrees | No — runs 3-8 agents in single folder | "Worktrees slow me down" |
+| MCP servers | No — removed his last one | "Context poison" — wastes tokens with tool schemas |
+| Subagents | No — separate terminal windows | Complete visibility, no orchestration abstraction |
+| Claude Code plugins | No | "A big pile of bs" |
+| Elaborate CLAUDE.md | No — started with one line | Rules built iteratively by the agent, not authored upfront |
+
+**What he does instead:**
+- **Pointer-style AGENTS.MD:** One shared rules file at `~/Projects/agent-scripts/AGENTS.MD` symlinked from all repos — eliminates per-project CLAUDE.md maintenance
+- **Iterative rules:** His actual AGENTS.MD grew to ~800 lines, but was built by the agent itself ("elaborate rules files are organizational scar tissue" — let them grow organically)
+- **Screenshots as prompts:** ~50% of his prompts contain screenshots. Prompts are 1-2 sentences.
+- **Tool switching:** Uses both Claude Code and OpenAI Codex CLI. Finds Codex "far more careful and reads much more files" before acting, while Claude is "much more eager."
+- **"Agentic Engineering":** Treats AI coding as a craft requiring senior-engineer intuition. "AI handles code implementation, not strategic thinking."
+
+**The lightweight alternative pattern:**
+
+| Heavy AFK (this doc) | steipete's Lightweight |
+|---------------------|----------------------|
+| Per-project CLAUDE.md (500+ lines) | Shared AGENTS.MD (symlinked) |
+| Worktree isolation per agent | Single folder, multiple terminals |
+| MCP servers for integrations | CLIs called directly via Bash |
+| Subagent orchestration | Manual window management |
+| Dynamic Workflows | One agent at a time, well-prompted |
+
+**When to consider the lightweight approach:** Solo practitioners on single-service projects where the orchestration overhead exceeds the task complexity. steipete's workflow optimizes for visibility and control at the cost of parallelism.
+
 ### How to Reconcile
 
 - The existing DeepSecure pipeline's emphasis on planning (`/run-plan`, `/breakdown-design`, `/explore-codebase`) aligns with Dax's "interfaces first" philosophy
@@ -2869,6 +3389,7 @@ Advocates single-process, single-task execution. The deliberate simplicity is th
 - Reserve multi-agent parallelism for truly independent workstreams (e.g., control plane + gateway when they don't share schemas)
 - Measure actual output (merged PRs, passing tests) not activity (number of agents running)
 - Start manual (`afk-once.sh`), graduate to supervised AFK, then full AFK -- per Huntley's methodology
+- **steipete's test:** If your CLAUDE.md is growing faster than your codebase, you're over-engineering the harness. Let rules accumulate from failures, not from anticipation.
 
 ---
 
@@ -2888,6 +3409,15 @@ Advocates single-process, single-task execution. The deliberate simplicity is th
 - **Key commands:** `/loop` (cron-style), `/batch` (parallel migrations), `/quality` (PR health)
 - **Teleport:** Hand work between local and web/mobile with `&` command or `--teleport` flag
 - **Context switching:** "It's not about deep work, it's about how good I am at context switching and jumping across multiple different contexts very quickly"
+- **NEW — Dynamic Workflows (98 tips):**
+  - **`/go`:** Composite custom skill: verify end-to-end → `/simplify` → create PR. "Many prompts look like 'Claude do blah /go'"
+  - **`/simplify`:** Parallel agents for code quality improvement
+  - **`/btw`:** Side-chain single-turn conversation with full context
+  - **`/focus`:** Hide intermediate work, show final result
+  - **`/rewind` (Esc Esc):** Jump to prior message. "Correcting: reads + failed attempt + correction + fix. Rewinding: reads + one informed prompt + fix."
+  - **`CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000`:** Boris's recommended compaction threshold for 1M context models — context rot kicks in around 300k-400k tokens
+  - **Auto-dream:** Subagent that periodically reviews accumulated auto-memory, keeps signal, removes outdated assumptions, merges insights. Named after REM sleep consolidation. Access via `/memory`.
+  - **Delegation model (Opus 4.7+):** Treat Opus like engineer you hand off to, not pair programmer. Requires: Goal (what success looks like), Constraints (non-goals), Acceptance criteria (verification method).
 
 ### Thariq (Anthropic -- Skills Framework)
 - **9 skill categories:** Library/API Reference, Product Verification, Data/Monitoring, Workflow Automation, Code Quality, Deployment, Scaffolding, Runbooks, Infrastructure Operations
@@ -2902,6 +3432,13 @@ Advocates single-process, single-task execution. The deliberate simplicity is th
 - **`/schedule`:** Cloud-based recurring tasks (sweeping open PRs, building features from approved issues, analyzing CI failures overnight, syncing docs, auto-maintaining a twin Go library for a Python library)
 - **Monitor tool:** Event-driven (not polling) background watcher -- every stdout line is a real-time event
 - **Remote Control:** Start local, continue from phone via Claude iOS app
+- **NEW — Routines (April 2026):**
+  - Three trigger types: scheduled (cron), API (HTTP POST), GitHub (PR/release events with filters)
+  - Daily caps: Pro 5/day, Max 15/day, Team/Enterprise 25/day (one-off exempt)
+  - Runs on Anthropic cloud — works when laptop is closed
+  - Default push only to `claude/`-prefixed branches
+  - All MCP connectors included by default
+  - `/schedule in 2 weeks, open a cleanup PR` — one-off future tasks
 
 ### Matt Pocock
 - **Ralph Wiggum:** `while true` loop with fresh context each iteration -- the core AFK engine
@@ -3010,6 +3547,33 @@ Advocates single-process, single-task execution. The deliberate simplicity is th
 - **Persistent memory:** Agent-curated cross-session recall with FTS5 search, replaces file-based `.afk/learnings.md`
 - **Parallel workers:** ThreadPoolExecutor (up to 8 concurrent subagents) with isolated terminal backends
 - **Adoption path:** Not a default replacement for Claude Code; evaluate as orchestration layer once Ralph loop is stable (Phase 3+)
+- **NEW — v0.14.0 "The Foundation Release" (May 16, 2026):**
+  - Real PyPI package: `pip install hermes-agent && hermes`
+  - **`/handoff` command:** Transfers active sessions live between models without losing context
+  - **Cross-session prompt caching** (1 hour) for Claude — significant cost savings
+  - **OpenAI-compatible local proxy:** Lets Codex, Aider, and Cline access Claude Pro/ChatGPT Pro subscriptions without separate API keys
+  - xAI Grok support (grok-4.3 with 1M context), 22 messaging platforms (added LINE and SimpleX)
+  - Cold-start 19 seconds faster (deferred imports, caching), browser CDP 180x faster (persistent WebSocket)
+  - LSP semantic diagnostics on file writes, 9 new optional skills (trading, OSINT, infrastructure)
+
+### Peter Steinberger (steipete — Contrarian Practitioner)
+- **Anti-infrastructure:** No worktrees, no MCP, no subagents, no plugins — "organizational scar tissue"
+- **Pointer-style AGENTS.MD:** Shared rules file at `~/Projects/agent-scripts/AGENTS.MD` symlinked from all repos
+- **Iterative rules:** Started with one line, grew to ~800 lines iteratively — rules built by the agent from failures, not authored upfront
+- **Screenshot prompts:** ~50% of prompts contain screenshots. Prompts are 1-2 sentences.
+- **Tool switching:** Uses both Claude Code and Codex CLI daily. Codex "far more careful and reads much more files" before acting.
+- **"Agentic Engineering":** Coined as counterpoint to "vibe coding" — treats AI coding as craft requiring senior-engineer intuition
+- **Key repos:** `agent-scripts` (AGENTS.MD, skills with YAML frontmatter, hooks, committer script), `agent-rules` (archived May 3, 2026)
+- **Takeaway for AFK:** The lightweight approach works for solo practitioners — but doesn't scale to multi-service architectures like DeepSecure
+
+### AFK Community Tools
+
+| Tool | Type | Key Feature | License |
+|------|------|-------------|---------|
+| [Afkode](https://afkode.ai) | Desktop app (macOS) | 8-phase planning engine, 16 model slots across planning/execution/review, operational journal | Proprietary (7-day trial) |
+| [Agent AFK](https://agentafk.com) | npm CLI | 11 built-in skills, adversarial re-derivation, Telegram oversight, reversibility-aware autonomy | Apache-2.0 |
+| [Background Claude](https://backgroundclaude.com) | Documentation site | Three modes (headless, scheduled, managed), Linear issue → worktree → Claude → PR | — |
+| [Ralph v0.11.5](https://github.com/frankbria/ralph-claude-code) | Bash script | Circuit breaker, dual-exit gate, rate limiting, GitHub integration, `.ralphrc` config | MIT |
 
 ### Eva Khmelinskaya (Overnight Autonomy Practitioner)
 - **Phased sessions:** Break work into 30-60 minute phases, each as independent `claude --print` invocation
@@ -3122,9 +3686,23 @@ export RALPH_MAX_BUDGET=5.00  # USD per iteration
 
 # Claude Code permissions (reduce prompts)
 export CLAUDE_CODE_ALLOW_TOOLS="Edit,Write,Read,Bash(git:*),Bash(pytest:*),Bash(make:*)"
+
+# Context management (Boris's recommendation for 1M context models)
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000  # Compact at 400k tokens to avoid context rot
+
+# Model overrides (useful for AFK cost optimization)
+# export CLAUDE_CODE_SUBAGENT_MODEL=inherit  # Normal resolution (default)
+# export CLAUDE_CODE_SUBAGENT_MODEL=sonnet   # Force all subagents to Sonnet (cheaper)
+# export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-8-20260528
+# export ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-4-6-20260414
+
+# Disable adaptive thinking (Opus 4.6/Sonnet 4.6 only — reverts to fixed MAX_THINKING_TOKENS)
+# export CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
 ```
 
 **Security note:** Never put webhook URLs or API tokens in `.env` files within the repo. Use shell profile exports instead. For a security product, credential hygiene in development tooling matters.
+
+**OWASP ASI05 note:** The OWASP Top 10 for Agentic Applications (2026) recommends hardware-enforced sandboxing for autonomous agents. For unsupervised AFK execution, Docker or WASM containers are recommended over software-only permission controls. See Phase 3.5 for Docker sandbox implementation.
 
 ---
 
@@ -3198,5 +3776,6 @@ Based on Karpathy's "automate what you can verify" principle, applied to DeepSec
 ---
 
 *Document created: 2026-05-26*
-*Last updated: 2026-05-29 (major revision: 13 new sources, 3 new design principles, corrected hook API surface, JSON progress format, dirty-tree guard, sentinel detection, machine sleep protocol, Docker sandbox, Dynamic Workflows, architectural decision section, API verification matrix)*
-*Based on research from 33 industry sources (see [Research Sources](#research-sources))*
+*Last updated: 2026-06-08 (major revision: 15 new sources [33→48], 2 new design principles [14-15], Pillar 10 Routines, Pillar 11 Agent View, Dynamic Workflows 6 composition patterns, /goal command, Agent SDK billing, Production Failure Modes section, AFK Cost Economics section, Competitive Landscape, steipete contrarian view, Ralph v0.11.5, Hermes v0.14.0, OWASP ASI05, community AFK tools, Boris's 98 tips including /go and auto-dream)*
+*Previous revision: 2026-05-29 (13 new sources, corrected hook API surface, JSON progress, dirty-tree guard, machine sleep protocol, Docker sandbox, architectural decision section)*
+*Based on research from 48 industry sources (see [Research Sources](#research-sources))*

@@ -145,6 +145,7 @@ async def lifespan(app: FastAPI):
     from .core.config import get_settings
     gw_settings = get_settings()
     mcp_connection_manager = BackendConnectionManager()
+    backend_client.set_connection_manager(mcp_connection_manager)
     dynamic_loader = DynamicBackendLoader(
         adapter=backend_client,
         connection_manager=mcp_connection_manager,

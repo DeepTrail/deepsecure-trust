@@ -187,11 +187,11 @@ export default function AdminAgentFleetPage() {
       </div>
 
       {/* Filter bar */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Lifecycle</label>
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
+        <div className="min-w-[160px] space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Lifecycle</label>
           <select
-            className="h-9 rounded-md border bg-background px-3 text-sm"
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
             value={filters.lifecycle_state}
             onChange={(e) =>
               setFilters({ lifecycle_state: e.target.value as AgentLifecycleState | "" })
@@ -204,35 +204,35 @@ export default function AdminAgentFleetPage() {
             ))}
           </select>
         </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Delegating user</label>
+        <div className="min-w-[220px] space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Delegating user</label>
           <Input
             type="email"
             placeholder="user@company.com"
             value={filters.user_id}
             onChange={(e) => setFilters({ user_id: e.target.value })}
-            className="w-52"
+            className="w-full"
           />
         </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Service</label>
+        <div className="min-w-[160px] space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Service</label>
           <Input
             type="text"
             placeholder="notion"
             value={filters.service}
             onChange={(e) => setFilters({ service: e.target.value })}
-            className="w-36"
+            className="w-full"
           />
         </div>
-        <div className="relative space-y-1">
-          <label className="text-xs text-muted-foreground">Search</label>
+        <div className="relative min-w-[220px] space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Search</label>
           <Search className="absolute left-3 bottom-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             type="text"
             placeholder="Agent name or ID"
             value={filters.q}
             onChange={(e) => setFilters({ q: e.target.value })}
-            className="w-52 pl-9"
+            className="w-full pl-9"
           />
         </div>
         {hasFilters && (
