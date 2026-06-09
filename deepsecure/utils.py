@@ -1,38 +1,66 @@
 '''Utility functions for DeepSecure CLI.'''
 
-import typer
 import uuid
 import json
 import string
 import random
-from rich.console import Console
-from rich.syntax import Syntax
 from typing import Any, Dict, Optional, Union
 from datetime import datetime
 from pydantic import BaseModel
 import logging
 import sys
-from rich.theme import Theme
-from rich.logging import RichHandler
-from rich.panel import Panel
 from functools import wraps
 import functools
+
+try:
+    import typer
+except ImportError:
+    typer = None  # type: ignore[assignment]
+
+try:
+    from rich.console import Console
+    from rich.syntax import Syntax
+    from rich.theme import Theme
+    from rich.logging import RichHandler
+    from rich.panel import Panel
+    _HAS_RICH = True
+except ImportError:
+    Console = None  # type: ignore[assignment,misc]
+    Syntax = None  # type: ignore[assignment,misc]
+    Theme = None  # type: ignore[assignment,misc]
+    RichHandler = None  # type: ignore[assignment,misc]
+    Panel = None  # type: ignore[assignment,misc]
+    _HAS_RICH = False
 
 from .exceptions import DeepSecureClientError, DeepSecureError
 
 # Central console objects for consistent output
-console = Console()
-error_console = Console(stderr=True, style="bold red")
+class _FallbackConsole:
+    """Minimal console stand-in when Rich is not installed."""
 
-# --- Console and Theme Setup (from existing utils if any, or define here) --- #
-custom_theme = Theme({
-    "info": "dim cyan",
-    "warning": "magenta",
-    "error": "bold red",
-    "success": "bold green",
-    "debug": "dim blue"
-})
-console = Console(theme=custom_theme)
+    def print(self, *args, **kwargs):
+        style = kwargs.pop("style", "")
+        text = " ".join(str(a) for a in args)
+        import re
+        text = re.sub(r"\[/?[a-z_ ]+\]", "", text)
+        dest = sys.stderr if "error" in style or "red" in style else sys.stdout
+        print(text, file=dest)
+
+
+if _HAS_RICH:
+    console = Console()
+    error_console = Console(stderr=True, style="bold red")
+    custom_theme = Theme({
+        "info": "dim cyan",
+        "warning": "magenta",
+        "error": "bold red",
+        "success": "bold green",
+        "debug": "dim blue"
+    })
+    console = Console(theme=custom_theme)
+else:
+    console = _FallbackConsole()  # type: ignore[assignment]
+    error_console = _FallbackConsole()  # type: ignore[assignment]
 
 # --- Logging Setup --- #
 DEFAULT_LOG_LEVEL = "WARNING" # Default if not configured
@@ -52,29 +80,28 @@ def setup_logging(level_str: Optional[str] = None):
     numeric_level = getattr(logging, log_level_to_set, None)
 
     if not isinstance(numeric_level, int):
-        # Fallback to default if provided level is invalid
-        console.print(f"[bold red]Invalid log level '{log_level_to_set}' in setup_logging. Falling back to {DEFAULT_LOG_LEVEL}.[/bold red]")
+        print(f"Invalid log level '{log_level_to_set}'. Falling back to {DEFAULT_LOG_LEVEL}.", file=sys.stderr)
         log_level_to_set = DEFAULT_LOG_LEVEL
         numeric_level = getattr(logging, log_level_to_set)
 
-    # Configure RichHandler for beautiful logs
-    # Clear existing handlers from the root logger to avoid duplicate messages
-    # if this function is called multiple times (though ideally it's called once).
     root_logger = logging.getLogger()
     if root_logger.hasHandlers():
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
-    
-    # Configure the root logger with the determined level
-    # All module loggers will inherit this level unless they override it.
+
+    handlers: list = []
+    if _HAS_RICH and RichHandler and console:
+        handlers.append(RichHandler(console=console, rich_tracebacks=True, markup=True))
+    else:
+        handlers.append(logging.StreamHandler())
+
     logging.basicConfig(
-        level=numeric_level, 
-        format="%(message)s", # RichHandler handles formatting, so minimal format string here
-        datefmt="[%X]", 
-        handlers=[RichHandler(console=console, rich_tracebacks=True, markup=True)]
+        level=numeric_level,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=handlers,
     )
-    
-    # Explicitly set level for vault_client logger
+
     logging.getLogger("deepsecure.core.vault_client").setLevel(numeric_level)
 
     # You can also set levels for specific loggers if needed:
@@ -85,21 +112,14 @@ def setup_logging(level_str: Optional[str] = None):
 
 def print_success(message: str):
     """Prints a success message to the console."""
-    console.print(Panel(f"✅ {message}", style="bold green", expand=False))
+    if _HAS_RICH:
+        console.print(Panel(f"✅ {message}", style="bold green", expand=False))
+    else:
+        console.print(f"OK: {message}")
 
 def print_error(message: str, exit_code: Optional[int] = None):
-    """Prints a formatted error message to stderr and optionally exits.
-    
-    Args:
-        message: The error message to display.
-        exit_code: The exit code to use if exiting. If None, does not exit.
-    """
+    """Prints a formatted error message to stderr and optionally exits."""
     console.print(f"❌ Error: {message}", style="error")
-    if exit_code is not None:
-        # If we want to use typer.Exit, this function should probably not call it directly
-        # but rather the command functions should use typer.Exit(code=exit_code)
-        # For now, just printing the error.
-        pass
 
 def print_warning(message: str):
     """Prints a formatted warning message to the console."""
@@ -109,8 +129,7 @@ def print_info(message: str):
     console.print(f"ℹ️ Info: {message}", style="info")
 
 def print_debug(message: str):
-    # For debug, use logger directly so it respects configured log level
-    logging.getLogger("deepsecure.cli").debug(message) # Or a general logger name
+    logging.getLogger("deepsecure.cli").debug(message)
 
 def print_json(data: Union[Dict[str, Any], BaseModel], pretty: bool = True):
     """
@@ -135,7 +154,7 @@ def print_json(data: Union[Dict[str, Any], BaseModel], pretty: bool = True):
         sys.stdout.write(json_str + "\n")
         sys.stdout.flush()
     except (TypeError, ValueError) as e:
-        error_console.print(f":x: [bold red]Error:[/] Failed to format data as JSON: {e}")
+        error_console.print(f"Error: Failed to format data as JSON: {e}", style="error")
 
 def generate_id(length: int = 8) -> str:
     """
@@ -251,13 +270,19 @@ def handle_api_error(func):
             return func(*args, **kwargs)
         except DeepSecureClientError as e:
             print_error(f"API Error: {e}")
-            raise typer.Exit(code=1)
+            if typer:
+                raise typer.Exit(code=1)
+            sys.exit(1)
         except DeepSecureError as e:
             print_error(f"A general error occurred: {e}")
-            raise typer.Exit(code=1)
+            if typer:
+                raise typer.Exit(code=1)
+            sys.exit(1)
         except Exception as e:
             print_error(f"An unexpected error occurred: {e}")
-            raise typer.Exit(code=1)
+            if typer:
+                raise typer.Exit(code=1)
+            sys.exit(1)
     return wrapper
 
 # TODO: Add more utility functions as needed (e.g., table rendering, file handling). 

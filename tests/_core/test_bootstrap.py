@@ -283,6 +283,16 @@ class TestBootstrapResultFormats:
         mcp = result.to_mcp_json()
         assert mcp["mcpServers"]["deepsecure"]["headers"]["Authorization"] == "Bearer jwt-tok"
 
+    def test_to_mcp_json_no_double_mcp(self):
+        result = self._make_result(gateway_url="https://app.deepsecure.one/mcp")
+        mcp = result.to_mcp_json()
+        assert mcp["mcpServers"]["deepsecure"]["url"] == "https://app.deepsecure.one/mcp"
+
+    def test_to_mcp_json_appends_mcp_when_missing(self):
+        result = self._make_result(gateway_url="https://app.deepsecure.one")
+        mcp = result.to_mcp_json()
+        assert mcp["mcpServers"]["deepsecure"]["url"] == "https://app.deepsecure.one/mcp"
+
     def test_to_env_format(self):
         result = self._make_result()
         env = result.to_env()

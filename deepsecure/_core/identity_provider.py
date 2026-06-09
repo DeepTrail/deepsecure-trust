@@ -3,9 +3,18 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Any
 
-import keyring
-from keyring.errors import NoKeyringError
 import os
+
+try:
+    import keyring
+    from keyring.errors import NoKeyringError
+    _HAS_KEYRING = True
+except ImportError:
+    keyring = None  # type: ignore[assignment]
+    _HAS_KEYRING = False
+
+    class NoKeyringError(Exception):  # type: ignore[no-redef]
+        pass
 
 from .crypto.key_manager import key_manager
 from .. import utils
