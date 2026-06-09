@@ -64,10 +64,13 @@ class BootstrapResult:
         else:
             jwt_to_use = self.jwt
 
+        gw = self.gateway_url.rstrip("/")
+        mcp_url = gw if gw.endswith("/mcp") else f"{gw}/mcp"
+
         return {
             "mcpServers": {
                 "deepsecure": {
-                    "url": f"{self.gateway_url}/mcp",
+                    "url": mcp_url,
                     "transport": "http",
                     "headers": {
                         "Authorization": f"Bearer {jwt_to_use}",
@@ -270,8 +273,8 @@ class BootstrapClient:
         delegations: List[Delegation] = []
         for item in items:
             del_id = item.get("delegation_id") or item.get("id", "")
-            service = item.get("service", "unknown")
-            permissions = item.get("permissions", [])
+            service = item.get("service") or item.get("delegator", "unknown")
+            permissions = item.get("delegated_permissions") or item.get("permissions", [])
 
             del_jwt: Optional[str] = None
             try:

@@ -8,7 +8,7 @@ from typing import Optional
 
 import httpx
 
-from deepsecure._core.bootstrap import BootstrapClient
+from deepsecure._core.bootstrap import BootstrapClient, Platform
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +57,9 @@ class JWTManager:
             return self._discovery_jwt  # type: ignore[return-value]
 
         logger.info("Refreshing discovery JWT for agent %s", self._agent_id)
+        plat = Platform(self._platform) if isinstance(self._platform, str) else self._platform
         result = self._client.bootstrap(
-            agent_id=self._agent_id, platform=self._platform
+            agent_id=self._agent_id, platform=plat
         )
         self._discovery_jwt = result.jwt
         self._discovery_expires_at = time.time() + result.expires_in
