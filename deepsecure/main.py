@@ -6,12 +6,9 @@ from typing_extensions import Annotated
 import logging
 
 from .commands import (
-    vault,
     agent,
     configure,
-    policy,
-    gateway,
-    # invoke removed
+    bootstrap,
 )
 from . import __version__
 from ._core.config import get_cli_log_level, set_cli_log_level
@@ -39,13 +36,27 @@ app = typer.Typer(
     add_completion=False # Optional: disable shell completion for simplicity if not needed
 )
 
-# Register command modules
-app.add_typer(vault.app, name="vault", help="Manage secrets in the vault.")
 app.add_typer(agent.app, name="agent", help="Manage agents.")
 app.add_typer(configure.app, name="configure", help="Configure the DeepSecure CLI.")
-app.add_typer(policy.app, name="policy", help="Manage security policies.")
-app.add_typer(gateway.app, name="gateway", help="Manage and monitor the DeepSecure gateway service.")
-# app.add_typer(invoke.app, name="invoke") # Removed invoke command group
+app.add_typer(bootstrap.app, name="bootstrap", help="Bootstrap agent identity and obtain a JWT.")
+
+try:
+    from .commands import vault
+    app.add_typer(vault.app, name="vault", help="Manage secrets in the vault.")
+except ImportError:
+    pass
+
+try:
+    from .commands import policy
+    app.add_typer(policy.app, name="policy", help="Manage security policies.")
+except ImportError:
+    pass
+
+try:
+    from .commands import gateway
+    app.add_typer(gateway.app, name="gateway", help="Manage and monitor the DeepSecure gateway service.")
+except ImportError:
+    pass
 
 # Register other commands as they're implemented
 # app.add_typer(audit.app, name="audit")

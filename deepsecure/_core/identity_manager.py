@@ -9,10 +9,22 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Union
 import sys
 
-import keyring # Import the keyring library
-# Make sure to handle potential import errors for keyring itself if it's optional
-# For now, assume it's a hard dependency for secure storage.
-from keyring.errors import NoKeyringError, PasswordDeleteError, PasswordSetError
+try:
+    import keyring
+    from keyring.errors import NoKeyringError, PasswordDeleteError, PasswordSetError
+    _HAS_KEYRING = True
+except ImportError:
+    keyring = None  # type: ignore[assignment]
+    _HAS_KEYRING = False
+
+    class NoKeyringError(Exception):  # type: ignore[no-redef]
+        pass
+
+    class PasswordDeleteError(Exception):  # type: ignore[no-redef]
+        pass
+
+    class PasswordSetError(Exception):  # type: ignore[no-redef]
+        pass
 
 # Import the key_manager instance directly
 from .crypto.key_manager import key_manager

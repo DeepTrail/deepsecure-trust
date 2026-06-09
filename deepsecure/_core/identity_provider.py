@@ -3,9 +3,18 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Any
 
-import keyring
-from keyring.errors import NoKeyringError
 import os
+
+try:
+    import keyring
+    from keyring.errors import NoKeyringError
+    _HAS_KEYRING = True
+except ImportError:
+    keyring = None  # type: ignore[assignment]
+    _HAS_KEYRING = False
+
+    class NoKeyringError(Exception):  # type: ignore[no-redef]
+        pass
 
 from .crypto.key_manager import key_manager
 from .. import utils
@@ -276,12 +285,11 @@ class AzureIdentityProvider(IdentityProvider):
     def _is_in_azure(self) -> bool:
         """Check if running in Azure by trying to access IMDS."""
         try:
-            import requests
-            # Quick check for IMDS availability
-            response = requests.get(
+            import httpx
+            response = httpx.get(
                 "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
                 headers={"Metadata": "true"},
-                timeout=2
+                timeout=2.0
             )
             return response.status_code == 200
         except:
@@ -289,18 +297,18 @@ class AzureIdentityProvider(IdentityProvider):
 
     def _get_azure_imds_token(self) -> str:
         """Get an Azure IMDS token for the managed identity."""
-        import requests
-        
+        import httpx
+
         params = {
             "api-version": "2018-02-01",
             "resource": "https://management.azure.com/"
         }
-        
+
         headers = {"Metadata": "true"}
-        
-        response = requests.get(self.IMDS_URL, params=params, headers=headers, timeout=10)
+
+        response = httpx.get(self.IMDS_URL, params=params, headers=headers, timeout=10.0)
         response.raise_for_status()
-        
+
         token_data = response.json()
         return token_data["access_token"]
 

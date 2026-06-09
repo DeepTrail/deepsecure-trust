@@ -10,9 +10,14 @@ from .exceptions import (
     IdentityManagerError,
     DeepSecureClientError,
 )
+from ._core.bootstrap import bootstrap, BootstrapClient, BootstrapResult, Platform
 
 __all__ = [
     "Client",
+    "bootstrap",
+    "BootstrapClient",
+    "BootstrapResult",
+    "Platform",
     "DeepSecureError",
     "ApiError",
     "VaultError",

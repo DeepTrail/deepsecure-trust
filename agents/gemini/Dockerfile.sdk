@@ -1,0 +1,31 @@
+# Dockerfile.sdk - Build from repo root:
+#   docker build -f agents/gemini/Dockerfile.sdk -t gemini-agent-sdk .
+#
+# This Dockerfile adds Python 3.12 + the DeepSecure SDK to the Node 20 base,
+# enabling the Python-based entrypoint_sdk.py to replace entrypoint.sh.
+
+FROM node:20-slim
+
+RUN npm install -g @google/gemini-cli@latest
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl jq ca-certificates procps \
+    python3 python3-pip python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/deepsecure-venv
+ENV PATH="/opt/deepsecure-venv/bin:$PATH"
+
+COPY pyproject.toml /tmp/sdk/pyproject.toml
+COPY deepsecure/ /tmp/sdk/deepsecure/
+COPY README.md /tmp/sdk/README.md
+RUN pip install --no-cache-dir /tmp/sdk && rm -rf /tmp/sdk
+RUN /opt/deepsecure-venv/bin/python3 -c "from deepsecure._core.bootstrap import BootstrapClient, Platform; print('SDK import OK')"
+
+COPY agents/gemini/entrypoint.sh /app/entrypoint.sh
+COPY agents/gemini/entrypoint_sdk.py /app/entrypoint_sdk.py
+COPY agents/gemini/mcp-bridge.mjs /app/mcp-bridge.mjs
+RUN chmod +x /app/entrypoint.sh /app/entrypoint_sdk.py
+
+WORKDIR /app
+ENTRYPOINT ["/opt/deepsecure-venv/bin/python3", "/app/entrypoint_sdk.py"]

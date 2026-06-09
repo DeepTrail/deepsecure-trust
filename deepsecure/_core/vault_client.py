@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 import re
 import sys
 from pathlib import Path
-import requests
-import logging # Import logging
+import httpx
+import logging
 import base64
 from cryptography.hazmat.primitives.asymmetric import ed25519 as ed25519_crypto
 from pydantic import ValidationError as PydanticValidationError # Explicit import for clarity
@@ -411,7 +411,7 @@ class VaultClient(base_client.BaseClient):
             logger.info(f"[VaultClient Core] Successfully issued credential {issued_credential.credential_id} via backend.")
             return issued_credential.model_dump() # Return as dict for CLI compatibility, or return Pydantic model
 
-        except (exceptions.ApiError, ValueError, requests.exceptions.RequestException) as e:
+        except (exceptions.ApiError, ValueError, httpx.HTTPError) as e:
             logger.error(f"[VaultClient Core] Backend issuance failed: {e}", exc_info=True)
             self.audit_logger.log_credential_issuance_failed(agent_id=agent_id, scope=scope, reason=f"Backend error: {e}")
             raise # Re-raise to be caught by CLI command
@@ -604,7 +604,7 @@ class VaultClient(base_client.BaseClient):
                     # Decide how critical backend notification is. Re-raise the original error.
                     raise # Re-raise the original caught exception (e)
 
-            except (exceptions.ApiError, ValueError, requests.exceptions.RequestException) as e:
+            except (exceptions.ApiError, ValueError, httpx.HTTPError) as e:
                  logger.error(f"Backend notification failed for agent {agent_id}: {e}")
                  audit_logger.log_credential_rotation_failed(agent_id=agent_id, credential_type=credential_type, reason=f"Backend notification error: {e}")
                  # Decide how critical backend notification is. Re-raise the original error.

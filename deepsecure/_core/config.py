@@ -1,8 +1,15 @@
 import os
 import toml
-import keyring
 from pathlib import Path
 from typing import Optional, Dict, Any
+
+try:
+    import keyring
+    import keyring.errors
+    _HAS_KEYRING = True
+except ImportError:
+    keyring = None  # type: ignore[assignment]
+    _HAS_KEYRING = False
 
 APP_NAME = "deepsecure"
 CONFIG_DIR = Path.home() / ".deepsecure"
@@ -77,30 +84,33 @@ def set_cli_log_level(level: str):
 
 def get_api_token() -> Optional[str]:
     """Gets the API token from the keyring."""
+    if not _HAS_KEYRING:
+        return None
     try:
         token = keyring.get_password(APP_NAME, API_TOKEN_KEY)
         return token
     except keyring.errors.NoKeyringError:
-        print("No keyring backend found. API token cannot be securely stored or retrieved.")
-        # Fallback to environment variable or config file if desired,
-        # but for now, we'll just indicate it's not available.
         return None
 
 
 def set_api_token(token: str):
     """Sets the API token in the keyring."""
+    if not _HAS_KEYRING:
+        print("keyring not installed. Install with: pip install deepsecure[cli]")
+        return
     try:
         keyring.set_password(APP_NAME, API_TOKEN_KEY, token)
         print(f"API token stored securely in keyring for service '{APP_NAME}' and username '{API_TOKEN_KEY}'.")
     except keyring.errors.NoKeyringError:
         print("No keyring backend found. API token cannot be securely stored.")
-        # Fallback or error handling
-        # For now, we'll just print the message. Users might need to install a backend.
         print("Consider installing a keyring backend (e.g., 'keyrings.alt', 'keyring-macos').")
 
 
 def delete_api_token():
     """Deletes the API token from the keyring."""
+    if not _HAS_KEYRING:
+        print("keyring not installed. Install with: pip install deepsecure[cli]")
+        return
     try:
         keyring.delete_password(APP_NAME, API_TOKEN_KEY)
         print(f"API token deleted from keyring for service '{APP_NAME}' and username '{API_TOKEN_KEY}'.")
