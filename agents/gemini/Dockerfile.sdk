@@ -6,7 +6,10 @@
 
 FROM node:20-slim
 
-RUN npm install -g @google/gemini-cli@latest
+RUN npm install -g \
+    @google/gemini-cli@latest \
+    @anthropic-ai/claude-code@latest \
+    @openai/codex@latest
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl jq ca-certificates procps \
@@ -21,6 +24,7 @@ COPY deepsecure/ /tmp/sdk/deepsecure/
 COPY README.md /tmp/sdk/README.md
 RUN pip install --no-cache-dir /tmp/sdk && rm -rf /tmp/sdk
 RUN /opt/deepsecure-venv/bin/python3 -c "from deepsecure._core.bootstrap import BootstrapClient, Platform; print('SDK import OK')"
+RUN gemini --version && claude --version && codex --version
 
 COPY agents/gemini/entrypoint.sh /app/entrypoint.sh
 COPY agents/gemini/entrypoint_sdk.py /app/entrypoint_sdk.py

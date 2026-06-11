@@ -33,7 +33,7 @@ docker build -t gemini-agent .
 docker run --rm \
   -e DEEPSECURE_CONTROL_URL=https://app.deepsecure.one \
   -e DEEPSECURE_GATEWAY_URL=https://app.deepsecure.one/mcp \
-  -e AGENT_ID=debugging-agent-sa \
+  -e AGENT_ID=debugging-deepsecure-agent \
   -e GEMINI_API_KEY=<your-key> \
   -e AGENT_MAX_ITERATIONS=1 \
   gemini-agent
@@ -45,7 +45,7 @@ docker run --rm \
 |----------|---------|-------------|
 | `DEEPSECURE_CONTROL_URL` | `https://app.deepsecure.one` | Control plane URL for bootstrap |
 | `DEEPSECURE_GATEWAY_URL` | `https://app.deepsecure.one/mcp` | MCP gateway URL |
-| `AGENT_ID` | `debugging-agent-sa` | Agent identity |
+| `AGENT_ID` | `debugging-deepsecure-agent` | Agent identity |
 | `GEMINI_API_KEY` | (required) | Google Gemini API key |
 | `AGENT_MAX_ITERATIONS` | `6` | Number of tool call iterations |
 | `AGENT_INTERVAL_SECONDS` | `300` | Sleep between iterations (seconds) |
@@ -54,20 +54,19 @@ docker run --rm \
 
 See `infra/deploy-agent.sh` for the full deployment script.
 
-```bash
-# Build and push to Artifact Registry
-docker build -t us-central1-docker.pkg.dev/deepsecure-saas/deepsecure/gemini-agent:latest .
-docker push us-central1-docker.pkg.dev/deepsecure-saas/deepsecure/gemini-agent:latest
+Naming convention (`TENANT_NAME=deepsecure` by default):
 
-# Create Cloud Run Job
-gcloud run jobs create gemini-deepsecure-agent \
-  --image=us-central1-docker.pkg.dev/deepsecure-saas/deepsecure/gemini-agent:latest \
-  --region=us-central1 \
-  --service-account=debugging-agent-sa@deepsecure-saas.iam.gserviceaccount.com \
-  --task-timeout=2400s \
-  --max-retries=1 \
-  --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" \
-  --set-env-vars="DEEPSECURE_CONTROL_URL=https://app.deepsecure.one,DEEPSECURE_GATEWAY_URL=https://app.deepsecure.one/mcp,AGENT_INTERVAL_SECONDS=300,AGENT_MAX_ITERATIONS=6"
+| Agent Name | `AGENT_SLUG` | `AGENT_ID` | `JOB_NAME` | `SCHEDULER_NAME` | Service Account |
+|---|---|---|---|---|---|
+| Debugging Agent | `debugging` | `debugging-deepsecure-agent` | `debugging-deepsecure-agent-job` | `trigger-debugging-deepsecure-agent` | `debugging-sa@...` |
+| Engineering Audit | `engineering-audit` | `engineering-audit-deepsecure-agent` | `engineering-audit-deepsecure-agent-job` | `trigger-engineering-audit-deepsecure-agent` | `engineering-audit-sa@...` |
+| Thunderbolt | `thunderbolt` | `thunderbolt-deepsecure-agent` | `thunderbolt-deepsecure-agent-job` | `trigger-thunderbolt-deepsecure-agent` | `thunderbolt-sa@...` |
+
+```bash
+# Deploy all 3 agents (build image once)
+AGENT_SLUG=debugging          ./infra/deploy-agent.sh
+AGENT_SLUG=engineering-audit  SKIP_BUILD=1 ./infra/deploy-agent.sh
+AGENT_SLUG=thunderbolt        SKIP_BUILD=1 ./infra/deploy-agent.sh
 ```
 
 ## Tool Call Prompts

@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""SDK-based entrypoint for the DeepSecure Gemini Agent.
+"""SDK-based entrypoint for DeepSecure background agents with multi-LLM fallback.
 
-Replaces the 265-line bash entrypoint.sh with equivalent functionality
-using the deepsecure SDK bootstrap client. Requires the deepsecure
-package to be installed (pip install deepsecure).
+Bootstraps via DeepSecure SDK, then runs prompts through Gemini, Claude Code, or
+Codex CLI (in priority order) with automatic fallback when a provider fails.
 
-Environment variables (same as entrypoint.sh):
-  DEEPSECURE_CONTROL_URL  (default: https://app.deepsecure.one)
-  DEEPSECURE_GATEWAY_URL  (default: https://app.deepsecure.one/mcp)
-  AGENT_ID                (default: debugging-agent-sa)
-  AGENT_MAX_ROUNDS        (default: 3)
+Environment variables:
+  DEEPSECURE_CONTROL_URL   (default: https://app.deepsecure.one)
+  DEEPSECURE_GATEWAY_URL   (default: https://app.deepsecure.one/mcp)
+  AGENT_ID                 (default: debugging-deepsecure-agent)
+  AGENT_MAX_ROUNDS         (default: 3)
   AGENT_PROMPTS_PER_DELEGATION (default: 2)
-  AGENT_INTERVAL_SECONDS  (default: 300)
-  AGENT_JWT               (optional: skip OIDC bootstrap)
-  GEMINI_MODEL            (optional: override model)
+  AGENT_INTERVAL_SECONDS   (default: 300)
+  AGENT_JWT                (optional: skip OIDC bootstrap)
+  LLM_PROVIDERS            (default: gemini,claude,codex)
+  GEMINI_MODEL             (optional: override Gemini model)
+  PROMPT_TIMEOUT_SECONDS   (default: 300, per-prompt subprocess timeout)
+  GEMINI_API_KEY           (required for gemini provider)
+  ANTHROPIC_API_KEY        (required for claude provider)
+  OPENAI_API_KEY           (required for codex provider)
 """
 
 from __future__ import annotations
@@ -24,17 +28,64 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
-from typing import List, Optional
+from pathlib import Path
+from typing import Dict, List
 
-from deepsecure._core.bootstrap import BootstrapClient, BootstrapResult, Platform
+from deepsecure._core.bootstrap import BootstrapClient, Platform
 
 CONTROL_URL = os.environ.get("DEEPSECURE_CONTROL_URL", "https://app.deepsecure.one")
 GATEWAY_URL = os.environ.get("DEEPSECURE_GATEWAY_URL", "https://app.deepsecure.one/mcp")
-AGENT_ID = os.environ.get("AGENT_ID", "debugging-agent-sa")
+AGENT_ID = os.environ.get("AGENT_ID", "debugging-deepsecure-agent")
 MAX_ROUNDS = int(os.environ.get("AGENT_MAX_ROUNDS", "3"))
 PROMPTS_PER_DELEGATION = int(os.environ.get("AGENT_PROMPTS_PER_DELEGATION", "2"))
 INTERVAL = int(os.environ.get("AGENT_INTERVAL_SECONDS", "300"))
+LLM_PROVIDERS = os.environ.get("LLM_PROVIDERS", "gemini,claude,codex")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "")
+PROMPT_TIMEOUT = int(os.environ.get("PROMPT_TIMEOUT_SECONDS", "300"))
+
+PROVIDER_KEY_ENV: Dict[str, str] = {
+    "gemini": "GEMINI_API_KEY",
+    "claude": "ANTHROPIC_API_KEY",
+    "codex": "OPENAI_API_KEY",
+}
+
+MCP_CONFIG_PATH = "/tmp/deepsecure-mcp.json"
+
+TOOL_FAILURE_PHRASES = [
+    "tools aren't available",
+    "tools not available",
+    "not actually available",
+    "tools don't exist",
+    "no deepsecure",
+    "no mcp server",
+    "can't complete this",
+    "unable to complete",
+    "i'm not able to do this",
+    "no matching deferred tools",
+    "not able to do this",
+    "isn't configured",
+    "failed to start",
+    "tools won't be available",
+    "check the mcp server connection",
+    "no mcp tools",
+    "mcp server is not",
+    "isn't registered",
+    "not registered",
+    "didn't start",
+    "verify the mcp server",
+    "there's no deepsecure",
+    "there is no deepsecure",
+    "no such tool available",
+    "deferred-tool registry",
+    "not connected or configured",
+    "check your mcp",
+    "tools are not",
+    "not registered/connected",
+    "are not available",
+    "are **not available",
+    "i only have bash",
+    "only have bash, edit",
+]
 
 TAGGED_PROMPTS = [
     ("notion", "You have access to tools via the deepsecure MCP server. Call notion.search_pages with query 'strategy' and limit 5. For each result, show the page title and ID. Then pick the first result and call notion.read_page with that page_id to read its properties."),
@@ -55,26 +106,93 @@ def log(msg: str) -> None:
     print(f"[{ts()}] {msg}", flush=True)
 
 
-def configure_gemini(jwt: str) -> None:
-    """Add the deepsecure MCP server to Gemini CLI config."""
-    os.makedirs(os.path.expanduser("~/.gemini"), exist_ok=True)
-    cmd = [
-        "gemini", "mcp", "add", "deepsecure", GATEWAY_URL,
-        "--type", "http",
-        "--scope", "user",
-        "--trust",
-        "--timeout", "30000",
-        "-H", f"Authorization: Bearer {jwt}",
-    ]
-    subprocess.run(cmd, capture_output=True, text=True)
+def mcp_server_config(jwt: str) -> dict:
+    return {
+        "mcpServers": {
+            "deepsecure": {
+                "type": "http",
+                "url": GATEWAY_URL,
+                "headers": {"Authorization": f"Bearer {jwt}"},
+            }
+        }
+    }
 
 
-def warm_gateway(jwt: str) -> None:
-    """Send an MCP initialize to pre-warm the gateway session."""
+def detect_available_providers() -> List[str]:
+    """Return providers that have API keys present, in LLM_PROVIDERS priority order."""
+    priority = [p.strip() for p in LLM_PROVIDERS.split(",") if p.strip()]
+    available: List[str] = []
+    for provider in priority:
+        key_env = PROVIDER_KEY_ENV.get(provider)
+        if key_env and os.environ.get(key_env):
+            available.append(provider)
+        elif provider in PROVIDER_KEY_ENV:
+            log(f"Skipping provider '{provider}': {key_env} not set")
+    return available
+
+
+def configure_mcp(provider: str, jwt: str) -> None:
+    """Configure MCP gateway access for the given LLM CLI."""
+    config_json = json.dumps(mcp_server_config(jwt), indent=2)
+    Path(MCP_CONFIG_PATH).write_text(config_json)
+
+    if provider == "gemini":
+        os.makedirs(os.path.expanduser("~/.gemini"), exist_ok=True)
+        cmd = [
+            "gemini", "mcp", "add", "deepsecure", GATEWAY_URL,
+            "--type", "http",
+            "--scope", "user",
+            "--trust",
+            "--timeout", "30000",
+            "-H", f"Authorization: Bearer {jwt}",
+        ]
+        subprocess.run(cmd, capture_output=True, text=True)
+        return
+
+    if provider == "claude":
+        os.environ["CLAUDE_CODE_USE_BEDROCK"] = "0"
+        os.environ["MCP_TIMEOUT"] = "60000"
+        os.environ["MCP_CONNECTION_NONBLOCKING"] = "false"
+        claude_dir = Path.home() / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        (claude_dir / "settings.json").write_text(config_json)
+        return
+
+    if provider == "codex":
+        codex_dir = Path.home() / ".codex"
+        codex_dir.mkdir(parents=True, exist_ok=True)
+
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if api_key:
+            proc = subprocess.run(
+                ["codex", "login", "--with-api-key"],
+                input=api_key, capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode == 0:
+                log("Codex login (API key stored in auth.json)")
+            else:
+                log(f"WARNING: codex login failed: {proc.stderr.strip()}")
+
+        os.environ["DEEPSECURE_MCP_JWT"] = jwt
+        toml_content = (
+            "[mcp_servers.deepsecure]\n"
+            f'url = "{GATEWAY_URL}"\n'
+            'bearer_token_env_var = "DEEPSECURE_MCP_JWT"\n'
+            'default_tools_approval_mode = "auto"\n'
+            "enabled = true\n"
+        )
+        (codex_dir / "config.toml").write_text(toml_content)
+        return
+
+    raise ValueError(f"Unknown provider: {provider}")
+
+
+def warm_gateway(jwt: str) -> bool:
+    """Send an MCP initialize to pre-warm the gateway session.  Returns True on success."""
     import httpx
 
     try:
-        httpx.post(
+        resp = httpx.post(
             GATEWAY_URL,
             json={
                 "jsonrpc": "2.0",
@@ -87,10 +205,13 @@ def warm_gateway(jwt: str) -> None:
                 },
             },
             headers={"Authorization": f"Bearer {jwt}"},
-            timeout=10,
+            timeout=15,
         )
-    except Exception:
-        pass
+        log(f"Gateway warm-up: HTTP {resp.status_code}")
+        return resp.status_code == 200
+    except Exception as exc:
+        log(f"Gateway warm-up failed: {exc}")
+        return False
 
 
 def select_prompts(permissions: List[str]) -> List[str]:
@@ -104,23 +225,100 @@ def select_prompts(permissions: List[str]) -> List[str]:
     return matched
 
 
-def run_gemini_prompt(prompt: str) -> None:
-    """Execute a single Gemini CLI prompt."""
-    cmd = ["gemini", "-y", "--sandbox=false", "--allowed-mcp-server-names", "deepsecure", "-p", prompt]
-    if GEMINI_MODEL:
-        cmd.extend(["--model", GEMINI_MODEL])
-    proc = subprocess.run(cmd, capture_output=False, text=True)
-    if proc.returncode != 0:
-        log(f"WARNING: gemini CLI returned {proc.returncode} (may be tool error, continuing)")
+def run_provider_prompt(provider: str, prompt: str) -> bool:
+    """Execute a prompt via the given LLM CLI.
+
+    Returns True only when the CLI exits 0 AND the output does not contain
+    phrases indicating MCP tools were unavailable (prevents a text-only
+    "success" from short-circuiting the fallback chain).
+    """
+    if provider == "gemini":
+        cmd = [
+            "gemini", "-y", "--sandbox=false",
+            "--allowed-mcp-server-names", "deepsecure",
+            "-p", prompt,
+        ]
+        if GEMINI_MODEL:
+            cmd.extend(["--model", GEMINI_MODEL])
+    elif provider == "claude":
+        cmd = [
+            "claude", "-p", prompt,
+            "--output-format", "text",
+            "--mcp-config", MCP_CONFIG_PATH,
+            "--allowedTools", "mcp__deepsecure__*",
+        ]
+    elif provider == "codex":
+        cmd = [
+            "codex", "exec",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            prompt,
+        ]
+    else:
+        log(f"Unknown provider: {provider}")
+        return False
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=PROMPT_TIMEOUT)
+        output = (proc.stdout or "") + (proc.stderr or "")
+
+        lines = output.strip().splitlines() if output.strip() else []
+        head = lines[:5]
+        tail = lines[-10:] if len(lines) > 15 else lines[5:]
+        for line in head:
+            print(f"  [{provider}:head] {line}", flush=True)
+        if len(lines) > 15:
+            print(f"  [{provider}] ... ({len(lines) - 15} lines omitted) ...", flush=True)
+        for line in tail:
+            print(f"  [{provider}] {line}", flush=True)
+
+        if proc.returncode != 0:
+            log(f"WARNING: {provider} CLI returned {proc.returncode}")
+            return False
+
+        output_lower = output.lower()
+        for phrase in TOOL_FAILURE_PHRASES:
+            if phrase in output_lower:
+                log(f"WARNING: {provider} exit 0 but tools unavailable (matched: '{phrase}')")
+                return False
+
+        return True
+    except subprocess.TimeoutExpired:
+        log(f"TIMEOUT: {provider} prompt killed after {PROMPT_TIMEOUT}s")
+        return False
+    except FileNotFoundError:
+        log(f"ERROR: {provider} CLI not found in PATH")
+        return False
+
+
+def run_prompt_with_fallback(providers: List[str], jwt: str, prompt: str) -> bool:
+    """Try each provider in order until one succeeds."""
+    for provider in providers:
+        log(f"Trying provider: {provider}")
+        if provider in ("claude", "codex"):
+            warm_gateway(jwt)
+        configure_mcp(provider, jwt)
+        if run_provider_prompt(provider, prompt):
+            log(f"Prompt succeeded with provider: {provider}")
+            return True
+        log(f"Provider {provider} failed, trying next...")
+    return False
 
 
 def main() -> None:
+    providers = detect_available_providers()
+    if not providers:
+        log("FATAL: No LLM providers available (missing API keys).")
+        sys.exit(1)
+
     print("=========================================")
-    print(" DeepSecure Gemini Agent (SDK Entrypoint)")
+    print(" DeepSecure Agent (SDK + Multi-LLM)")
     print(f" Agent ID: {AGENT_ID}")
     print(f" Max Rounds: {MAX_ROUNDS}")
     print(f" Prompts/Delegation: {PROMPTS_PER_DELEGATION}")
     print(f" Interval: {INTERVAL}s")
+    print(f" Prompt Timeout: {PROMPT_TIMEOUT}s")
+    print(f" LLM Providers: {', '.join(providers)}")
     print("=========================================")
 
     pre_set_jwt = os.environ.get("AGENT_JWT")
@@ -132,7 +330,8 @@ def main() -> None:
         log(f"===== Round {round_num}/{MAX_ROUNDS} =====")
 
         if pre_set_jwt:
-            from deepsecure._core.bootstrap import BootstrapResult, Delegation
+            from deepsecure._core.bootstrap import BootstrapResult
+
             result = BootstrapResult(
                 agent_id=AGENT_ID,
                 jwt=pre_set_jwt,
@@ -152,11 +351,12 @@ def main() -> None:
             sys.exit(1)
 
         for d_idx, delegation in enumerate(result.delegations):
-            log(f"--- Delegation {d_idx + 1}/{len(result.delegations)}: {delegation.service} ({delegation.delegation_id}) ---")
+            log(
+                f"--- Delegation {d_idx + 1}/{len(result.delegations)}: "
+                f"{delegation.service} ({delegation.delegation_id}) ---"
+            )
 
             jwt = delegation.jwt or result.jwt
-
-            configure_gemini(jwt)
             warm_gateway(jwt)
 
             prompts = select_prompts(delegation.permissions)
@@ -166,11 +366,14 @@ def main() -> None:
 
             log(f"{len(prompts)} prompts match this delegation's permissions")
 
+            succeeded = 0
             for p_idx, prompt in enumerate(prompts[:PROMPTS_PER_DELEGATION]):
                 log(f"Running prompt {p_idx + 1}: {prompt[:80]}...")
-                run_gemini_prompt(prompt)
+                if run_prompt_with_fallback(providers, jwt, prompt):
+                    succeeded += 1
 
-            log(f"Completed {min(len(prompts), PROMPTS_PER_DELEGATION)} prompt(s) for delegation")
+            total = min(len(prompts), PROMPTS_PER_DELEGATION)
+            log(f"Completed {succeeded}/{total} prompt(s) for delegation")
 
         if round_num < MAX_ROUNDS:
             log(f"Sleeping {INTERVAL}s before next round...")
