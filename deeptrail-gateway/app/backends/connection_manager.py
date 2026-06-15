@@ -887,11 +887,6 @@ def create_default_manager() -> BackendConnectionManager:
             base_url="https://mcp.slack.com",
             health_endpoint="/health",
         ),
-        BackendConfig(
-            backend_id="hubspot",
-            base_url="https://mcp.hubspot.com",
-            health_endpoint="/health",
-        ),
     ]
 
     for config in default_backends:
@@ -910,7 +905,6 @@ def create_connection_manager() -> BackendConnectionManager:
     Environment Variables:
         NOTION_BASE_URL: Notion API base URL (default: https://api.notion.com/v1)
         SLACK_BASE_URL: Slack API base URL (default: https://slack.com/api)
-        HUBSPOT_BASE_URL: HubSpot API base URL (default: https://api.hubapi.com)
         GDRIVE_BASE_URL: Google Drive API base URL (default: https://www.googleapis.com/drive/v3)
         GCALENDAR_BASE_URL: Google Calendar API base URL (default: https://www.googleapis.com/calendar/v3)
         GMAIL_BASE_URL: Gmail API base URL (default: https://gmail.googleapis.com/gmail/v1)
@@ -941,10 +935,6 @@ def create_connection_manager() -> BackendConnectionManager:
     manager.register_backend(
         create_backend_config_from_settings("slack", settings.slack)
     )
-    manager.register_backend(
-        create_backend_config_from_settings("hubspot", settings.hubspot)
-    )
-
     # Google Workspace backends (WS-D5)
     manager.register_backend(
         create_backend_config_from_settings("gdrive", settings.gdrive)
@@ -958,10 +948,9 @@ def create_connection_manager() -> BackendConnectionManager:
 
     logger.info(
         "Created connection manager with configured backends: "
-        "notion=%s, slack=%s, hubspot=%s, gdrive=%s, gcalendar=%s, gmail=%s",
+        "notion=%s, slack=%s, gdrive=%s, gcalendar=%s, gmail=%s",
         settings.notion.base_url,
         settings.slack.base_url,
-        settings.hubspot.base_url,
         settings.gdrive.base_url,
         settings.gcalendar.base_url,
         settings.gmail.base_url,

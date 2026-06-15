@@ -5,15 +5,22 @@ Replaces the 265-line bash entrypoint.sh with equivalent functionality
 using the deepsecure SDK bootstrap client. Requires the deepsecure
 package to be installed (pip install deepsecure).
 
-Environment variables (same as entrypoint.sh):
+Config is fetched from the Control Plane at boot via
+GET /api/v1/agents/{agent_id}/config.  If the fetch fails, the agent
+uses hardcoded safety fallbacks for operational parameters but exits
+cleanly if no tagged_prompts are available (nothing to execute).
+
+Environment variables:
   DEEPSECURE_CONTROL_URL  (default: https://app.deepsecure.one)
   DEEPSECURE_GATEWAY_URL  (default: https://app.deepsecure.one/mcp)
-  AGENT_ID                (default: debugging-agent-sa)
-  AGENT_MAX_ROUNDS        (default: 3)
-  AGENT_PROMPTS_PER_DELEGATION (default: 2)
-  AGENT_INTERVAL_SECONDS  (default: 300)
+  AGENT_ID                (default: debugging-deepsecure-agent)
   AGENT_JWT               (optional: skip OIDC bootstrap)
   GEMINI_MODEL            (optional: override model)
+
+  Env-var overrides (take precedence over DB config):
+  AGENT_PROMPTS_PER_DELEGATION
+  AGENT_MAX_ROUNDS
+  AGENT_INTERVAL_SECONDS
 """
 
 from __future__ import annotations
@@ -24,27 +31,20 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from deepsecure._core.bootstrap import BootstrapClient, BootstrapResult, Platform
 
 CONTROL_URL = os.environ.get("DEEPSECURE_CONTROL_URL", "https://app.deepsecure.one")
 GATEWAY_URL = os.environ.get("DEEPSECURE_GATEWAY_URL", "https://app.deepsecure.one/mcp")
-AGENT_ID = os.environ.get("AGENT_ID", "debugging-agent-sa")
-MAX_ROUNDS = int(os.environ.get("AGENT_MAX_ROUNDS", "3"))
-PROMPTS_PER_DELEGATION = int(os.environ.get("AGENT_PROMPTS_PER_DELEGATION", "2"))
-INTERVAL = int(os.environ.get("AGENT_INTERVAL_SECONDS", "300"))
+AGENT_ID = os.environ.get("AGENT_ID", "debugging-deepsecure-agent")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "")
 
-TAGGED_PROMPTS = [
-    ("notion", "You have access to tools via the deepsecure MCP server. Call notion.search_pages with query 'strategy' and limit 5. For each result, show the page title and ID. Then pick the first result and call notion.read_page with that page_id to read its properties."),
-    ("slack", "You have access to tools via the deepsecure MCP server. Call slack.list_channels with limit 10 and types 'public_channel'. Pick the first channel and call slack.get_channel_history with that channel ID and limit 5 to read the last 5 messages. Then call slack.send_message to post '[DeepSecure Agent] Daily sync complete' to that channel."),
-    ("gmail", "You have access to tools via the deepsecure MCP server. Call gmail.search_messages with query 'is:unread' and limit 5. List the sender and subject of each email found."),
-    ("gdrive", "You have access to tools via the deepsecure MCP server. Call gdrive.search_files with query 'quarterly report' and limit 5. List the file name, type, and last modified date for each result."),
-    ("gcalendar", "You have access to tools via the deepsecure MCP server. Call gcalendar.list_events with calendar_id 'primary' and limit 5. Summarize each event: title, start time, and attendees."),
-    ("slack,notion,gmail", "You have access to tools via the deepsecure MCP server. First call slack.list_channels (limit 3), then call notion.search_pages with query 'meeting notes' (limit 3), then call gmail.search_messages with query 'action items' (limit 3). Write a brief summary of what you found across all three services."),
-    ("exa", "You have access to tools via the deepsecure MCP server. IMPORTANT: Tool names use dot notation like 'backend.tool_name'. For Exa tools, the names are exactly 'exa.web_search_exa' and 'exa.web_fetch_exa' (dot-separated, not colon or slash). Call the tool named exa.web_search_exa with query 'DeepSecure AI agent security platform' and numResults 3. Show the title and URL of each result."),
-]
+# Hardcoded safety fallbacks — used ONLY when both DB fetch and env vars
+# are unavailable. Intentionally conservative to prevent runaway jobs.
+_FALLBACK_PROMPTS_PER_DELEGATION = 10
+_FALLBACK_MAX_ROUNDS = 3
+_FALLBACK_INTERVAL = 300
 
 
 def ts() -> str:
@@ -54,6 +54,71 @@ def ts() -> str:
 def log(msg: str) -> None:
     print(f"[{ts()}] {msg}", flush=True)
 
+
+# ── Config fetching ──────────────────────────────────────────────────
+
+def fetch_config(agent_id: str, jwt: str, control_url: str) -> Optional[Dict[str, Any]]:
+    """Fetch agent config from the Control Plane.
+
+    Retries up to 3 times with exponential backoff (1s, 2s, 4s).
+    Returns the parsed JSON dict on success, None on failure.
+    """
+    import httpx
+
+    url = f"{control_url}/api/v1/agents/{agent_id}/config"
+    headers = {"Authorization": f"Bearer {jwt}"}
+    backoff = 1
+
+    for attempt in range(1, 4):
+        try:
+            resp = httpx.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                return resp.json()
+            log(f"Config fetch attempt {attempt}: HTTP {resp.status_code}")
+        except Exception as exc:
+            log(f"Config fetch attempt {attempt}: {exc}")
+        if attempt < 3:
+            time.sleep(backoff)
+            backoff *= 2
+
+    return None
+
+
+def resolve_config(db_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Merge DB config with env-var overrides and safety fallbacks.
+
+    Priority:  env var  >  DB config  >  hardcoded fallback
+    """
+    base = db_config or {}
+
+    ppd_env = os.environ.get("AGENT_PROMPTS_PER_DELEGATION")
+    mr_env = os.environ.get("AGENT_MAX_ROUNDS")
+    iv_env = os.environ.get("AGENT_INTERVAL_SECONDS")
+
+    prompts_per_delegation = (
+        int(ppd_env) if ppd_env
+        else base.get("prompts_per_delegation", _FALLBACK_PROMPTS_PER_DELEGATION)
+    )
+    max_rounds = (
+        int(mr_env) if mr_env
+        else base.get("max_rounds", _FALLBACK_MAX_ROUNDS)
+    )
+    interval_seconds = (
+        int(iv_env) if iv_env
+        else base.get("interval_seconds", _FALLBACK_INTERVAL)
+    )
+
+    tagged_prompts: List[Dict[str, str]] = base.get("tagged_prompts", [])
+
+    return {
+        "prompts_per_delegation": prompts_per_delegation,
+        "max_rounds": max_rounds,
+        "interval_seconds": interval_seconds,
+        "tagged_prompts": tagged_prompts,
+    }
+
+
+# ── MCP / Gemini helpers ────────────────────────────────────────────
 
 def configure_gemini(jwt: str) -> None:
     """Add the deepsecure MCP server to Gemini CLI config."""
@@ -93,14 +158,17 @@ def warm_gateway(jwt: str) -> None:
         pass
 
 
-def select_prompts(permissions: List[str]) -> List[str]:
+def select_prompts(
+    tagged_prompts: List[Dict[str, str]],
+    permissions: List[str],
+) -> List[str]:
     """Return prompts whose required services are all present in permissions."""
     perm_string = json.dumps(permissions)
     matched: List[str] = []
-    for tags_str, prompt in TAGGED_PROMPTS:
-        required = [s.strip() for s in tags_str.split(",")]
+    for tp in tagged_prompts:
+        required = [s.strip() for s in tp["services"].split(",")]
         if all(f'"{svc}:' in perm_string for svc in required):
-            matched.append(prompt)
+            matched.append(tp["prompt"])
     return matched
 
 
@@ -114,13 +182,12 @@ def run_gemini_prompt(prompt: str) -> None:
         log(f"WARNING: gemini CLI returned {proc.returncode} (may be tool error, continuing)")
 
 
+# ── Main ─────────────────────────────────────────────────────────────
+
 def main() -> None:
     print("=========================================")
     print(" DeepSecure Gemini Agent (SDK Entrypoint)")
     print(f" Agent ID: {AGENT_ID}")
-    print(f" Max Rounds: {MAX_ROUNDS}")
-    print(f" Prompts/Delegation: {PROMPTS_PER_DELEGATION}")
-    print(f" Interval: {INTERVAL}s")
     print("=========================================")
 
     pre_set_jwt = os.environ.get("AGENT_JWT")
@@ -128,11 +195,44 @@ def main() -> None:
 
     client = BootstrapClient(control_url=CONTROL_URL, gateway_url=GATEWAY_URL)
 
-    for round_num in range(1, MAX_ROUNDS + 1):
-        log(f"===== Round {round_num}/{MAX_ROUNDS} =====")
+    # ── Bootstrap (first round) to get a JWT ──
+    if pre_set_jwt:
+        boot_jwt = pre_set_jwt
+    else:
+        log("Phase 0: Bootstrapping to obtain JWT for config fetch...")
+        boot_result = client.bootstrap(AGENT_ID, platform)
+        boot_jwt = boot_result.jwt
+        log("Phase 0 complete. JWT obtained.")
+
+    # ── Fetch config from DB via Control Plane ──
+    log("Fetching agent config from Control Plane...")
+    raw_config = fetch_config(AGENT_ID, boot_jwt, CONTROL_URL)
+    if raw_config is None:
+        log("WARNING: Config fetch failed. Using safety fallbacks.")
+    else:
+        log("Config fetched successfully.")
+
+    config = resolve_config(raw_config)
+
+    max_rounds = config["max_rounds"]
+    prompts_per_delegation = config["prompts_per_delegation"]
+    interval = config["interval_seconds"]
+    tagged_prompts = config["tagged_prompts"]
+
+    if not tagged_prompts:
+        log("FATAL: No prompts configured. Set tagged_prompts via /agents/{id}/config.")
+        sys.exit(0)
+
+    log(f" Max Rounds: {max_rounds}")
+    log(f" Prompts/Delegation: {prompts_per_delegation}")
+    log(f" Interval: {interval}s")
+    log(f" Tagged Prompts: {len(tagged_prompts)}")
+
+    for round_num in range(1, max_rounds + 1):
+        log(f"===== Round {round_num}/{max_rounds} =====")
 
         if pre_set_jwt:
-            from deepsecure._core.bootstrap import BootstrapResult, Delegation
+            from deepsecure._core.bootstrap import Delegation
             result = BootstrapResult(
                 agent_id=AGENT_ID,
                 jwt=pre_set_jwt,
@@ -159,24 +259,24 @@ def main() -> None:
             configure_gemini(jwt)
             warm_gateway(jwt)
 
-            prompts = select_prompts(delegation.permissions)
+            prompts = select_prompts(tagged_prompts, delegation.permissions)
             if not prompts:
                 log(f"No matching prompts for permissions: {delegation.permissions}")
                 continue
 
             log(f"{len(prompts)} prompts match this delegation's permissions")
 
-            for p_idx, prompt in enumerate(prompts[:PROMPTS_PER_DELEGATION]):
+            for p_idx, prompt in enumerate(prompts[:prompts_per_delegation]):
                 log(f"Running prompt {p_idx + 1}: {prompt[:80]}...")
                 run_gemini_prompt(prompt)
 
-            log(f"Completed {min(len(prompts), PROMPTS_PER_DELEGATION)} prompt(s) for delegation")
+            log(f"Completed {min(len(prompts), prompts_per_delegation)} prompt(s) for delegation")
 
-        if round_num < MAX_ROUNDS:
-            log(f"Sleeping {INTERVAL}s before next round...")
-            time.sleep(INTERVAL)
+        if round_num < max_rounds:
+            log(f"Sleeping {interval}s before next round...")
+            time.sleep(interval)
 
-    log(f"=== Agent completed {MAX_ROUNDS} rounds. Exiting cleanly. ===")
+    log(f"=== Agent completed {max_rounds} rounds. Exiting cleanly. ===")
 
 
 if __name__ == "__main__":

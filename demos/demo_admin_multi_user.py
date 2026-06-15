@@ -155,7 +155,7 @@ def step_03_create_template(cfg: DemoConfig, admin_token: str, agent_id: str):
                 "max_permissions": [
                     "notion:pages:read",
                     "notion:pages:search",
-                    "slack:messages:read",
+                    "slack:messages:search",
                 ],
                 "blocked_permissions": ["notion:pages:delete"],
                 "default_ttl_days": 7,
@@ -165,7 +165,7 @@ def step_03_create_template(cfg: DemoConfig, admin_token: str, agent_id: str):
         log_response(cfg, resp)
         if resp.status_code in (200, 201):
             ok(f"Template created for agent '{agent_id}'")
-            ok("  Ceiling: notion:pages:read, notion:pages:search, slack:messages:read")
+            ok("  Ceiling: notion:pages:read, notion:pages:search, slack:messages:search")
             ok("  Blocked: notion:pages:delete")
         else:
             fail(f"Template creation failed: {resp.status_code}")
@@ -179,7 +179,7 @@ def step_04_user_a_delegates(cfg: DemoConfig, user_token: Optional[str], agent_i
 
     info(f"Agent: {agent_id}")
     info("Requesting: notion:pages:read, notion:pages:search")
-    info("Template ceiling: notion:pages:read, notion:pages:search, slack:messages:read")
+    info("Template ceiling: notion:pages:read, notion:pages:search, slack:messages:search")
 
     if cfg.skip_api:
         ok("Delegation created — within ceiling ✓")
@@ -218,7 +218,7 @@ def step_05_user_b_over_ceiling(
 
     info(f"Agent: {agent_id}")
     info("Requesting: notion:pages:read, notion:pages:write  ← 'write' exceeds ceiling")
-    info("Template ceiling: notion:pages:read, notion:pages:search, slack:messages:read")
+    info("Template ceiling: notion:pages:read, notion:pages:search, slack:messages:search")
 
     if cfg.skip_api:
         ok("Delegation correctly REJECTED — exceeds template ceiling ✓")

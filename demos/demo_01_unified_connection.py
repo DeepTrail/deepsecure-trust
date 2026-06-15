@@ -7,7 +7,7 @@ sees tools from MULTIPLE backend MCP servers.
 
 Value Proposition:
 - Agent connects to single endpoint (gateway)
-- Agent sees tools from Notion, Slack, HubSpot, etc.
+- Agent sees tools from Notion, Slack, Google Drive, etc.
 - Agent code has NO awareness of backend URLs
 - Simplified connection management for AI agents
 
@@ -251,8 +251,8 @@ class MockMCPDemoClient:
             },
         },
         {
-            "name": "hubspot.search_contacts",
-            "description": "[HubSpot] Search contacts in CRM",
+            "name": "gmail.search_messages",
+            "description": "[Gmail] Search messages by query",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -262,12 +262,12 @@ class MockMCPDemoClient:
             },
         },
         {
-            "name": "hubspot.list_deals",
-            "description": "[HubSpot] List deals from CRM",
+            "name": "gmail.list_messages",
+            "description": "[Gmail] List messages from inbox",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "status": {"type": "string", "description": "Deal status filter"},
+                    "limit": {"type": "integer", "description": "Max results"},
                 },
             },
         },
@@ -289,7 +289,7 @@ class MockMCPDemoClient:
         await asyncio.sleep(0.02)
         
         self.tools = self.MOCK_TOOLS.copy()
-        self.backends = {"notion", "slack", "hubspot"}
+        self.backends = {"notion", "slack", "gmail"}
         
         # Return realistic mock timings
         return ConnectionTimings(

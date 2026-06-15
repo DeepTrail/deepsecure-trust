@@ -73,11 +73,11 @@ def mock_tool_cache():
         ),
     ]
     
-    hubspot_tools = [
+    gdrive_tools = [
         CachedTool(
-            name="get_contact",
-            description="Get a contact",
-            inputSchema={"type": "object", "properties": {"id": {"type": "string"}}}
+            name="search_files",
+            description="Search files",
+            inputSchema={"type": "object", "properties": {"query": {"type": "string"}}}
         ),
     ]
     
@@ -86,8 +86,8 @@ def mock_tool_cache():
             return notion_tools
         elif backend_id == "slack":
             return slack_tools
-        elif backend_id == "hubspot":
-            return hubspot_tools
+        elif backend_id == "gdrive":
+            return gdrive_tools
         return []
     
     cache.get_tools.side_effect = get_tools
@@ -550,11 +550,11 @@ class TestHelperMethods:
     
     def test_find_tool_backend_not_registered(self, aggregator):
         """Test finding tool when backend not in search scope."""
-        # hubspot is not registered
-        assert aggregator.find_tool("hubspot.get_contact") is None
+        # gdrive is not registered
+        assert aggregator.find_tool("gdrive.search_files") is None
         
         # But can find with explicit backend list
-        tool = aggregator.find_tool("hubspot.get_contact", backends=["hubspot"])
+        tool = aggregator.find_tool("gdrive.search_files", backends=["gdrive"])
         assert tool is not None
     
     def test_tool_exists(self, aggregator):

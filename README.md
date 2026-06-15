@@ -116,7 +116,7 @@ The Gateway acts as a unified MCP endpoint for these backends:
 |---|---|---|
 | **Notion** | 8 | `search_pages`, `create_page`, `query_database`, `read_page`, ... |
 | **Slack** | 7 | `send_message`, `list_channels`, `search_messages`, `list_users`, ... |
-| **HubSpot** | 7 | `search_contacts`, `create_deal`, `list_deals`, `update_contact`, ... |
+| **GitHub** | 5 | `list_repos`, `get_repo`, `list_issues`, `get_issue`, `list_pull_requests` |
 | **Google Drive** | 4 | `search_files`, `read_file`, `list_files`, `get_file_metadata` |
 | **Google Calendar** | 4 | `list_events`, `search_events`, `list_calendars`, `read_event` |
 | **Gmail** | 4 | `list_messages`, `read_message`, `search_messages`, `list_labels` |
@@ -178,7 +178,7 @@ graph TB
     C -->|Validate JWT & Permissions| D[Control Plane :8000]
     C -->|Inject Credentials| E[Notion API]
     C --> F[Slack API]
-    C --> G[HubSpot API]
+    C --> G[Gmail API]
     C --> H[Google APIs]
 
     D --> I[(PostgreSQL)]

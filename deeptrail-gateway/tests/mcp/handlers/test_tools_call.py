@@ -438,11 +438,11 @@ class TestToolsCallBackend:
     async def test_missing_backend_creates_stateless_stub(self, session_manager, agent_session, mock_fail_closed):
         """Test that missing backend session creates a stateless stub (B2)."""
         params = {
-            "name": "hubspot.get_contact",
+            "name": "gdrive.search_files",
             "arguments": {"id": "123"},
             "_context": {
                 "agent_session_id": "agent-sdr-001",
-                "delegated_permissions": ["hubspot:contacts:read"],
+                "delegated_permissions": ["gdrive:files:search"],
             },
         }
         
@@ -595,11 +595,11 @@ class TestToolsCallAudit:
         mock_audit_mw.log_permission_denied = AsyncMock()
         
         params = {
-            "name": "hubspot.get_contact",
+            "name": "gdrive.search_files",
             "arguments": {},
             "_context": {
                 "agent_session_id": "agent-sdr-001",
-                "delegated_permissions": ["hubspot:contacts:read"],
+                "delegated_permissions": ["gdrive:files:search"],
             },
         }
         
@@ -612,7 +612,7 @@ class TestToolsCallAudit:
         # Stateless stub allows the call through; audit logs success
         mock_audit_mw.log_tool_call.assert_called_once()
         call_kwargs = mock_audit_mw.log_tool_call.call_args[1]
-        assert call_kwargs["tool_name"] == "hubspot.get_contact"
+        assert call_kwargs["tool_name"] == "gdrive.search_files"
 
 
 # =============================================================================

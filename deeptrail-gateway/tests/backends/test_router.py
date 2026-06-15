@@ -58,18 +58,6 @@ def mock_slack_client():
 
 
 @pytest.fixture
-def mock_hubspot_client():
-    """Create mock HubSpot client."""
-    client = MagicMock(spec=BaseMCPClient)
-    client.backend_id = "hubspot"
-    client.call_tool = AsyncMock()
-    client.list_tools = AsyncMock()
-    client.check_health = AsyncMock(return_value=True)
-    client.initialize = AsyncMock()
-    return client
-
-
-@pytest.fixture
 def router(mock_connection_manager):
     """Create router with mock connection manager."""
     return BackendRouter(mock_connection_manager, auto_register_generic=False)
@@ -99,17 +87,6 @@ class TestBackendRegistration:
         
         assert router.backend_count == 2
         assert set(router.registered_backends) == {"notion", "slack"}
-    
-    def test_register_three_backends(
-        self, router, mock_notion_client, mock_slack_client, mock_hubspot_client
-    ):
-        """Test registering three backends."""
-        router.register_backend("notion", mock_notion_client)
-        router.register_backend("slack", mock_slack_client)
-        router.register_backend("hubspot", mock_hubspot_client)
-        
-        assert router.backend_count == 3
-        assert set(router.registered_backends) == {"notion", "slack", "hubspot"}
     
     def test_unregister_backend(self, router, mock_notion_client):
         """Test unregistering a backend."""
@@ -246,13 +223,6 @@ class TestToolNameParsing:
         assert backend_id == "slack"
         assert tool_name == "send_message"
     
-    def test_parse_hubspot_tool(self, router):
-        """Test parsing HubSpot tool name."""
-        backend_id, tool_name = router.parse_tool_name("hubspot.get_contact")
-        
-        assert backend_id == "hubspot"
-        assert tool_name == "get_contact"
-    
     def test_parse_empty_raises(self, router):
         """Test parsing empty string raises."""
         with pytest.raises(InvalidToolNameError) as exc:
@@ -354,28 +324,6 @@ class TestToolRouting:
             tool_name="send_message",
             arguments={"channel": "C123", "text": "Hello"},
             auth_token=None,
-        )
-    
-    @pytest.mark.asyncio
-    async def test_route_to_hubspot(self, router, mock_hubspot_client):
-        """Test routing to HubSpot backend."""
-        router.register_backend("hubspot", mock_hubspot_client)
-        mock_hubspot_client.call_tool.return_value = ToolResult(
-            status=ToolCallStatus.SUCCESS,
-            content=[{"type": "text", "text": "contact"}],
-        )
-        
-        result = await router.route_tool_call(
-            "hubspot.get_contact",
-            {"contact_id": "12345"},
-            auth_token="Bearer abc"
-        )
-        
-        assert not result.is_error
-        mock_hubspot_client.call_tool.assert_called_once_with(
-            tool_name="get_contact",
-            arguments={"contact_id": "12345"},
-            auth_token="Bearer abc",
         )
     
     @pytest.mark.asyncio
@@ -848,12 +796,11 @@ class TestIntegrationScenarios:
     
     @pytest.mark.asyncio
     async def test_multi_backend_routing(
-        self, router, mock_notion_client, mock_slack_client, mock_hubspot_client
+        self, router, mock_notion_client, mock_slack_client
     ):
         """Test routing to multiple backends."""
         router.register_backend("notion", mock_notion_client)
         router.register_backend("slack", mock_slack_client)
-        router.register_backend("hubspot", mock_hubspot_client)
         
         # Set up responses
         mock_notion_client.call_tool.return_value = ToolResult(
@@ -864,24 +811,17 @@ class TestIntegrationScenarios:
             status=ToolCallStatus.SUCCESS,
             content=[{"type": "text", "text": "slack result"}],
         )
-        mock_hubspot_client.call_tool.return_value = ToolResult(
-            status=ToolCallStatus.SUCCESS,
-            content=[{"type": "text", "text": "hubspot result"}],
-        )
         
         # Route to each backend
         notion_result = await router.route_tool_call("notion.search", {})
         slack_result = await router.route_tool_call("slack.send", {})
-        hubspot_result = await router.route_tool_call("hubspot.get", {})
         
         # Verify each routed correctly
         assert not notion_result.is_error
         assert not slack_result.is_error
-        assert not hubspot_result.is_error
         
         mock_notion_client.call_tool.assert_called_once()
         mock_slack_client.call_tool.assert_called_once()
-        mock_hubspot_client.call_tool.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_full_workflow(

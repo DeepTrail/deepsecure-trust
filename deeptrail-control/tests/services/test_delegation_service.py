@@ -292,14 +292,14 @@ class TestPermissionValidation:
         user_id = unique_user_id()
         agent_id = unique_agent_id()
 
-        # User has Notion but not HubSpot
+        # User has Notion but not Gmail
         create_connected_service(db_session, user_id, "notion", ["read_pages"])
 
         with pytest.raises(PermissionValidationError, match="not allowed"):
             service.create_delegation(
                 delegator=user_id,
                 agent_id=agent_id,
-                permissions=["hubspot:contacts:read"],
+                permissions=["gmail:messages:read"],
             )
 
     def test_rejects_when_no_connections(

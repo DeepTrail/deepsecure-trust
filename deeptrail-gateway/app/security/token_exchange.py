@@ -29,7 +29,7 @@ Usage:
     client = get_token_exchange_client()
     token = await client.get_backend_token(
         subject_token=agent_jwt,
-        backend_id="hubspot",
+        backend_id="notion",
     )
 """
 

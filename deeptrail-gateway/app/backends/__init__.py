@@ -10,7 +10,6 @@ Main Components:
 - GenericMCPClient: Generic client for testing/MVP
 - NotionMCPClient: Notion-specific MCP client
 - SlackMCPClient: Slack-specific MCP client
-- HubSpotMCPClient: HubSpot CRM-specific MCP client
 - GDriveDirectClient: Google Drive direct REST API client (WS-D2)
 - GCalendarDirectClient: Google Calendar direct REST API client (WS-D3)
 - GmailDirectClient: Gmail direct REST API client (WS-D4)
@@ -26,7 +25,6 @@ Usage:
         GenericMCPClient,
         NotionMCPClient,
         SlackMCPClient,
-        HubSpotMCPClient,
         GDriveDirectClient,
         GCalendarDirectClient,
         GmailDirectClient,
@@ -34,7 +32,6 @@ Usage:
         create_router,
         create_notion_client,
         create_slack_client,
-        create_hubspot_client,
         create_gdrive_direct_client,
         create_gcalendar_direct_client,
         create_gmail_direct_client,
@@ -110,21 +107,6 @@ from .slack_client import (
     SlackMCPClient,
     # Factory
     create_slack_client,
-)
-
-from .hubspot_client import (
-    # Type Constants
-    HubSpotObjectType,
-    HubSpotDealStage,
-    # Exceptions
-    HubSpotClientError,
-    HubSpotRateLimitError,
-    HubSpotObjectNotFoundError,
-    HubSpotValidationError,
-    # Client
-    HubSpotMCPClient,
-    # Factory
-    create_hubspot_client,
 )
 
 from .gdrive_client import (
@@ -207,15 +189,6 @@ __all__ = [
     "SlackPermissionError",
     "SlackMCPClient",
     "create_slack_client",
-    # HubSpot Client
-    "HubSpotObjectType",
-    "HubSpotDealStage",
-    "HubSpotClientError",
-    "HubSpotRateLimitError",
-    "HubSpotObjectNotFoundError",
-    "HubSpotValidationError",
-    "HubSpotMCPClient",
-    "create_hubspot_client",
     # Google Drive Client (WS-D2)
     "GDriveDirectClient",
     "GDriveAPIConfig",

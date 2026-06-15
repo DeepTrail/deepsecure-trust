@@ -84,7 +84,7 @@ class TestTaskModel:
             "agent_id": "agent-sdr-001",
             "initiated_by": "sarah@acme.com",
             "scoped_permissions": [
-                {"urn": "hubspot:contacts:read", "constraints": {"id": "12345"}}
+                {"urn": "notion:pages:search", "constraints": {"id": "12345"}}
             ],
         }
         defaults.update(overrides)
@@ -217,7 +217,7 @@ class TestTaskModel:
         )
         sp = ScopedPermission(
             task_id="task-001",
-            permission_urn="hubspot:contacts:read",
+            permission_urn="notion:pages:search",
             valid_until=datetime.now(timezone.utc) + timedelta(hours=1),
         )
         task.scoped_permission_records = [sp]
@@ -232,7 +232,7 @@ class TestTaskModel:
         )
         sp = ScopedPermission(
             task_id="task-001",
-            permission_urn="hubspot:contacts:read",
+            permission_urn="notion:pages:search",
             valid_until=datetime.now(timezone.utc) + timedelta(hours=1),
         )
         task.scoped_permission_records = [sp]
@@ -308,15 +308,15 @@ class TestTaskModel:
     def test_has_scoped_permission_found(self):
         task = self._make_task(
             scoped_permissions=[
-                {"urn": "hubspot:contacts:read"},
+                {"urn": "notion:pages:search"},
                 {"urn": "notion:pages:search"},
             ]
         )
-        assert task.has_scoped_permission("hubspot:contacts:read") is True
+        assert task.has_scoped_permission("notion:pages:search") is True
 
     def test_has_scoped_permission_not_found(self):
         task = self._make_task(
-            scoped_permissions=[{"urn": "hubspot:contacts:read"}]
+            scoped_permissions=[{"urn": "notion:pages:search"}]
         )
         assert task.has_scoped_permission("slack:messages:send") is False
 
@@ -332,7 +332,7 @@ class TestTaskModel:
         task = self._make_task(status=TaskStatus.ACTIVE)
         sp_active = ScopedPermission(
             task_id="task-001",
-            permission_urn="hubspot:contacts:read",
+            permission_urn="notion:pages:search",
             valid_until=datetime.now(timezone.utc) + timedelta(hours=1),
         )
         sp_revoked = ScopedPermission(
@@ -348,7 +348,7 @@ class TestTaskModel:
         )
         task.scoped_permission_records = [sp_active, sp_revoked, sp_expired]
         urns = task.get_active_permission_urns()
-        assert urns == ["hubspot:contacts:read"]
+        assert urns == ["notion:pages:search"]
 
     # --- JWT serialization ---
 
@@ -399,7 +399,7 @@ class TestScopedPermission:
     def _make_sp(self, **overrides):
         defaults = {
             "task_id": "task-001",
-            "permission_urn": "hubspot:contacts:read",
+            "permission_urn": "notion:pages:search",
             "valid_until": datetime.now(timezone.utc) + timedelta(hours=1),
         }
         defaults.update(overrides)
@@ -510,7 +510,7 @@ class TestScopedPermission:
     def test_repr_usable(self):
         sp = self._make_sp()
         r = repr(sp)
-        assert "hubspot:contacts:read" in r
+        assert "notion:pages:search" in r
         assert "usable" in r
 
     def test_repr_unusable(self):
@@ -527,11 +527,11 @@ class TestScopedPermission:
 class TestScopedPermissionRequest:
     def test_valid(self):
         spr = ScopedPermissionRequest(
-            permission_urn="hubspot:contacts:read",
+            permission_urn="notion:pages:search",
             constraints={"id": "12345"},
             max_usage=10,
         )
-        assert spr.permission_urn == "hubspot:contacts:read"
+        assert spr.permission_urn == "notion:pages:search"
         assert spr.constraints == {"id": "12345"}
         assert spr.max_usage == 10
 
@@ -563,7 +563,7 @@ class TestTaskCreate:
             description="Look up contact details",
             requested_permissions=[
                 ScopedPermissionRequest(
-                    permission_urn="hubspot:contacts:read",
+                    permission_urn="notion:pages:search",
                     constraints={"id": "12345"},
                     max_usage=10,
                 )
@@ -659,7 +659,7 @@ class TestTaskTokenResponse:
             task_id="task-001",
             task_token="eyJhbGciOiJIUzI1NiJ9...",
             expires_at=datetime(2026, 1, 15, 13, 0, 0, tzinfo=timezone.utc),
-            scoped_permissions=["hubspot:contacts:read"],
+            scoped_permissions=["notion:pages:search"],
         )
         assert ttr.task_id == "task-001"
         assert len(ttr.scoped_permissions) == 1

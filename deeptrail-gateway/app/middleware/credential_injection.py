@@ -549,7 +549,7 @@ class CredentialInjector:
         
         # Backend-specific header formatting
         # Most OAuth APIs use Bearer token
-        if backend_id in ("notion", "slack", "hubspot", "google"):
+        if backend_id in ("notion", "slack", "google"):
             return {
                 "Authorization": f"{token_type} {access_token}"
             }

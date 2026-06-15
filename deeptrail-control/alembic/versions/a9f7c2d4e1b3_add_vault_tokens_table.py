@@ -41,7 +41,7 @@ def upgrade() -> None:
             sa.String(64),
             nullable=False,
             index=True,
-            comment="Service identifier (e.g., notion, slack, hubspot)",
+            comment="Service identifier (e.g., notion, slack, gmail)",
         ),
         sa.Column(
             "encrypted_data",

@@ -16,6 +16,7 @@ MVP Tools:
 - join_channel: Join a channel -> POST /api/conversations.join
 - post_reaction: Add reaction to a message -> POST /api/reactions.add
 - list_users: List workspace users -> GET /api/users.list
+- search_users: Search users by name or email -> GET /api/users.list (client-side filter)
 - get_channel_history: Get channel message history -> GET /api/conversations.history
 
 Usage:
@@ -635,6 +636,96 @@ class SlackDirectClient:
                 ToolCallStatus.ERROR, f"Request failed: {e}"
             )
 
+    async def search_users(
+        self,
+        query: str,
+        limit: int = 20,
+        auth_token: str | None = None,
+    ) -> ToolResult:
+        """
+        Search for users in the Slack workspace by name or email.
+
+        Slack has no dedicated user-search endpoint, so this fetches
+        users via GET /api/users.list and filters client-side by
+        real_name, display_name, and email (case-insensitive substring).
+
+        Args:
+            query: Search string (matched against name and email)
+            limit: Maximum users to return after filtering
+            auth_token: Slack bot token (xoxb-xxx) - requires users:read scope
+
+        Returns:
+            ToolResult with matching users or error
+        """
+        if auth_token is None:
+            return ToolResult.from_error(
+                ToolCallStatus.UNAUTHORIZED, "No auth token provided"
+            )
+
+        url = f"{self.base_url}/users.list"
+        params: dict[str, Any] = {
+            "limit": 200,
+        }
+
+        start_time = datetime.now(timezone.utc)
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(
+                    url,
+                    params=params,
+                    headers=self._get_headers(auth_token),
+                )
+
+            result = self._transform_response("search_users", response, start_time)
+
+            if result.is_error:
+                return result
+
+            members = result.raw.get("members", [])
+            query_lower = query.lower()
+            matched = []
+            for member in members:
+                if member.get("deleted"):
+                    continue
+                real_name = (member.get("real_name") or "").lower()
+                display_name = (
+                    member.get("profile", {}).get("display_name") or ""
+                ).lower()
+                email = (
+                    member.get("profile", {}).get("email") or ""
+                ).lower()
+                if (
+                    query_lower in real_name
+                    or query_lower in display_name
+                    or query_lower in email
+                ):
+                    matched.append(member)
+                    if len(matched) >= limit:
+                        break
+
+            duration_ms = (
+                datetime.now(timezone.utc) - start_time
+            ).total_seconds() * 1000
+            filtered_data = {"ok": True, "members": matched}
+
+            return ToolResult(
+                status=ToolCallStatus.SUCCESS,
+                is_error=False,
+                content=[{"type": "text", "text": str(filtered_data)}],
+                raw=filtered_data,
+                duration_ms=duration_ms,
+            )
+
+        except httpx.TimeoutException:
+            return ToolResult.from_error(
+                ToolCallStatus.TIMEOUT, "Request timed out"
+            )
+        except httpx.RequestError as e:
+            return ToolResult.from_error(
+                ToolCallStatus.ERROR, f"Request failed: {e}"
+            )
+
     async def get_channel_history(
         self,
         channel: str,
@@ -722,6 +813,7 @@ class SlackDirectClient:
             "join_channel": self._call_join_channel,
             "post_reaction": self._call_post_reaction,
             "list_users": self._call_list_users,
+            "search_users": self._call_search_users,
             "get_channel_history": self._call_get_channel_history,
         }
 
@@ -828,6 +920,20 @@ class SlackDirectClient:
             auth_token=auth_token,
         )
 
+    async def _call_search_users(
+        self, args: dict[str, Any], auth_token: str | None
+    ) -> ToolResult:
+        query = args.get("query")
+        if not query:
+            return ToolResult.from_error(
+                ToolCallStatus.ERROR, "query is required"
+            )
+        return await self.search_users(
+            query=query,
+            limit=args.get("limit", 20),
+            auth_token=auth_token,
+        )
+
     async def _call_get_channel_history(
         self, args: dict[str, Any], auth_token: str | None
     ) -> ToolResult:
@@ -903,6 +1009,10 @@ class SlackMCPClient(BaseMCPClient):
         "list_users": {
             "required": [],
             "optional": ["limit", "cursor", "include_locale"],
+        },
+        "search_users": {
+            "required": ["query"],
+            "optional": ["limit"],
         },
         "get_channel_history": {
             "required": ["channel"],

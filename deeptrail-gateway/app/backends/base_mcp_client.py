@@ -310,7 +310,7 @@ class BaseMCPClient(ABC):
         This must match the backend_id registered with BackendConnectionManager.
         
         Returns:
-            Backend identifier (e.g., "notion", "slack", "hubspot")
+            Backend identifier (e.g., "notion", "slack")
         """
         pass
     

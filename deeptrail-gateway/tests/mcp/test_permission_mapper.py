@@ -54,12 +54,6 @@ class TestGetPermission:
         assert PermissionMapper.get_permission("slack.list_channels") == "slack:channels:list"
         assert PermissionMapper.get_permission("slack.join_channel") == "slack:channels:join"
     
-    def test_known_hubspot_tools(self):
-        """Test getting permissions for known HubSpot tools."""
-        assert PermissionMapper.get_permission("hubspot.get_contact") == "hubspot:contacts:read"
-        assert PermissionMapper.get_permission("hubspot.list_deals") == "hubspot:deals:list"
-        assert PermissionMapper.get_permission("hubspot.create_deal") == "hubspot:deals:create"
-    
     def test_unknown_tool_returns_none(self):
         """Test that unknown tools return None."""
         assert PermissionMapper.get_permission("unknown.tool") is None
@@ -266,7 +260,7 @@ class TestBackendQueries:
         
         assert "notion:pages:search" in all_perms
         assert "slack:channels:list" in all_perms
-        assert "hubspot:contacts:read" in all_perms
+        assert "gdrive:files:search" in all_perms
     
     def test_get_all_tools(self):
         """Test getting all known tools."""
@@ -274,7 +268,7 @@ class TestBackendQueries:
         
         assert "notion.search_pages" in all_tools
         assert "slack.list_channels" in all_tools
-        assert "hubspot.get_contact" in all_tools
+        assert "gdrive.search_files" in all_tools
     
     def test_get_all_tools_for_permission(self):
         """Test getting tools that require a specific permission."""
@@ -447,14 +441,13 @@ class TestGooglePermissionMappings:
             "gdrive.search_files", ["notion:pages:search"]
         )
         assert not PermissionMapper.is_tool_permitted(
-            "gmail.read_message", ["slack:messages:read"]
+            "gmail.read_message", ["slack:messages:search"]
         )
 
     def test_existing_backend_mappings_unchanged(self):
-        """Regression: notion/slack/hubspot mappings must remain intact."""
+        """Regression: notion/slack mappings must remain intact."""
         assert PermissionMapper.get_permission("notion.search_pages") == "notion:pages:search"
         assert PermissionMapper.get_permission("slack.send_message") == "slack:messages:send"
-        assert PermissionMapper.get_permission("hubspot.get_contact") == "hubspot:contacts:read"
 
     def test_total_google_tools_in_registry(self):
         """All 12 Google tool entries must be present."""

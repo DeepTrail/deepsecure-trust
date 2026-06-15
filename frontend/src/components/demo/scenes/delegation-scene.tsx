@@ -8,7 +8,7 @@ import type { DemoSceneProps } from "./types";
 const permissions = [
   "notion:pages:read",
   "notion:pages:write",
-  "slack:messages:read",
+  "slack:messages:search",
   "slack:messages:write",
 ];
 

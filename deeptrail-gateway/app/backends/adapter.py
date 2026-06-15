@@ -1,7 +1,7 @@
 """
 Backend Client Adapter for Virtual MCP Server.
 
-Bridges the interface between tools_call.py and backend clients (Notion, Slack, HubSpot).
+Bridges the interface between tools_call.py and backend clients (Notion, Slack, etc.).
 
 The MCP handler expects:
     call_tool(backend_id, tool_name, arguments, auth_headers: dict, mcp_session_id)
@@ -324,17 +324,17 @@ def create_backend_adapter(*, include_builtin: bool | None = None) -> BackendCli
     if include_builtin:
         from .notion_client import NotionDirectClient
         from .slack_client import SlackDirectClient
-        from .hubspot_client import HubSpotDirectClient
         from .gdrive_client import GDriveDirectClient
         from .gcalendar_client import GCalendarDirectClient
         from .gmail_client import GmailDirectClient
+        from .github_client import GitHubDirectClient
 
         adapter.register_client("notion", NotionDirectClient())
         adapter.register_client("slack", SlackDirectClient())
-        adapter.register_client("hubspot", HubSpotDirectClient())
         adapter.register_client("gdrive", GDriveDirectClient())
         adapter.register_client("gcalendar", GCalendarDirectClient())
         adapter.register_client("gmail", GmailDirectClient())
+        adapter.register_client("github", GitHubDirectClient())
 
     logger.info(
         "BackendClientAdapter created with backends: %s (include_builtin=%s)",

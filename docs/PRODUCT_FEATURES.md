@@ -74,7 +74,7 @@ DeepSecure implements a separation between the Control Plane and Data Plane for 
 │   Credential Injector   │  Backend Adapter    │  Tool Cache  │
 ├──────────────────────────────────────────────────────────────┤
 │                    External Services                          │
-│         Notion   │   Slack   │   HubSpot   │   Custom APIs   │
+│         Notion   │   Slack   │   Gmail     │   Custom APIs   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -164,7 +164,7 @@ DeepSecure implements a separation between the Control Plane and Data Plane for 
 
 | Feature | Description |
 |---------|-------------|
-| **Multi-Backend Support** | Aggregate tools from multiple MCP servers (Notion, Slack, HubSpot, etc.) |
+| **Multi-Backend Support** | Aggregate tools from multiple MCP servers (Notion, Slack, Gmail, etc.) |
 | **Namespace Prefixing** | Automatic tool namespacing (`notion.search_pages`, `slack.send_message`) |
 | **Tool Caching** | Cached tool definitions with invalidation |
 | **Schema Passthrough** | Tool input schemas preserved for client validation |
@@ -410,7 +410,7 @@ DeepSecure implements a separation between the Control Plane and Data Plane for 
 |---------|-------|--------|
 | **Notion** | search_pages, read_page, create_page | ✅ Implemented |
 | **Slack** | search_messages, send_message, list_channels | ✅ Implemented |
-| **HubSpot** | get_contact, update_contact, list_deals | ✅ Implemented |
+| **Gmail** | search_messages, list_messages, read_message | ✅ Implemented |
 
 ### 12.2 Backend Integration Architecture
 

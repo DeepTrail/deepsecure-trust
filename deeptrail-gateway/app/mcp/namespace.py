@@ -10,8 +10,6 @@ Pattern: {backend_id}.{tool_name}
 Examples:
     - search_pages → notion.search_pages
     - send_message → slack.send_message
-    - get_contact  → hubspot.get_contact
-
 Usage:
     from app.mcp.namespace import prefix_tool_name, unprefix_tool_name
     

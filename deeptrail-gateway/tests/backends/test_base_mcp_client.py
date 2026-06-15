@@ -912,11 +912,9 @@ class TestFactoryFunction:
         """Test factory creates different backends."""
         notion_client = create_mcp_client(mock_connection_manager, "notion")
         slack_client = create_mcp_client(mock_connection_manager, "slack")
-        hubspot_client = create_mcp_client(mock_connection_manager, "hubspot")
 
         assert notion_client.backend_id == "notion"
         assert slack_client.backend_id == "slack"
-        assert hubspot_client.backend_id == "hubspot"
 
 
 # =============================================================================

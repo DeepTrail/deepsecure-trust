@@ -14,7 +14,6 @@ import pytest
 from app.mcp.tool_definitions import (
     NOTION_TOOLS,
     SLACK_TOOLS,
-    HUBSPOT_TOOLS,
     populate_tool_cache,
     get_all_tool_definitions,
 )
@@ -51,17 +50,6 @@ class TestPermissionMapperAlignment:
             assert tool_name in defined_tools, \
                 f"Permission Mapper tool '{pm_tool}' missing from SLACK_TOOLS"
     
-    def test_all_hubspot_permission_mapper_tools_have_definitions(self):
-        """Verify every HubSpot tool in Permission Mapper has a definition."""
-        permission_mapper_tools = PermissionMapper.get_backend_tools("hubspot")
-        defined_tools = [tool.name for tool in HUBSPOT_TOOLS]
-        
-        for pm_tool in permission_mapper_tools:
-            tool_name = pm_tool.split(".", 1)[1] if "." in pm_tool else pm_tool
-            assert tool_name in defined_tools, \
-                f"Permission Mapper tool '{pm_tool}' missing from HUBSPOT_TOOLS"
-
-
 class TestNotionToolDefinitions:
     """Tests for Notion tool definitions."""
     
@@ -119,34 +107,6 @@ class TestSlackToolDefinitions:
         assert "list_users" in tool_names
 
 
-class TestHubSpotToolDefinitions:
-    """Tests for HubSpot tool definitions."""
-    
-    def test_hubspot_tool_count(self):
-        """Test expected number of HubSpot tools."""
-        assert len(HUBSPOT_TOOLS) == 7, \
-            f"Expected 7 HubSpot tools, got {len(HUBSPOT_TOOLS)}"
-    
-    def test_hubspot_tools_have_required_fields(self):
-        """Test all HubSpot tools have required fields."""
-        for tool in HUBSPOT_TOOLS:
-            assert tool.name, f"Tool missing name"
-            assert tool.description, f"Tool {tool.name} missing description"
-            assert tool.inputSchema, f"Tool {tool.name} missing inputSchema"
-    
-    def test_deal_tools_exist(self):
-        """WS-J2: Verify deal tools exist."""
-        tool_names = [tool.name for tool in HUBSPOT_TOOLS]
-        assert "create_deal" in tool_names
-        assert "update_deal" in tool_names
-    
-    def test_contact_tools_exist(self):
-        """WS-J2: Verify contact tools exist."""
-        tool_names = [tool.name for tool in HUBSPOT_TOOLS]
-        assert "list_contacts" in tool_names
-        assert "update_contact" in tool_names
-
-
 # =============================================================================
 # Cache Population Tests
 # =============================================================================
@@ -162,7 +122,6 @@ class TestCachePopulation:
         
         assert cache.is_cached("notion")
         assert cache.is_cached("slack")
-        assert cache.is_cached("hubspot")
     
     def test_get_all_tool_definitions_structure(self):
         """Test get_all_tool_definitions returns correct structure."""
@@ -170,8 +129,6 @@ class TestCachePopulation:
         
         assert "notion" in defs
         assert "slack" in defs
-        assert "hubspot" in defs
         
         assert defs["notion"] == NOTION_TOOLS
         assert defs["slack"] == SLACK_TOOLS
-        assert defs["hubspot"] == HUBSPOT_TOOLS

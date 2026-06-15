@@ -22,7 +22,7 @@ class DelegationTemplate(Base):
 
     Example:
         IT Admin creates a template for agent-sdr-001:
-          max_permissions: ["notion:pages:search", "slack:messages:read"]
+          max_permissions: ["notion:pages:search", "slack:messages:search"]
           blocked_permissions: ["slack:messages:delete"]
           default_ttl_days: 7
           max_actions_per_day: 100

@@ -550,12 +550,6 @@ class TestBackendSpecificHeaders:
         
         assert headers["Authorization"].startswith("Bearer ")
 
-    def test_hubspot_uses_bearer(self, injector, mock_token_data):
-        """C7: HubSpot should use Bearer token."""
-        headers = injector._format_auth_headers(mock_token_data, "hubspot")
-        
-        assert headers["Authorization"].startswith("Bearer ")
-
     def test_api_key_backend_uses_x_api_key(self, injector):
         """C7: API key backends should use X-API-Key header."""
         token_data = {"access_token": "api_key_123"}

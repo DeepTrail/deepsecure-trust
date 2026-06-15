@@ -279,7 +279,7 @@ class MCPSessionManager:
             >>> manager.create_agent_session(
             ...     "agent-123",
             ...     "sarah@acme.com",
-            ...     ["notion:pages:search", "slack:messages:read"],
+            ...     ["notion:pages:search", "slack:messages:search"],
             ...     [
             ...         {"service_id": "notion", "oauth_token_ref": "vault://ref1", 
             ...          "available_tools": ["search_pages", "read_page"]},

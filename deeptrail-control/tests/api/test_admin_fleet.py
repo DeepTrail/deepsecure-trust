@@ -151,7 +151,7 @@ def test_create_delegation_admin(client, db):
     resp = client.post("/api/v1/admin/delegations", json={
         "agent_id": "adm-del-agent",
         "delegator": "carol@test.com",
-        "delegated_permissions": ["slack:messages:read"],
+        "delegated_permissions": ["slack:messages:search"],
     })
     assert resp.status_code == 201
     assert resp.json()["source"] == "admin"

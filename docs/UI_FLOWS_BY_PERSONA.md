@@ -77,7 +77,7 @@
 
 **Why this matters:** The permissions shown in the delegation step (Phase 3) are derived
 from the OAuth scopes granted in this step. If Sarah only connects Notion and Slack, she
-can only delegate Notion and Slack tools — HubSpot tools do not appear.
+can only delegate Notion and Slack tools — Gmail tools do not appear.
 
 ---
 
@@ -200,7 +200,7 @@ Future (P10)    →  AWS Identity Provider — IAM role ARN, STS exchange
 │  ✉️  Gmail  (4 permissions)      📄 Google Drive (3 permissions)             │
 │    ☐ ...                           ☐ ...                                     │
 │                                                                               │
-│  Note: HubSpot does NOT appear — Sarah has not connected HubSpot.            │
+│  Note: Gmail does NOT appear — Sarah has not connected Gmail.                 │
 │                                                                               │
 │  STEP 3: Set TTL                                                             │
 │  ─────────────────────────────────────────────────────────────────────────   │
@@ -324,7 +324,7 @@ code; they initialise the SDK with the agent credentials and it handles authenti
 │  │  ─────────────────────────────────────────────────────────────────     │  │
 │  │  ❌ notion.create_page      notion:pages:create    Connected, not delegated │
 │  │  ─────────────────────────────────────────────────────────────────     │  │
-│  │  (HubSpot tools not shown — HubSpot not connected by this user)        │  │
+│  │  (Gmail tools not shown — Gmail not connected by this user)             │  │
 │  └─────────────────────────────────────────────────────────────────────────┘  │
 │                                                                               │
 │  ┌─ Recent Activity ──────────────────────────────────────────────────────┐  │
@@ -436,7 +436,7 @@ code; they initialise the SDK with the agent credentials and it handles authenti
 │  ├──────────────────┼───────────┼─────────────────────┼───────────────────┤  │
 │  │ notion-mcp       │ ✅ Active  │ All Employees        │ Internal          │  │
 │  │ slack-mcp        │ ✅ Active  │ All Employees        │ Internal          │  │
-│  │ hubspot-mcp      │ ✅ Active  │ Sales, Marketing     │ Confidential      │  │
+│  │ gmail-mcp        │ ✅ Active  │ All Employees        │ Internal          │  │
 │  │ google-workspace │ ✅ Active  │ All Employees        │ Internal          │  │
 │  │ salesforce-mcp   │ ✅ Active  │ Sales only           │ Confidential      │  │
 │  │ financial-api    │ ✅ Active  │ Finance only         │ Restricted        │  │
@@ -475,13 +475,7 @@ code; they initialise the SDK with the agent credentials and it handles authenti
 │  ─────────────────────────────────────────────────────────────────────────   │
 │                                                                               │
 │  Maximum Delegable Permissions:                                              │
-│    hubspot:contacts:read         ✅ Allowed                                  │
-│    hubspot:contacts:create       ✅ Allowed                                  │
-│    hubspot:contacts:delete       ❌ Blocked (destructive — requires approval) │
-│    hubspot:deals:read            ✅ Allowed                                  │
-│    hubspot:deals:update          ✅ Allowed                                  │
-│    hubspot:settings:*            ❌ Blocked (admin-only)                     │
-│    slack:messages:read           ✅ Allowed                                  │
+│    slack:messages:search         ✅ Allowed                                  │
 │    slack:messages:send           ✅ Allowed                                  │
 │    slack:admin:*                 ❌ Blocked (admin-only)                     │
 │    notion:pages:read             ✅ Allowed                                  │
@@ -542,7 +536,7 @@ code; they initialise the SDK with the agent credentials and it handles authenti
 │  ┌─ Backend MCP Server Status ────────────────────────────────────────────┐  │
 │  │  notion      ✅ UP     89ms     3 errors                               │  │
 │  │  slack       ✅ UP     45ms     0 errors                               │  │
-│  │  hubspot     ⚠️ SLOW   850ms   12 errors   (investigate)              │  │
+│  │  gmail       ✅ UP     120ms    1 error                               │  │
 │  │  salesforce  ❌ DOWN   —        47 errors   (action required)         │  │
 │  └─────────────────────────────────────────────────────────────────────────┘  │
 │                                                                               │
@@ -552,7 +546,7 @@ code; they initialise the SDK with the agent credentials and it handles authenti
 │  │                                                                         │  │
 │  │  Tokens Requiring Attention:                                            │  │
 │  │  • sarah@acme.com - notion  - Expires in 2 days                        │  │
-│  │  • mike@acme.com  - hubspot - Refresh failed (re-auth needed)          │  │
+│  │  • mike@acme.com  - gmail   - Refresh failed (re-auth needed)          │  │
 │  └─────────────────────────────────────────────────────────────────────────┘  │
 │                                                                               │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -856,7 +850,7 @@ code; they initialise the SDK with the agent credentials and it handles authenti
 │  ┌─ Tool Call Volume by Backend ──────────────────────────────────────────┐  │
 │  │  notion     ████████████████████████████████████████  68%  (8,234)     │  │
 │  │  slack      ██████████████████                       28%  (3,412)     │  │
-│  │  hubspot    ████                                      4%    (487)     │  │
+│  │  gmail      ████                                      4%    (487)     │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                               │
 │  ┌─ Top Tools Called ─────────────────────────────────────────────────────┐  │
@@ -865,7 +859,7 @@ code; they initialise the SDK with the agent credentials and it handles authenti
 │  │   1   │ notion.search_pages     │  4,521 │  99.8%  │    8    │   89    │  │
 │  │   2   │ slack.list_channels     │  2,103 │ 100.0%  │    0    │   67    │  │
 │  │   3   │ notion.read_page        │  1,892 │  99.9%  │    2    │   54    │  │
-│  │   4   │ hubspot.get_contacts    │    412 │  98.5%  │    6    │   23    │  │
+│  │   4   │ gmail.search_messages   │    412 │  98.5%  │    6    │   23    │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                               │
 │  ┌─ Permission Denial Analysis ───────────────────────────────────────────┐  │
@@ -873,7 +867,7 @@ code; they initialise the SDK with the agent credentials and it handles authenti
 │  │                                                                         │  │
 │  │  • slack:messages:write     (17 denials) — 6 agents, 4 users           │  │
 │  │  • notion:pages:create      (11 denials) — 3 agents, 3 users           │  │
-│  │  • hubspot:contacts:create  ( 8 denials) — 2 agents, 2 users           │  │
+│  │  • gmail:messages:read      ( 8 denials) — 2 agents, 2 users           │  │
 │  │                                                                         │  │
 │  │  💡 Insight: 65% of denials are write ops not delegated.                │  │
 │  │     Consider reviewing delegation templates.                            │  │
@@ -891,7 +885,7 @@ code; they initialise the SDK with the agent credentials and it handles authenti
 │  │       └─ Delegated to: agent-sdr-001                                    │  │
 │  │           ├─ notion:pages:read    ✅ Used 234 times                     │  │
 │  │           ├─ notion:pages:search  ✅ Used 1,021 times                   │  │
-│  │           ├─ slack:messages:read  ✅ Used 89 times                      │  │
+│  │           ├─ slack:messages:search ✅ Used 89 times                      │  │
 │  │           └─ slack:channels:list  ⚪ Never used                         │  │
 │  │                                                                         │  │
 │  │  📊 Permission Utilization: 75% (3 of 4 permissions used)              │  │
@@ -991,7 +985,7 @@ Deploys platform ─────────────────────
 Configures IdP (Okta)
 Approves services: Notion, Slack, Gmail,
   GDrive, GCal (all users)
-  HubSpot (Sales role only)
+  GitHub (Engineering role only)
 Configures "sales-rep" role permission limits
   (max TTL: 7 days, 500 actions/day)
 Approves vendor: SalesBot Inc
@@ -999,7 +993,7 @@ Approves vendor: SalesBot Inc
 Day 1+ (Employee Onboarding):
                                                   Sarah logs in → onboarding wizard
                                                   Connects Notion, Slack, Gmail, GDrive, GCal
-                                                  (HubSpot shown only if Sarah = Sales role)
+                                                  (GitHub shown only if Sarah = Engineering role)
                                                   Wizard complete
 
 Day 1+ (Agent Setup):

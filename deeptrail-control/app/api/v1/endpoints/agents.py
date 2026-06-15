@@ -17,6 +17,7 @@ from app.models.delegation import DelegationToken
 from app.models.credential import Credential
 from app.models.policy import Policy
 from app.models.connected_service import ConnectedService
+from app.models.service_registry import ServiceRegistry
 from app.services.lifecycle_service import LifecycleService
 from app.services.scope_mapper import ScopeMapper
 
@@ -24,9 +25,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# Permission-to-tool mapping for known backends.
-# Covers all services defined in ScopeMapper.SCOPE_TO_PERMISSIONS.
-PERMISSION_TOOL_MAP = {
+# Default permission-to-tool mapping for REST backends that don't store
+# their tool schemas in service_registry.  Kept as a fallback — the
+# primary source of truth is `service_registry.permission_map` (populated
+# for MCP services and optionally for REST services via admin API).
+_DEFAULT_PERMISSION_TOOL_MAP: dict[str, dict[str, str]] = {
     # Notion
     "notion:pages:search": {"name": "notion.search_pages", "backend": "notion"},
     "notion:pages:read": {"name": "notion.get_page", "backend": "notion"},
@@ -45,14 +48,6 @@ PERMISSION_TOOL_MAP = {
     "slack:users:list": {"name": "slack.list_users", "backend": "slack"},
     "slack:users:search": {"name": "slack.search_users", "backend": "slack"},
     "slack:reactions:write": {"name": "slack.add_reaction", "backend": "slack"},
-    # HubSpot
-    "hubspot:contacts:read": {"name": "hubspot.get_contact", "backend": "hubspot"},
-    "hubspot:contacts:list": {"name": "hubspot.list_contacts", "backend": "hubspot"},
-    "hubspot:contacts:create": {"name": "hubspot.create_contact", "backend": "hubspot"},
-    "hubspot:contacts:update": {"name": "hubspot.update_contact", "backend": "hubspot"},
-    "hubspot:deals:list": {"name": "hubspot.list_deals", "backend": "hubspot"},
-    "hubspot:deals:create": {"name": "hubspot.create_deal", "backend": "hubspot"},
-    "hubspot:deals:update": {"name": "hubspot.update_deal", "backend": "hubspot"},
     # Google Drive
     "gdrive:files:search": {"name": "gdrive.search_files", "backend": "gdrive"},
     "gdrive:files:read": {"name": "gdrive.get_file", "backend": "gdrive"},
@@ -68,7 +63,44 @@ PERMISSION_TOOL_MAP = {
     "gmail:messages:read": {"name": "gmail.get_message", "backend": "gmail"},
     "gmail:messages:search": {"name": "gmail.search_messages", "backend": "gmail"},
     "gmail:labels:list": {"name": "gmail.list_labels", "backend": "gmail"},
+    # GitHub
+    "github:repos:list": {"name": "github.list_repos", "backend": "github"},
+    "github:repos:read": {"name": "github.read_repo", "backend": "github"},
+    "github:issues:read": {"name": "github.list_issues", "backend": "github"},
+    "github:issues:create": {"name": "github.create_issue", "backend": "github"},
+    "github:pulls:read": {"name": "github.list_pulls", "backend": "github"},
+    "github:pulls:create": {"name": "github.create_pull", "backend": "github"},
+    "github:commits:read": {"name": "github.list_commits", "backend": "github"},
+    "github:orgs:read": {"name": "github.read_org", "backend": "github"},
+    "github:teams:list": {"name": "github.list_teams", "backend": "github"},
+    "github:users:read": {"name": "github.read_user", "backend": "github"},
 }
+
+
+def _build_permission_tool_map(db: Session) -> dict[str, dict[str, str]]:
+    """Build a merged permission→tool map from the default fallback and service_registry.
+
+    For services with a non-null ``permission_map`` in the DB (e.g. MCP services
+    configured via the admin UI), those DB entries take precedence.  For services
+    without one (most REST services), the hardcoded default is used.
+    """
+    merged = dict(_DEFAULT_PERMISSION_TOOL_MAP)
+
+    services = (
+        db.query(ServiceRegistry)
+        .filter(
+            ServiceRegistry.status == "active",
+            ServiceRegistry.permission_map.isnot(None),
+        )
+        .all()
+    )
+    for svc in services:
+        perm_map: dict[str, str] = svc.permission_map or {}
+        for tool_name, perm_string in perm_map.items():
+            namespaced = f"{svc.service_id}.{tool_name}" if "." not in tool_name else tool_name
+            merged[perm_string] = {"name": namespaced, "backend": svc.service_id}
+
+    return merged
 
 
 def _generate_ed25519_keypair() -> tuple:
@@ -331,8 +363,9 @@ def get_agent_tools(
 ):
     """Get tools available to an agent based on delegated permissions and connected services.
 
-    Only shows tools for backends where the delegator has an active service
-    connection. Tools are marked available if the agent has the permission delegated.
+    REST backends require the delegator to have an active OAuth connection.
+    MCP backends (API-key auth managed by admin) are always available when
+    delegated — no per-user OAuth connection is needed.
     """
     db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
     if db_agent is None:
@@ -356,7 +389,7 @@ def get_agent_tools(
             if delegation.delegator:
                 delegators.add(delegation.delegator)
 
-    # Find which backends the delegator(s) have connected
+    # Find which REST backends the delegator(s) have OAuth-connected
     connected_backends: set = set()
     if delegators:
         connected_services = (
@@ -370,12 +403,31 @@ def get_agent_tools(
         )
         connected_backends = {row[0] for row in connected_services}
 
-    # Build tools list filtered to connected backends only
+    # Identify MCP backends — these don't require per-user OAuth
+    mcp_backends: set = set()
+    mcp_services = (
+        db.query(ServiceRegistry.service_id)
+        .filter(
+            ServiceRegistry.status == "active",
+            ServiceRegistry.backend_type == "mcp",
+        )
+        .all()
+    )
+    mcp_backends = {row[0] for row in mcp_services}
+
+    # Build the full permission→tool map (defaults + DB-stored MCP maps)
+    permission_tool_map = _build_permission_tool_map(db)
+
+    # Build tools list: REST requires OAuth connection, MCP always available
     tools = []
-    for permission, tool_info in PERMISSION_TOOL_MAP.items():
+    for permission, tool_info in permission_tool_map.items():
         backend = tool_info["backend"]
-        if not connected_backends or backend not in connected_backends:
+        is_mcp = backend in mcp_backends
+        has_connection = backend in connected_backends
+
+        if not is_mcp and not has_connection:
             continue
+
         available = permission in delegated_permissions
         tool = schemas.AgentToolInfo(
             name=tool_info["name"],
@@ -387,6 +439,60 @@ def get_agent_tools(
         tools.append(tool)
 
     return schemas.AgentToolsResponse(agent_id=agent_id, tools=tools)
+
+
+@router.get("/{agent_id}/config", response_model=schemas.AgentConfig)
+def get_agent_config(
+    agent_id: str,
+    db: Session = Depends(deps.get_db),
+):
+    """Return the agent's runtime configuration.
+
+    Merges stored JSONB with schema defaults so callers always get a
+    complete config object even if the DB column is empty or sparse.
+    Auth: User token or Agent JWT (agents can read their own config).
+    """
+    db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
+    if db_agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    stored = db_agent.config or {}
+    return schemas.AgentConfig(**stored)
+
+
+@router.put("/{agent_id}/config", response_model=schemas.AgentConfig)
+def update_agent_config(
+    agent_id: str,
+    payload: schemas.AgentConfigUpdate,
+    db: Session = Depends(deps.get_db),
+):
+    """Update the agent's runtime configuration.
+
+    Only fields present in the request body are changed; omitted fields
+    keep their current values.  Returns the full merged config.
+    Auth: User token (admin operation).
+    """
+    db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
+    if db_agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    current = dict(db_agent.config or {})
+    update_data = payload.model_dump(exclude_none=True)
+
+    if "tagged_prompts" in update_data:
+        update_data["tagged_prompts"] = [
+            tp.model_dump() if hasattr(tp, "model_dump") else tp
+            for tp in update_data["tagged_prompts"]
+        ]
+
+    current.update(update_data)
+    db_agent.config = current
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(db_agent, "config")
+    db.commit()
+    db.refresh(db_agent)
+
+    return schemas.AgentConfig(**(db_agent.config or {}))
 
 
 @router.post(

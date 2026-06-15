@@ -215,7 +215,7 @@ class TestAgentContext:
         assert context.has_permission("notion:pages:read") is True
         assert context.has_permission("slack:messages:search") is True
         assert context.has_permission("notion:pages:delete") is False
-        assert context.has_permission("hubspot:contacts:read") is False
+        assert context.has_permission("gdrive:files:search") is False
 
     def test_has_any_permission(self, valid_layer3_payload):
         """Test checking any of multiple permissions."""
@@ -224,7 +224,7 @@ class TestAgentContext:
         assert context.has_any_permission(["notion:pages:search", "notion:pages:write"])
         assert context.has_any_permission(["notion:pages:read"])
         assert not context.has_any_permission(
-            ["hubspot:contacts:read", "hubspot:contacts:write"]
+            ["gdrive:files:search", "gdrive:files:write"]
         )
         assert not context.has_any_permission([])
 

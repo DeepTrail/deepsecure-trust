@@ -12,7 +12,7 @@ from app.backends.dynamic_registry import DynamicBackendLoader, ServiceConfig
 @pytest.fixture
 def mock_adapter():
     adapter = MagicMock()
-    adapter.registered_backends = ["notion", "slack", "hubspot", "gdrive", "gcalendar", "gmail"]
+    adapter.registered_backends = ["notion", "slack", "gdrive", "gcalendar", "gmail"]
     return adapter
 
 
@@ -305,5 +305,4 @@ class TestCreateBackendAdapter:
         reset_settings()
         adapter = create_backend_adapter()
         assert "notion" in adapter.registered_backends
-        assert "hubspot" in adapter.registered_backends
         reset_settings()
