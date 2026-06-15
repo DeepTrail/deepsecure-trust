@@ -59,17 +59,6 @@ def slack_config():
     )
 
 
-@pytest.fixture
-def hubspot_config():
-    """Create HubSpot backend config."""
-    return BackendConfig(
-        backend_id="hubspot",
-        base_url="https://mcp.hubspot.com",
-        health_endpoint="/health",
-        timeout_seconds=10.0,
-    )
-
-
 @pytest.fixture(autouse=True)
 def reset_global_manager():
     """Reset global connection manager before and after each test."""
@@ -924,8 +913,7 @@ class TestFactoryFunctions:
         
         assert "notion" in backend_ids
         assert "slack" in backend_ids
-        assert "hubspot" in backend_ids
-        assert len(backend_ids) == 3
+        assert len(backend_ids) == 2
 
 
 # =============================================================================
@@ -1047,7 +1035,7 @@ class TestCreateConnectionManager:
 
         manager = create_connection_manager()
         ids = manager.get_backend_ids()
-        assert len(ids) == 6, f"Expected 6 backends, got {len(ids)}: {ids}"
+        assert len(ids) == 5, f"Expected 5 backends, got {len(ids)}: {ids}"
 
     def test_registers_google_workspace_backends(self):
         from app.backends.connection_manager import create_connection_manager
@@ -1057,9 +1045,9 @@ class TestCreateConnectionManager:
         assert {"gdrive", "gcalendar", "gmail"}.issubset(ids)
 
     def test_existing_backends_still_registered(self):
-        """Regression: notion/slack/hubspot must still be registered."""
+        """Regression: notion/slack must still be registered."""
         from app.backends.connection_manager import create_connection_manager
 
         manager = create_connection_manager()
         ids = set(manager.get_backend_ids())
-        assert {"notion", "slack", "hubspot"}.issubset(ids)
+        assert {"notion", "slack"}.issubset(ids)

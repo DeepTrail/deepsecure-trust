@@ -763,7 +763,7 @@ class TestBulkOperations:
         )
         service.connect_service(
             user_id=user_id,
-            service_id="hubspot",
+            service_id="gdrive",
             oauth_response=sample_oauth_response,
             scopes_granted=["contacts"],
         )

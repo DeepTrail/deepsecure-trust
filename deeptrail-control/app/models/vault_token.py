@@ -63,7 +63,7 @@ class VaultToken(Base):
         String(64),
         nullable=False,
         index=True,
-        comment="Service identifier (e.g., notion, slack, hubspot)",
+        comment="Service identifier (e.g., notion, slack)",
     )
 
     # Encrypted token data (Fernet-encrypted JSON)

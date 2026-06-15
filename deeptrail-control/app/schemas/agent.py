@@ -186,4 +186,28 @@ class ChallengeRequest(BaseModel):
 
 class ChallengeResponse(BaseModel):
     """Schema for returning a new challenge nonce."""
-    nonce: str = Field(..., description="The single-use nonce for the agent to sign.") 
+    nonce: str = Field(..., description="The single-use nonce for the agent to sign.")
+
+
+# --- Agent Config Schemas --- #
+
+class TaggedPrompt(BaseModel):
+    """A prompt tagged with the services it requires."""
+    services: str = Field(description="Comma-separated service IDs (e.g. 'notion' or 'slack,notion,gmail')")
+    prompt: str = Field(description="The LLM prompt text")
+
+
+class AgentConfig(BaseModel):
+    """Full agent runtime configuration returned by GET /agents/{id}/config."""
+    prompts_per_delegation: int = Field(default=10, ge=1, le=50)
+    max_rounds: int = Field(default=3, ge=1, le=20)
+    interval_seconds: int = Field(default=60, ge=10, le=3600)
+    tagged_prompts: List[TaggedPrompt] = Field(default_factory=list)
+
+
+class AgentConfigUpdate(BaseModel):
+    """Partial update for agent config via PUT /agents/{id}/config."""
+    prompts_per_delegation: Optional[int] = Field(None, ge=1, le=50)
+    max_rounds: Optional[int] = Field(None, ge=1, le=20)
+    interval_seconds: Optional[int] = Field(None, ge=10, le=3600)
+    tagged_prompts: Optional[List[TaggedPrompt]] = None 

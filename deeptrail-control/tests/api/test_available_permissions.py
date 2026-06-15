@@ -177,7 +177,7 @@ class TestAvailablePermissionsEndpoint:
             )
 
             data = response.json()
-            assert "hubspot" not in data["services"]
+            assert "nonexistent" not in data["services"]
         finally:
             app.dependency_overrides.clear()
 

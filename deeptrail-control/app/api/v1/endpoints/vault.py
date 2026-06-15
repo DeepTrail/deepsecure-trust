@@ -89,7 +89,7 @@ async def get_token_for_service(
     This endpoint enables credential injection by the Gateway.
 
     Args:
-        service_id: Service identifier (e.g., "notion", "slack", "hubspot")
+        service_id: Service identifier (e.g., "notion", "slack")
         agent_claims: Validated agent JWT claims from dependency
         vault_client: VaultClient instance for token storage
 
@@ -225,7 +225,6 @@ async def get_token_for_service(
 SERVICE_TO_PROVIDER = {
     "notion": OAuthProvider.NOTION,
     "slack": OAuthProvider.SLACK,
-    "hubspot": OAuthProvider.HUBSPOT,
     "gdrive": OAuthProvider.GOOGLE,
     "gcalendar": OAuthProvider.GOOGLE,
     "gmail": OAuthProvider.GOOGLE,
@@ -283,7 +282,7 @@ async def refresh_token(
     requiring agent re-authentication.
 
     Args:
-        service_id: Service identifier (e.g., "notion", "slack", "hubspot")
+        service_id: Service identifier (e.g., "notion", "slack")
         request: Refresh request with optional force flag
         x_user_id: User ID from X-User-ID header
         internal_token: Validated internal API token

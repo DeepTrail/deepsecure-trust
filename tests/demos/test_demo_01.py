@@ -86,7 +86,7 @@ class TestMockMCPDemoClient:
         assert len(client.backends) == 3
         assert "notion" in client.backends
         assert "slack" in client.backends
-        assert "hubspot" in client.backends
+        assert "gmail" in client.backends
     
     @pytest.mark.asyncio
     async def test_mock_client_returns_timings(self):
@@ -118,7 +118,7 @@ class TestMockMCPDemoClient:
             name = tool["name"]
             assert "." in name, f"Tool {name} should have namespace prefix"
             namespace, action = name.split(".", 1)
-            assert namespace in ["notion", "slack", "hubspot"]
+            assert namespace in ["notion", "slack", "gmail"]
             assert len(action) > 0
     
     def test_tools_have_descriptions(self):

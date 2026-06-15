@@ -67,7 +67,7 @@ class TestVaultTokenModel:
         token = VaultToken(
             token_ref="vault://test-noexpire-abc123",
             user_id="test@example.com",
-            service_id="hubspot",
+            service_id="notion",
             encrypted_data=b"encrypted",
             expires_at=None,
         )

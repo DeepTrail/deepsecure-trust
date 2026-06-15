@@ -119,7 +119,7 @@ The DeepSecure MVP consists of two primary services:
 │  │                   │   │                       │   │                       │         │
 │  │  Per-backend:     │   │  ┌─────────────────┐  │   │  NotionDirectClient   │         │
 │  │  • notion: [...]  │   │  │ Token Cache ⚠️  │  │   │  SlackDirectClient    │         │
-│  │  • slack: [...]   │   │  │ (60s TTL)       │  │   │  HubSpotDirectClient  │         │
+│  │  • slack: [...]   │   │  │ (60s TTL)       │  │   │  GmailDirectClient    │         │
 │  │                   │   │  └─────────────────┘  │   │                       │         │
 │  │  TTL: 5 minutes   │   │          │            │   │  Makes real API calls │         │
 │  │                   │   │          ▼            │   │  with injected creds  │         │
@@ -135,7 +135,7 @@ The DeepSecure MVP consists of two primary services:
 │                            EXTERNAL BACKENDS                                             │
 │                                                                                          │
 │  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐                                │
-│  │   Notion    │     │    Slack    │     │   HubSpot   │                                │
+│  │   Notion    │     │    Slack    │     │   Gmail     │                                │
 │  │   API       │     │    API      │     │    API      │                                │
 │  │             │     │             │     │             │                                │
 │  │ api.notion  │     │ slack.com   │     │ api.hubapi  │                                │

@@ -191,6 +191,12 @@ export default function AgentDetailPage() {
               state={(agent.lifecycle_state as LifecycleState) ?? "registered"}
             />
           )}
+          <Button variant="default" size="sm" disabled>
+            Activity
+          </Button>
+          <Link href={`/dashboard/agents/${agentId}/config`}>
+            <Button variant="outline" size="sm">Configuration</Button>
+          </Link>
         </div>
       </div>
 

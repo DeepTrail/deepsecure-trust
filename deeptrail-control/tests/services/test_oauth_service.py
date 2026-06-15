@@ -51,8 +51,6 @@ def mock_env_vars(monkeypatch):
     monkeypatch.setenv("NOTION_CLIENT_SECRET", "notion_client_secret_456")
     monkeypatch.setenv("SLACK_CLIENT_ID", "slack_client_id_123")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "slack_client_secret_456")
-    monkeypatch.setenv("HUBSPOT_CLIENT_ID", "hubspot_client_id_123")
-    monkeypatch.setenv("HUBSPOT_CLIENT_SECRET", "hubspot_client_secret_456")
     monkeypatch.setenv("OAUTH_REDIRECT_BASE_URL", "https://app.example.com")
 
 
@@ -100,22 +98,6 @@ class TestGetAuthorizationUrl:
         assert "code_challenge_method=S256" in response.authorization_url
         assert "state=" in response.authorization_url
         assert response.code_verifier is not None
-
-    @pytest.mark.asyncio
-    async def test_generates_hubspot_url_with_scopes(
-        self, oauth_service: OAuthService, mock_env_vars
-    ):
-        """get_authorization_url should include scopes for HubSpot."""
-        request = AuthorizationRequest(
-            provider=OAuthProvider.HUBSPOT,
-            user_id="user-123",
-        )
-
-        response = await oauth_service.get_authorization_url(request)
-
-        assert "app.hubspot.com/oauth/authorize" in response.authorization_url
-        assert "scope=" in response.authorization_url
-        assert "state=" in response.authorization_url
 
     @pytest.mark.asyncio
     async def test_stores_state_for_validation(
@@ -527,15 +509,6 @@ class TestGetProviderConfig:
         assert config.uses_pkce is True
         assert "slack.com" in config.authorization_url
 
-    def test_returns_hubspot_config(self, oauth_service: OAuthService, mock_env_vars):
-        """get_provider_config should return HubSpot configuration."""
-        config = oauth_service.get_provider_config(OAuthProvider.HUBSPOT)
-
-        assert config.provider == OAuthProvider.HUBSPOT
-        assert config.client_id == "hubspot_client_id_123"
-        assert config.uses_pkce is False
-        assert "hubspot.com" in config.authorization_url
-
     def test_raises_on_missing_client_id(self, oauth_service: OAuthService, monkeypatch):
         """get_provider_config should raise OAuthConfigError if client_id missing."""
         monkeypatch.delenv("NOTION_CLIENT_ID", raising=False)
@@ -646,7 +619,7 @@ class TestTokenResponseNormalization:
             "scope": "read write",
         }
 
-        result = oauth_service._normalize_token_response(OAuthProvider.HUBSPOT, data)
+        result = oauth_service._normalize_token_response(OAuthProvider.GOOGLE, data)
 
         assert result.access_token == "token123"
         assert result.token_type == "Bearer"

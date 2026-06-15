@@ -224,7 +224,7 @@ python demo_01_unified_connection.py --gateway http://custom-gateway:8002/mcp
 ### What It Demonstrates
 
 1. **Single Connection Point**: Agent connects to one gateway URL
-2. **Multiple Backends**: Tools from Notion, Slack, HubSpot are visible
+2. **Multiple Backends**: Tools from Notion, Slack, Gmail are visible
 3. **Hidden Complexity**: Agent code has NO awareness of backend URLs
 
 ### Expected Output
@@ -254,15 +254,15 @@ python demo_01_unified_connection.py --gateway http://custom-gateway:8002/mcp
 ----------------------------------------
    Total tools:      6
    Backend servers:  3
-   Backends:         hubspot, notion, slack
+   Backends:         gmail, notion, slack
 
    Tool list:
    • notion.search_pages              [Notion] Search pages in your w...
    • notion.read_page                 [Notion] Read page content by ID
    • slack.search_messages            [Slack] Search messages in chan...
    • slack.list_channels              [Slack] List accessible channels
-   • hubspot.search_contacts          [HubSpot] Search contacts in CRM
-   • hubspot.list_deals               [HubSpot] List deals from CRM
+   • gmail.search_messages             [Gmail] Search messages by query
+   • gmail.list_messages              [Gmail] List messages from inbox
 
 ======================================================================
   ✅ KEY INSIGHT
@@ -273,7 +273,7 @@ python demo_01_unified_connection.py --gateway http://custom-gateway:8002/mcp
 
    Agent code contains:
    ✓ Gateway URL:  http://localhost:8002/mcp
-   ✗ Hubspot URL:   (hidden from agent)
+   ✗ Gmail URL:     (hidden from agent)
    ✗ Notion URL:   (hidden from agent)
    ✗ Slack URL:    (hidden from agent)
 
@@ -679,8 +679,8 @@ GET /api/v1/audit/events
    10:17:12     notion.create_page           ✗ denied   12ms       notion    
    11:45:00     slack.search_messages        ✓ success  234ms      slack     
    12:00:00     slack.list_channels          ✓ success  67ms       slack     
-   13:45:00     hubspot.search_contacts      ✓ success  178ms      hubspot   
-   14:00:00     hubspot.update_contact       ✓ success  156ms      hubspot   
+   13:45:00     gmail.search_messages        ✓ success  178ms      gmail
+   14:00:00     gmail.list_messages          ✓ success  156ms      gmail
    14:15:00     notion.search_pages          ✓ success  112ms      notion    
    ----------------------------------------------------------------------
    Agent: agent-sdr-001
@@ -699,7 +699,7 @@ GET /api/v1/audit/events
    By Tool:
    • notion.search_pages: 2
    • slack.search_messages: 1
-   • hubspot.search_contacts: 1
+   • gmail.search_messages: 1
    ...
 
 ⚖️ COMPARISON: Traditional vs DeepSecure
@@ -710,7 +710,7 @@ GET /api/v1/audit/events
    │  To answer "What did agent X do today?":                        │
    │  1. Check Notion audit logs              → 30 min               │
    │  2. Check Slack audit logs               → 30 min               │
-   │  3. Check HubSpot audit logs             → 30 min               │
+   │  3. Check Gmail audit logs               → 30 min               │
    │  4. Cross-reference agent identity       → 60 min               │
    │  5. Correlate timestamps                 → 60 min               │
    │  6. Compile report                       → 60 min               │
@@ -902,8 +902,8 @@ python demo_cross_service_workflow.py
 
 ### What It Demonstrates
 
-1. **Multi-Backend Workflow**: Uses Notion, HubSpot, and Slack in one flow
-2. **Namespaced Tools**: Tools like `notion.search_pages`, `hubspot.search_contacts`
+1. **Multi-Backend Workflow**: Uses Notion, Gmail, and Slack in one flow
+2. **Namespaced Tools**: Tools like `notion.search_pages`, `gmail.search_messages`
 3. **Cross-Service Data Flow**: Data flows between services seamlessly
 4. **Unified Audit Trail**: All actions logged with agent and user attribution
 
@@ -911,10 +911,10 @@ python demo_cross_service_workflow.py
 
 ```
 1. [NOTION]  Search for product information
-2. [HUBSPOT] Find contacts interested in AI security
+2. [GMAIL]   Search emails for AI security leads
 3. [NOTION]  Get outreach email template
 4. [SLACK]   Notify SDR team about hot leads
-5. [HUBSPOT] Update contact status to 'Contacted'
+5. [NOTION]  Create follow-up task page
 ```
 
 ### Expected Output
@@ -928,7 +928,7 @@ python demo_cross_service_workflow.py
 
   Backend Services Used:
   • Notion  - Knowledge base, templates
-  • HubSpot - CRM, contact management
+  • Gmail   - Email search, message access
   • Slack   - Team communication
 
   Value Proposition:
@@ -948,10 +948,10 @@ python demo_cross_service_workflow.py
    SALES RESEARCH AND OUTREACH WORKFLOW
    =======================================================
    1. [📝 NOTION  ] Search for product information
-   2. [💼 HUBSPOT ] Find contacts interested in AI security
+   2. [📧 GMAIL   ] Search emails for AI security leads
    3. [📝 NOTION  ] Get outreach email template
    4. [💬 SLACK   ] Notify SDR team about hot leads
-   5. [💼 HUBSPOT ] Update contact status to 'Contacted'
+   5. [📝 NOTION  ] Create follow-up task page
    =======================================================
 
 ⚡ WORKFLOW EXECUTION
@@ -983,7 +983,7 @@ python demo_cross_service_workflow.py
          │                     │                     │
          ▼                     ▼                     ▼
    ┌───────────┐         ┌───────────┐         ┌───────────┐
-   │  NOTION   │         │  HUBSPOT  │         │   SLACK   │
+   │  NOTION   │         │   GMAIL   │         │   SLACK   │
    └───────────┘         └───────────┘         └───────────┘
 
 📋 UNIFIED AUDIT TRAIL
@@ -995,10 +995,10 @@ python demo_cross_service_workflow.py
    Timestamp    Backend    Tool                         Status    
    -----------------------------------------------------------------
    14:30:00     notion     notion.search_pages          success   
-   14:32:05     hubspot    hubspot.search_contacts      success   
+   14:32:05     gmail      gmail.search_messages         success   
    14:34:10     notion     notion.read_page             success   
    14:36:15     slack      slack.send_message           success   
-   14:38:20     hubspot    hubspot.update_contact       success   
+   14:38:20     gmail      gmail.list_messages           success   
    -----------------------------------------------------------------
 
 ======================================================================
@@ -1007,7 +1007,7 @@ python demo_cross_service_workflow.py
 
    Steps executed:    5
    Steps succeeded:   5
-   Backends used:     3 (hubspot, notion, slack)
+   Backends used:     3 (gmail, notion, slack)
    Total duration:    250.0ms
    Agent connections: 1 (gateway only)
 
@@ -1087,11 +1087,11 @@ pytest tests/demos/test_demo_01.py -v
           │                   │                   │
           ▼                   ▼                   ▼
     ┌──────────┐        ┌──────────┐        ┌──────────┐
-    │  Notion  │        │  Slack   │        │ HubSpot  │
+    │  Notion  │        │  Slack   │        │  Gmail   │
     │   MCP    │        │   MCP    │        │   MCP    │
     └──────────┘        └──────────┘        └──────────┘
 
-       Agent sees: notion.*, slack.*, hubspot.* tools
+       Agent sees: notion.*, slack.*, gmail.* tools
        Agent knows: Only gateway URL
 ```
 

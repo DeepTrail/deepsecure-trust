@@ -43,10 +43,10 @@ logger = logging.getLogger(__name__)
 _DIRECT_CLIENT_MAP: dict[str, tuple[str, str]] = {
     "notion": ("app.backends.notion_client", "NotionDirectClient"),
     "slack": ("app.backends.slack_client", "SlackDirectClient"),
-    "hubspot": ("app.backends.hubspot_client", "HubSpotDirectClient"),
     "gdrive": ("app.backends.gdrive_client", "GDriveDirectClient"),
     "gcalendar": ("app.backends.gcalendar_client", "GCalendarDirectClient"),
     "gmail": ("app.backends.gmail_client", "GmailDirectClient"),
+    "github": ("app.backends.github_client", "GitHubDirectClient"),
 }
 
 

@@ -16,10 +16,10 @@ Environment Variables:
     NOTION_BASE_URL: Notion API base URL
     NOTION_API_VERSION: Notion API version header value
     SLACK_BASE_URL: Slack API base URL
-    HUBSPOT_BASE_URL: HubSpot API base URL
     GDRIVE_BASE_URL: Google Drive API base URL
     GCALENDAR_BASE_URL: Google Calendar API base URL
     GMAIL_BASE_URL: Gmail API base URL
+    GITHUB_BASE_URL: GitHub API base URL
 """
 
 from __future__ import annotations
@@ -97,21 +97,6 @@ class SlackConfig(BackendAPIConfig):
     model_config = {"env_prefix": "SLACK_"}
 
 
-class HubSpotConfig(BackendAPIConfig):
-    """
-    HubSpot API configuration.
-
-    Environment Variables:
-        HUBSPOT_BASE_URL: Base URL (default: https://api.hubapi.com)
-        HUBSPOT_TIMEOUT_SECONDS: Request timeout
-        HUBSPOT_RETRY_ATTEMPTS: Number of retries
-        HUBSPOT_HEALTH_ENDPOINT: Health check endpoint
-    """
-    base_url: str = Field(default="https://api.hubapi.com")
-
-    model_config = {"env_prefix": "HUBSPOT_"}
-
-
 class GDriveConfig(BackendAPIConfig):
     """
     Google Drive API configuration.
@@ -157,6 +142,21 @@ class GmailConfig(BackendAPIConfig):
     model_config = {"env_prefix": "GMAIL_"}
 
 
+class GitHubConfig(BackendAPIConfig):
+    """
+    GitHub API configuration.
+
+    Environment Variables:
+        GITHUB_BASE_URL: Base URL (default: https://api.github.com)
+        GITHUB_TIMEOUT_SECONDS: Request timeout
+        GITHUB_RETRY_ATTEMPTS: Number of retries
+        GITHUB_HEALTH_ENDPOINT: Health check endpoint
+    """
+    base_url: str = Field(default="https://api.github.com")
+
+    model_config = {"env_prefix": "GITHUB_"}
+
+
 # =============================================================================
 # Gateway Settings
 # =============================================================================
@@ -178,10 +178,10 @@ class GatewaySettings(BaseSettings):
     )
     notion: NotionConfig = Field(default_factory=NotionConfig)
     slack: SlackConfig = Field(default_factory=SlackConfig)
-    hubspot: HubSpotConfig = Field(default_factory=HubSpotConfig)
     gdrive: GDriveConfig = Field(default_factory=GDriveConfig)
     gcalendar: GCalendarConfig = Field(default_factory=GCalendarConfig)
     gmail: GmailConfig = Field(default_factory=GmailConfig)
+    github: GitHubConfig = Field(default_factory=GitHubConfig)
     max_connections_per_backend: int = Field(default=10)
     health_check_interval_seconds: float = Field(default=30.0)
     health_check_timeout_seconds: float = Field(default=5.0)

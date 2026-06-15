@@ -134,8 +134,8 @@ class TestMockBackendLog:
         slack_requests = log.get_requests_for_tool("slack.list_channels")
         assert len(slack_requests) == 1
         
-        hubspot_requests = log.get_requests_for_tool("hubspot.search")
-        assert len(hubspot_requests) == 0
+        gmail_requests = log.get_requests_for_tool("gmail.search")
+        assert len(gmail_requests) == 0
     
     def test_count_unauthorized_zero(self) -> None:
         """Count unauthorized returns 0 for authorized tools only."""

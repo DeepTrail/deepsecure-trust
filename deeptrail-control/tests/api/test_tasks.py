@@ -57,7 +57,7 @@ def _make_agent_jwt(**extra_claims) -> str:
         "sub": "agent-sdr-001",
         "owner": "sarah@acme.com",
         "delegation_id": "deleg-001",
-        "delegated_permissions": ["hubspot:contacts:read", "hubspot:contacts:write"],
+        "delegated_permissions": ["notion:pages:search", "notion:pages:read"],
         "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
         **extra_claims,
     }
@@ -72,7 +72,7 @@ def _make_task_obj(**overrides):
         "agent_id": "agent-sdr-001",
         "name": "Research lead",
         "status": "pending",
-        "scoped_permissions": [{"urn": "hubspot:contacts:read", "constraints": {}}],
+        "scoped_permissions": [{"urn": "notion:pages:search", "constraints": {}}],
         "deadline": now + timedelta(hours=1),
         "auto_revoke_on_complete": True,
         "created_at": now,
@@ -91,7 +91,7 @@ def _auth_header(token: str) -> dict:
 CREATE_BODY = {
     "name": "Research lead 12345",
     "requested_permissions": [
-        {"permission_urn": "hubspot:contacts:read", "constraints": {"id": "12345"}}
+        {"permission_urn": "notion:pages:search", "constraints": {"id": "12345"}}
     ],
     "deadline_minutes": 60,
     "auto_revoke_on_complete": True,
@@ -224,7 +224,7 @@ class TestCreateTask:
         mock_service.create_task.side_effect = TaskPermissionError(
             "Permissions exceed delegation scope",
             invalid_permissions=["salesforce:leads:write"],
-            allowed_permissions=["hubspot:contacts:read"],
+            allowed_permissions=["notion:pages:search"],
         )
 
         resp = client.post(
@@ -458,7 +458,7 @@ class TestIssueTaskToken:
             task_id="task-abc-123",
             task_token="eyJhbGciOiJIUzI1NiJ9.test",
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-            scoped_permissions=["hubspot:contacts:read"],
+            scoped_permissions=["notion:pages:search"],
         )
 
         resp = client.post(
@@ -469,7 +469,7 @@ class TestIssueTaskToken:
         data = resp.json()
         assert data["task_id"] == "task-abc-123"
         assert data["task_token"].startswith("eyJ")
-        assert "hubspot:contacts:read" in data["scoped_permissions"]
+        assert "notion:pages:search" in data["scoped_permissions"]
         assert "expires_at" in data
 
     def test_issue_token_not_found_returns_404(self, client, user_token, mock_service):

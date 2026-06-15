@@ -21,7 +21,7 @@ Usage:
     configure_result_filter(enabled=True)
 
     rf = get_result_filter()
-    result = rf.filter_response(backend_data, backend_id="hubspot")
+    result = rf.filter_response(backend_data, backend_id="notion")
     # result.filtered_content has PII masked
     # result.masks_applied shows how many masks were applied
 """

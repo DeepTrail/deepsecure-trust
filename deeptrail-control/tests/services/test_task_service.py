@@ -65,7 +65,7 @@ def _make_task_data(
 ):
     perms = permissions or [
         ScopedPermissionRequest(
-            permission_urn="hubspot:contacts:read",
+            permission_urn="notion:pages:search",
             constraints={"id": "12345"},
         )
     ]
@@ -83,13 +83,13 @@ def _make_active_task(task_id="task-test-123", agent_id="agent-001", deadline=No
         agent_id=agent_id,
         initiated_by="user@test.com",
         status=TaskStatus.ACTIVE,
-        scoped_permissions=[{"urn": "hubspot:contacts:read"}],
+        scoped_permissions=[{"urn": "notion:pages:search"}],
         auto_revoke_on_complete=True,
         deadline=deadline,
     )
     sp = ScopedPermission(
         task_id=task_id,
-        permission_urn="hubspot:contacts:read",
+        permission_urn="notion:pages:search",
         valid_until=datetime.now(timezone.utc) + timedelta(hours=2),
     )
     task.scoped_permission_records = [sp]
@@ -136,7 +136,7 @@ class TestCreateTask:
             agent_id="agent-sdr-001",
             initiated_by="sarah@acme.com",
             task_data=task_data,
-            delegation_permissions=["hubspot:contacts:read", "hubspot:contacts:write"],
+            delegation_permissions=["notion:pages:search", "notion:pages:read"],
         )
         assert task.status == TaskStatus.PENDING
         assert task.agent_id == "agent-sdr-001"
@@ -155,10 +155,10 @@ class TestCreateTask:
                 agent_id="agent-001",
                 initiated_by="user@test.com",
                 task_data=task_data,
-                delegation_permissions=["hubspot:contacts:read"],
+                delegation_permissions=["notion:pages:search"],
             )
         assert "slack:messages:send" in exc_info.value.invalid_permissions
-        assert "hubspot:contacts:read" in exc_info.value.allowed_permissions
+        assert "notion:pages:search" in exc_info.value.allowed_permissions
 
     def test_create_no_delegation_check(self, service, mock_db):
         task_data = _make_task_data(
@@ -187,8 +187,8 @@ class TestCreateTask:
     def test_create_generates_scoped_permission_records(self, service, mock_db):
         task_data = _make_task_data(
             permissions=[
-                ScopedPermissionRequest(permission_urn="hubspot:contacts:read"),
-                ScopedPermissionRequest(permission_urn="hubspot:contacts:write", max_usage=10),
+                ScopedPermissionRequest(permission_urn="notion:pages:search"),
+                ScopedPermissionRequest(permission_urn="notion:pages:read", max_usage=10),
             ]
         )
         task = service.create_task(
@@ -198,12 +198,12 @@ class TestCreateTask:
         )
         assert len(task.scoped_permission_records) == 2
         urns = {sp.permission_urn for sp in task.scoped_permission_records}
-        assert urns == {"hubspot:contacts:read", "hubspot:contacts:write"}
+        assert urns == {"notion:pages:search", "notion:pages:read"}
 
     def test_create_scoped_permission_max_usage(self, service, mock_db):
         task_data = _make_task_data(
             permissions=[
-                ScopedPermissionRequest(permission_urn="hubspot:contacts:read", max_usage=5),
+                ScopedPermissionRequest(permission_urn="notion:pages:search", max_usage=5),
             ]
         )
         task = service.create_task(
@@ -460,7 +460,7 @@ class TestIssueTaskToken:
         mock_db.query.return_value.filter.return_value.first.return_value = task
 
         result = service.issue_task_token("task-test-123")
-        assert "hubspot:contacts:read" in result.scoped_permissions
+        assert "notion:pages:search" in result.scoped_permissions
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -518,38 +518,38 @@ class TestCheckDeadlineTimeouts:
 class TestPermissionValidation:
     def test_exact_match_passes(self, service):
         service._validate_permissions_subset(
-            ["hubspot:contacts:read"],
-            ["hubspot:contacts:read"],
+            ["notion:pages:search"],
+            ["notion:pages:search"],
         )
 
     def test_subset_passes(self, service):
         service._validate_permissions_subset(
-            ["hubspot:contacts:read"],
-            ["hubspot:contacts:read", "hubspot:contacts:write"],
+            ["notion:pages:search"],
+            ["notion:pages:search", "notion:pages:read"],
         )
 
     def test_superset_fails(self, service):
         with pytest.raises(TaskPermissionError) as exc_info:
             service._validate_permissions_subset(
-                ["hubspot:contacts:read", "slack:messages:send"],
-                ["hubspot:contacts:read"],
+                ["notion:pages:search", "slack:messages:send"],
+                ["notion:pages:search"],
             )
         assert "slack:messages:send" in exc_info.value.invalid_permissions
 
     def test_disjoint_fails(self, service):
         with pytest.raises(TaskPermissionError) as exc_info:
             service._validate_permissions_subset(
-                ["notion:pages:read"],
-                ["hubspot:contacts:read"],
+                ["slack:messages:search"],
+                ["notion:pages:search"],
             )
-        assert "notion:pages:read" in exc_info.value.invalid_permissions
+        assert "slack:messages:search" in exc_info.value.invalid_permissions
 
     def test_empty_requested_passes(self, service):
-        service._validate_permissions_subset([], ["hubspot:contacts:read"])
+        service._validate_permissions_subset([], ["notion:pages:search"])
 
     def test_empty_allowed_fails(self, service):
         with pytest.raises(TaskPermissionError):
-            service._validate_permissions_subset(["hubspot:contacts:read"], [])
+            service._validate_permissions_subset(["notion:pages:search"], [])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

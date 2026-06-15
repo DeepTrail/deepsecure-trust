@@ -6,7 +6,7 @@ Provides endpoints for OAuth authorization:
 - POST /api/v1/oauth/{service_id}/refresh - Refresh OAuth token
 
 These endpoints enable real OAuth connections to backend services
-(Notion, Slack, HubSpot).
+(Notion, Slack, Google, GitHub).
 """
 
 import logging
@@ -48,7 +48,6 @@ router = APIRouter()
 SERVICE_TO_PROVIDER = {
     "notion": OAuthProvider.NOTION,
     "slack": OAuthProvider.SLACK,
-    "hubspot": OAuthProvider.HUBSPOT,
     "gdrive": OAuthProvider.GOOGLE,
     "gcalendar": OAuthProvider.GOOGLE,
     "gmail": OAuthProvider.GOOGLE,
@@ -169,7 +168,7 @@ def get_vault_client() -> VaultClient:
     Returns the authorization URL to redirect the user to the OAuth provider.
     If redirect=true, performs a 302 redirect instead of returning JSON.
 
-    **Supported services:** notion, slack, hubspot, gdrive, gcalendar, gmail
+    **Supported services:** notion, slack, gdrive, gcalendar, gmail, github
     """,
     responses={
         400: {"description": "Invalid service or configuration error"},
@@ -190,7 +189,7 @@ async def oauth_authorize(
     """Initiate OAuth authorization flow.
 
     Args:
-        service_id: Service to authorize (notion, slack, hubspot, gdrive, gcalendar, gmail)
+        service_id: Service to authorize (notion, slack, gdrive, gcalendar, gmail, github)
         scopes: Optional comma-separated scopes to request
         redirect: If true, redirect to auth URL instead of returning JSON
         post_connect_redirect: URL to redirect to after successful connection

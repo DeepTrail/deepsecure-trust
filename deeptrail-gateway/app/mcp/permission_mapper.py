@@ -69,16 +69,8 @@ class PermissionMapper:
         "slack.join_channel": "slack:channels:join",
         "slack.post_reaction": "slack:reactions:write",
         "slack.list_users": "slack:users:list",
+        "slack.search_users": "slack:users:search",
         
-        # HubSpot tools (Phase 2)
-        "hubspot.get_contact": "hubspot:contacts:read",
-        "hubspot.create_contact": "hubspot:contacts:create",
-        "hubspot.update_contact": "hubspot:contacts:update",
-        "hubspot.list_contacts": "hubspot:contacts:list",
-        "hubspot.list_deals": "hubspot:deals:list",
-        "hubspot.create_deal": "hubspot:deals:create",
-        "hubspot.update_deal": "hubspot:deals:update",
-
         # Google Drive tools (WS-D2)
         "gdrive.search_files": "gdrive:files:search",
         "gdrive.read_file": "gdrive:files:read",
@@ -96,6 +88,18 @@ class PermissionMapper:
         "gmail.read_message": "gmail:messages:read",
         "gmail.search_messages": "gmail:messages:search",
         "gmail.list_labels": "gmail:labels:list",
+
+        # GitHub tools
+        "github.list_repos": "github:repos:list",
+        "github.read_repo": "github:repos:read",
+        "github.list_issues": "github:issues:read",
+        "github.create_issue": "github:issues:create",
+        "github.list_pulls": "github:pulls:read",
+        "github.create_pull": "github:pulls:create",
+        "github.list_commits": "github:commits:read",
+        "github.read_org": "github:orgs:read",
+        "github.list_teams": "github:teams:list",
+        "github.read_user": "github:users:read",
     }
     
     # Reverse mapping for validation
@@ -329,3 +333,28 @@ class PermissionMapper:
             logger.debug(f"Removed mapping for: {tool_name}")
             return True
         return False
+
+    @classmethod
+    def build_from_tool_cache(cls, cache: "ToolCache") -> int:
+        """Auto-populate mappings from CachedTools that carry a ``permission`` field.
+
+        This is called at startup after ``populate_tool_cache()`` so that
+        ``tool_definitions.py`` is the single source of truth for both tool
+        schemas and their permission strings.
+
+        Returns the number of mappings added.
+        """
+        from .tool_cache import ToolCache  # avoid circular at module level
+
+        added = 0
+        for backend_id, tools in cache.get_all_services():
+            for tool in tools:
+                if tool.permission:
+                    namespaced = f"{backend_id}.{tool.name}"
+                    if namespaced not in cls.TOOL_TO_PERMISSION:
+                        cls.TOOL_TO_PERMISSION[namespaced] = tool.permission
+                        added += 1
+        if added:
+            cls.PERMISSION_TO_TOOLS = {}
+            logger.info("PermissionMapper: auto-built %d mappings from ToolCache", added)
+        return added

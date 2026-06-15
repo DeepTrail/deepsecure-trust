@@ -55,7 +55,7 @@ class TestDelegationTokenModel:
         delegation = DelegationToken(
             agent_id="agent-sdr-001",
             delegator="sarah@acme.com",
-            delegated_permissions=["notion:pages:search", "slack:messages:read"],
+            delegated_permissions=["notion:pages:search", "slack:messages:search"],
             expires_at=datetime.now(timezone.utc) + timedelta(days=7),
         )
 
@@ -293,7 +293,7 @@ class TestDelegationTokenGetPermissionsForService:
             expires_at=datetime.now(timezone.utc) + timedelta(days=7),
         )
 
-        assert delegation.get_permissions_for_service("hubspot") == []
+        assert delegation.get_permissions_for_service("gdrive") == []
 
 
 class TestDelegationTokenGetConstraint:
@@ -408,7 +408,7 @@ class TestDelegationTokenFromClaimsDict:
             "sub": "agent-sdr-002",
             "delegator": "bob@acme.com",
             "delegator_idp": "https://acme.okta.com",
-            "delegated_permissions": ["slack:messages:read"],
+            "delegated_permissions": ["slack:messages:search"],
             "constraints": {"rate_limit": 50},
             "iat": 1738234800,  # 2026-01-30 10:00:00 UTC
             "exp": 1738839600,  # 2026-02-06 10:00:00 UTC
@@ -419,7 +419,7 @@ class TestDelegationTokenFromClaimsDict:
         assert delegation.id == "del-test-456"
         assert delegation.agent_id == "agent-sdr-002"
         assert delegation.delegator == "bob@acme.com"
-        assert delegation.delegated_permissions == ["slack:messages:read"]
+        assert delegation.delegated_permissions == ["slack:messages:search"]
         assert delegation.constraints == {"rate_limit": 50}
 
     def test_from_claims_dict_roundtrip(self):

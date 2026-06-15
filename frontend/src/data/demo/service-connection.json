@@ -1,7 +1,7 @@
 {
   "sceneId": "service-connection",
   "title": "Connect Services",
-  "description": "Sarah connects Notion, Slack, and HubSpot via OAuth. Credentials are stored in the vault — never exposed to agents.",
+  "description": "Sarah connects Notion, Slack, and GitHub via OAuth. Credentials are stored in the vault — never exposed to agents.",
   "steps": [
     {
       "id": "svc-1",
@@ -39,12 +39,12 @@
     },
     {
       "id": "svc-5",
-      "label": "Connect HubSpot",
-      "description": "Connect HubSpot with contacts read scope",
+      "label": "Connect GitHub",
+      "description": "Connect GitHub with repos read scope",
       "actor": "sarah@acme.com",
       "action": "connect_service",
       "result": "Connected",
-      "metadata": { "service": "hubspot", "scopes": ["contacts:read"] }
+      "metadata": { "service": "github", "scopes": ["repos:read"] }
     }
   ]
 }

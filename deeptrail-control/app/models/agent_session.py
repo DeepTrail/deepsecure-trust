@@ -72,7 +72,7 @@ class AgentSession(Base):
         - session_id: "asess-abc123def456"
         - agent_id: "agent-sdr-001"
         - owner_email: "sarah@acme.com"
-        - scoped_permissions: ["notion:pages:search", "slack:messages:read"]
+        - scoped_permissions: ["notion:pages:search", "slack:messages:search"]
         - party_type: "first_party"
         - groups: ["sales"]
         - expires_at: 8 hours from now

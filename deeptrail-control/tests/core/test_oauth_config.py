@@ -132,54 +132,6 @@ class TestSlackOAuthConfig:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Test: HubSpot OAuth Configuration
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class TestHubSpotOAuthConfig:
-    """Test HubSpot OAuth configuration."""
-
-    def test_default_authorization_url(self):
-        """Test HubSpot has correct authorization URL."""
-        from app.core.oauth_config import HubSpotOAuthConfig
-        config = HubSpotOAuthConfig()
-        assert config.authorization_url == "https://app.hubspot.com/oauth/authorize"
-
-    def test_default_token_url(self):
-        """Test HubSpot has correct token URL."""
-        from app.core.oauth_config import HubSpotOAuthConfig
-        config = HubSpotOAuthConfig()
-        assert config.token_url == "https://api.hubapi.com/oauth/v1/token"
-
-    def test_does_not_use_pkce(self):
-        """Test HubSpot does not require PKCE."""
-        from app.core.oauth_config import HubSpotOAuthConfig
-        config = HubSpotOAuthConfig()
-        assert config.uses_pkce is False
-
-    def test_default_scopes(self):
-        """Test HubSpot has correct default scopes."""
-        from app.core.oauth_config import HubSpotOAuthConfig
-        config = HubSpotOAuthConfig()
-        assert "crm.objects.contacts.read" in config.scopes
-        assert "crm.objects.deals.read" in config.scopes
-
-    def test_default_empty_credentials(self):
-        """Test HubSpot has empty credentials by default."""
-        from app.core.oauth_config import HubSpotOAuthConfig
-        config = HubSpotOAuthConfig()
-        assert config.client_id == ""
-        assert config.client_secret == ""
-
-    @patch.dict(os.environ, {"HUBSPOT_OAUTH_CLIENT_ID": "test-hubspot-id"})
-    def test_env_override_client_id(self):
-        """Test HubSpot client ID can be overridden via env var."""
-        from app.core.oauth_config import HubSpotOAuthConfig
-        config = HubSpotOAuthConfig()
-        assert config.client_id == "test-hubspot-id"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Test: Main OAuth Settings
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -205,7 +157,6 @@ class TestOAuthSettings:
         settings = OAuthSettings()
         assert settings.notion is not None
         assert settings.slack is not None
-        assert settings.hubspot is not None
 
     def test_providers_are_correct_type(self):
         """Test provider configs are the correct types."""
@@ -213,12 +164,10 @@ class TestOAuthSettings:
             OAuthSettings,
             NotionOAuthConfig,
             SlackOAuthConfig,
-            HubSpotOAuthConfig,
         )
         settings = OAuthSettings()
         assert isinstance(settings.notion, NotionOAuthConfig)
         assert isinstance(settings.slack, SlackOAuthConfig)
-        assert isinstance(settings.hubspot, HubSpotOAuthConfig)
 
     @patch.dict(os.environ, {"OAUTH_REDIRECT_BASE_URL": "https://prod.example.com"})
     def test_env_override_redirect_url(self):
@@ -287,7 +236,3 @@ class TestPKCEConfiguration:
         from app.core.oauth_config import SlackOAuthConfig
         assert SlackOAuthConfig().uses_pkce is False
 
-    def test_hubspot_does_not_use_pkce(self):
-        """HubSpot does not require PKCE."""
-        from app.core.oauth_config import HubSpotOAuthConfig
-        assert HubSpotOAuthConfig().uses_pkce is False

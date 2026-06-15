@@ -33,9 +33,9 @@ docker build -t gemini-agent .
 docker run --rm \
   -e DEEPSECURE_CONTROL_URL=https://app.deepsecure.one \
   -e DEEPSECURE_GATEWAY_URL=https://app.deepsecure.one/mcp \
-  -e AGENT_ID=debugging-agent-sa \
+  -e AGENT_ID=debugging-deepsecure-agent \
   -e GEMINI_API_KEY=<your-key> \
-  -e AGENT_MAX_ITERATIONS=1 \
+  -e AGENT_MAX_ROUNDS=1 \
   gemini-agent
 ```
 
@@ -45,29 +45,32 @@ docker run --rm \
 |----------|---------|-------------|
 | `DEEPSECURE_CONTROL_URL` | `https://app.deepsecure.one` | Control plane URL for bootstrap |
 | `DEEPSECURE_GATEWAY_URL` | `https://app.deepsecure.one/mcp` | MCP gateway URL |
-| `AGENT_ID` | `debugging-agent-sa` | Agent identity |
+| `AGENT_ID` | `debugging-deepsecure-agent` | Agent identity (set by deploy script) |
 | `GEMINI_API_KEY` | (required) | Google Gemini API key |
-| `AGENT_MAX_ITERATIONS` | `6` | Number of tool call iterations |
-| `AGENT_INTERVAL_SECONDS` | `300` | Sleep between iterations (seconds) |
+| `AGENT_MAX_ROUNDS` | `3` | Number of tool call rounds |
+| `AGENT_PROMPTS_PER_DELEGATION` | `2` | Prompts per delegation per round |
+| `AGENT_INTERVAL_SECONDS` | `60` | Sleep between rounds (seconds) |
+
+### Agent Naming Convention
+
+All agents follow the `{slug}-deepsecure-agent` pattern:
+
+| Agent | AGENT_SLUG | AGENT_ID | JOB_NAME | SA |
+|-------|------------|----------|----------|----|
+| Debugging | `debugging` | `debugging-deepsecure-agent` | `debugging-deepsecure-agent-job` | `debugging-agent-sa@...` |
+| Engineering Audit | `engineering-audit` | `engineering-audit-deepsecure-agent` | `engineering-audit-deepsecure-agent-job` | `engineering-audit-sa@...` |
+| Thunderbolt | `thunderbolt` | `thunderbolt-deepsecure-agent` | `thunderbolt-deepsecure-agent-job` | `thunderbolt-agent-sa@...` |
 
 ## Deployment (GCP)
 
-See `infra/deploy-agent.sh` for the full deployment script.
+See `infra/deploy-agent.sh` for the full deployment script. It derives all
+resource names from `AGENT_SLUG`:
 
 ```bash
-# Build and push to Artifact Registry
-docker build -t us-central1-docker.pkg.dev/deepsecure-saas/deepsecure/gemini-agent:latest .
-docker push us-central1-docker.pkg.dev/deepsecure-saas/deepsecure/gemini-agent:latest
-
-# Create Cloud Run Job
-gcloud run jobs create gemini-deepsecure-agent \
-  --image=us-central1-docker.pkg.dev/deepsecure-saas/deepsecure/gemini-agent:latest \
-  --region=us-central1 \
-  --service-account=debugging-agent-sa@deepsecure-saas.iam.gserviceaccount.com \
-  --task-timeout=2400s \
-  --max-retries=1 \
-  --set-secrets="GEMINI_API_KEY=gemini-api-key:latest" \
-  --set-env-vars="DEEPSECURE_CONTROL_URL=https://app.deepsecure.one,DEEPSECURE_GATEWAY_URL=https://app.deepsecure.one/mcp,AGENT_INTERVAL_SECONDS=300,AGENT_MAX_ITERATIONS=6"
+# Deploy all 3 agents (first builds the image, subsequent skip build)
+AGENT_SLUG=debugging          ./infra/deploy-agent.sh
+AGENT_SLUG=engineering-audit  SKIP_BUILD=1 ./infra/deploy-agent.sh
+AGENT_SLUG=thunderbolt        SKIP_BUILD=1 ./infra/deploy-agent.sh
 ```
 
 ## Tool Call Prompts

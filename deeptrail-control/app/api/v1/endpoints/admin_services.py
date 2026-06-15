@@ -15,9 +15,10 @@ All endpoints require admin role.
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,29 @@ from app.services.service_registry_service import ServiceRegistryService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _normalize_mcp_permission(service_id: str, tool_name: str) -> str:
+    """Normalize an MCP tool name into {service}:{resource}:{action} format.
+
+    Attempts to parse common naming patterns:
+      - "web_search_exa"  -> exa:web:search  (strip service suffix, swap)
+      - "search_pages"    -> service:pages:search
+      - "list_events"     -> service:events:list
+
+    Falls back to {service_id}:{tool_name}:call if no pattern matches.
+    """
+    cleaned = tool_name
+    suffix = f"_{service_id}"
+    if cleaned.endswith(suffix):
+        cleaned = cleaned[: -len(suffix)]
+
+    m = re.match(r"^([a-z]+)_(.+)$", cleaned)
+    if m:
+        action, resource = m.groups()
+        return f"{service_id}:{resource}:{action}"
+
+    return f"{service_id}:{tool_name}:call"
 
 
 # --- Request/Response Models ---
@@ -334,12 +358,27 @@ def set_oauth_config(
 @router.post("/services/{service_id}/discover-tools")
 async def discover_tools(
     service_id: str,
+    request: Request,
     svc: ServiceRegistryService = Depends(get_service),
     _admin: dict = Depends(require_admin),
 ):
-    """Call the MCP server's tools/list and store discovered tools + permissions."""
+    """Call the MCP server's tools/list and store discovered tools + permissions.
+
+    Optionally accepts a JSON body with ``permission_map`` overrides::
+
+        {"permission_map": {"web_search_exa": "exa:web:search"}}
+
+    If provided, the overrides replace the auto-generated suggestions for the
+    specified tool names before saving to the database.
+    """
     import httpx
     from datetime import datetime, timezone
+
+    body_data: dict | None = None
+    try:
+        body_data = await request.json()
+    except Exception:
+        body_data = None
 
     service = svc.get_service(service_id)
     if not service:
@@ -405,8 +444,16 @@ async def discover_tools(
             "description": t.get("description", ""),
             "inputSchema": t.get("inputSchema", {}),
         })
-        perm_string = f"{service_id}:tools:{name}"
+        perm_string = _normalize_mcp_permission(service_id, name)
         permission_map[name] = perm_string
+
+    suggested_permission_map = dict(permission_map)
+
+    custom_map = body_data.get("permission_map") if isinstance(body_data, dict) else None
+    if custom_map and isinstance(custom_map, dict):
+        for tool_name, perm in custom_map.items():
+            if tool_name in permission_map:
+                permission_map[tool_name] = perm
 
     svc.update_service(service_id, {
         "discovered_tools": discovered,
@@ -419,6 +466,7 @@ async def discover_tools(
         "tools_discovered": len(discovered),
         "tools": [{"name": t["name"], "description": t["description"]} for t in discovered],
         "permission_map": permission_map,
+        "suggested_permission_map": suggested_permission_map,
     }
 
 

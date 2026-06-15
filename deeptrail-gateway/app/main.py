@@ -314,6 +314,10 @@ mcp_tool_cache = get_tool_cache()
 populate_tool_cache(mcp_tool_cache)
 logger.info("Tool cache populated with backend tool definitions")
 
+from .mcp.permission_mapper import PermissionMapper
+_auto_mapped = PermissionMapper.build_from_tool_cache(mcp_tool_cache)
+logger.info("PermissionMapper auto-built %d mappings from tool cache", _auto_mapped)
+
 # Configure credential injector with Control Plane URL
 # This enables real vault token retrieval instead of mock tokens
 configure_credential_injector(

@@ -43,10 +43,6 @@ def sample_tools() -> list[dict]:
         {"name": "slack.send_message", "description": "Send Slack message"},
         {"name": "slack.list_channels", "description": "List Slack channels"},
         {"name": "slack.list_users", "description": "List Slack users"},
-        {"name": "hubspot.get_contact", "description": "Get HubSpot contact"},
-        {"name": "hubspot.create_contact", "description": "Create HubSpot contact"},
-        {"name": "hubspot.list_deals", "description": "List HubSpot deals"},
-        {"name": "hubspot.create_deal", "description": "Create HubSpot deal"},
     ]
 
 
@@ -110,10 +106,6 @@ def agent_with_all_perms() -> AgentContext:
     - slack.send_message -> slack:messages:send
     - slack.list_channels -> slack:channels:list
     - slack.list_users -> slack:users:list
-    - hubspot.get_contact -> hubspot:contacts:read
-    - hubspot.create_contact -> hubspot:contacts:create
-    - hubspot.list_deals -> hubspot:deals:list
-    - hubspot.create_deal -> hubspot:deals:create
     """
     return AgentContext(
         agent_id="agent-admin",
@@ -127,10 +119,6 @@ def agent_with_all_perms() -> AgentContext:
             "slack:messages:send",
             "slack:channels:list",
             "slack:users:list",
-            "hubspot:contacts:read",  # maps to hubspot.get_contact
-            "hubspot:contacts:create",
-            "hubspot:deals:list",
-            "hubspot:deals:create",
         ],
     )
 
@@ -158,7 +146,6 @@ class TestFilterTools:
         assert "notion.create_page" not in names
         assert "notion.update_page" not in names
         assert "slack.list_channels" not in names
-        assert "hubspot.get_contact" not in names
         assert len(filtered) == 2
 
     def test_filter_with_backend_wide_permissions(
@@ -179,9 +166,6 @@ class TestFilterTools:
         assert "slack.send_message" in names
         assert "slack.list_channels" in names
         assert "slack.list_users" in names
-        # No hubspot tools (agent only has notion and slack perms)
-        assert "hubspot.get_contact" not in names
-        assert "hubspot.create_contact" not in names
         assert len(filtered) == 6
 
     def test_filter_with_all_permissions(
@@ -404,7 +388,6 @@ class TestGetPermittedBackends:
 
         assert "notion" in backends
         assert "slack" in backends
-        assert "hubspot" not in backends
         assert len(backends) == 2
 
     def test_get_permitted_backends_multiple(self, agent_with_all_perms):
@@ -413,9 +396,7 @@ class TestGetPermittedBackends:
 
         assert "notion" in backends
         assert "slack" in backends
-        assert "hubspot" in backends
-        # No github in sample tools/permissions
-        assert len(backends) == 3
+        assert len(backends) == 2
 
     def test_get_permitted_backends_none_context(self):
         """C5 Fail-closed: None context should return empty set"""
@@ -453,12 +434,12 @@ class TestGetPermittedBackends:
         permissions = [
             "notion:pages:search",
             "slack:messages:send",
-            "hubspot:contacts:get",
+            "gdrive:files:search",
         ]
 
         backends = PermissionFilter.get_permitted_backends_from_permissions(permissions)
 
-        assert backends == {"notion", "slack", "hubspot"}
+        assert backends == {"notion", "slack", "gdrive"}
 
 
 # =============================================================================
@@ -689,7 +670,7 @@ class TestEdgeCases:
         tools = [
             {"name": "slack.send_message", "description": "1"},
             {"name": "notion.search_pages", "description": "2"},
-            {"name": "hubspot.get_contact", "description": "3"},
+            {"name": "gdrive.search_files", "description": "3"},
         ]
 
         filtered = PermissionFilter.filter_tools(tools, agent_with_limited_perms)

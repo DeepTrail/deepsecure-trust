@@ -184,7 +184,7 @@ class TestOAuthAuthorize:
         """Test all supported providers work."""
         mock_oauth_service.get_authorization_url.return_value = sample_auth_response
 
-        for service in ["notion", "slack", "hubspot"]:
+        for service in ["notion", "slack"]:
             response = client.get(
                 f"/api/v1/oauth/{service}/authorize",
                 headers=auth_headers,

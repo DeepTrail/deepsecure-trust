@@ -62,12 +62,12 @@ DeepSecure is built on five core features that work together to enable secure AI
 │                          │                    │                    │        │
 │                          ▼                    ▼                    ▼        │
 │                    ┌──────────┐         ┌──────────┐         ┌──────────┐   │
-│                    │  Notion  │         │  Slack   │         │  HubSpot │   │
+│                    │  Notion  │         │  Slack   │         │  Gmail   │   │
 │                    │   MCP    │         │   MCP    │         │   MCP    │   │
 │                    └──────────┘         └──────────┘         └──────────┘   │
 │                                                                              │
 │   RESULT: Agent sees unified tools like notion.search_pages,                │
-│           slack.send_message, hubspot.get_contacts                          │
+│           slack.send_message, gmail.search_messages                          │
 │           All with automatic credential injection                           │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -97,7 +97,7 @@ DeepSecure is built on five core features that work together to enable secure AI
 ```python
 # Agent connects to ONE gateway - sees tools from ALL backends
 async with httpx.AsyncClient() as client:
-    # List tools - returns notion.*, slack.*, hubspot.* (filtered by permissions)
+    # List tools - returns notion.*, slack.*, gmail.* (filtered by permissions)
     tools = await client.post("http://gateway:8002/mcp", json={
         "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
     }, headers={"Authorization": f"Bearer {agent_jwt}"})
@@ -120,7 +120,7 @@ async with httpx.AsyncClient() as client:
 |----------|-------------|
 | **Macaroon Tokens** | Cryptographically signed delegation tokens with embedded constraints |
 | **Monotonic Attenuation** | Delegations can only narrow permissions, never widen them |
-| **Fine-Grained** | Permissions like `notion:pages:read`, `hubspot:contacts:create` |
+| **Fine-Grained** | Permissions like `notion:pages:read`, `slack:messages:send` |
 | **Time-Bounded** | Automatic expiration (hours to days) with instant revocation |
 | **Auditable** | Full delegation chain tracked for compliance |
 
@@ -132,24 +132,24 @@ async with httpx.AsyncClient() as client:
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Role Permissions (defined by IT Admin)                                     │
-│  └── notion:*, slack:*, hubspot:contacts:*, hubspot:deals:read              │
+│  └── notion:*, slack:*, gmail:*, github:*                                   │
 │      │                                                                       │
 │      │  User can only delegate permissions they have                        │
 │      ▼                                                                       │
 │  User's Connected Scopes (from OAuth consent)                               │
-│  └── notion:pages:*, slack:messages:read, hubspot:contacts:read             │
+│  └── notion:pages:*, slack:messages:search, gmail:messages:read             │
 │      │                                                                       │
 │      │  User chooses subset to delegate                                     │
 │      ▼                                                                       │
 │  Delegation to Agent                                                         │
-│  └── notion:pages:read, slack:messages:read                                 │
+│  └── notion:pages:read, slack:messages:search                               │
 │      │                                                                       │
 │      │  Each level can ONLY narrow, NEVER widen                             │
 │      ▼                                                                       │
 │  Agent's Effective Permissions                                               │
-│  └── notion:pages:read, slack:messages:read                                 │
+│  └── notion:pages:read, slack:messages:search                               │
 │                                                                              │
-│  ✓ Agent cannot access hubspot:* (user didn't delegate it)                 │
+│  ✓ Agent cannot access gmail:* (user didn't delegate it)                   │
 │  ✓ Agent cannot write to notion (only read delegated)                      │
 │  ✓ Agent cannot exceed user's permissions                                  │
 │                                                                              │
@@ -516,7 +516,7 @@ curl http://localhost:8002/health  # Gateway
 │  │  ─────────────────┼──────────┼─────────────────────┼─────────────── │    │
 │  │  notion-mcp       │ ✅ Active │ All Employees       │ Internal      |    │
 │  │  slack-mcp        │ ✅ Active │ All Employees       │ Internal      │    │
-│  │  hubspot-mcp      │ ✅ Active │ Sales, Marketing    │ Confidential  │    │
+│  │  gmail-mcp        │ ✅ Active │ All Employees       │ Internal      │    │
 │  │  calendar-mcp     │ ✅ Active │ All Employees       │ Internal      │    │
 │  │  salesforce-mcp   │ ✅ Active │ Sales               │ Confidential  │    │
 │  │  financial-api    │ ✅ Active │ Finance Only        │ Restricted    │    │
@@ -556,15 +556,13 @@ curl http://localhost:8002/health  # Gateway
 │                                                                             │
 │  Maximum Delegable Permissions:                                             │
 │  ┌───────────────────────────────────────────────────────────────────┐      │
-│  │  hubspot:contacts:read         ✅ Allowed                         │      │
-│  │  hubspot:contacts:create       ✅ Allowed                         │      │
-│  │  hubspot:contacts:update       ✅ Allowed                         │      │
-│  │  hubspot:contacts:delete       ❌ Blocked (destructive action)    │      │
-│  │  hubspot:deals:read            ✅ Allowed                         │      │
-│  │  hubspot:deals:update          ✅ Allowed                         │      │
-│  │  hubspot:settings:*            ❌ Blocked (admin-only)            │      │
-│  │  slack:messages:read           ✅ Allowed                         │      │
+│  │  slack:messages:search          ✅ Allowed                         │      │
 │  │  slack:messages:send           ✅ Allowed                         │      │
+│  │  slack:channels:list           ✅ Allowed                         │      │
+│  │  gmail:messages:read           ✅ Allowed                         │      │
+│  │  gmail:messages:search         ✅ Allowed                         │      │
+│  │  github:repos:list             ✅ Allowed                         │      │
+│  │  github:issues:read            ✅ Allowed                         │      │
 │  │  slack:admin:*                 ❌ Blocked (admin-only)            │      │
 │  │  notion:pages:read             ✅ Allowed                         │      │
 │  │  notion:pages:create           ✅ Allowed                         │      │
@@ -690,7 +688,7 @@ IT Administrators use the Gateway Operations Dashboard to monitor system health,
 │  │ ────────────├────────├─────────├──────────────├──────────────├─────── │  │
 │  │  notion     │ ✅ UP  │   89ms  │      3       │     12       │  100%  │  │
 │  │  slack      │ ✅ UP  │   45ms  │      0       │      8       │  100%  │  │
-│  │  hubspot    │ ⚠️ SLOW│  850ms  │     12       │      4       │   87%  │  │
+│  │  gmail      │ ✅ UP  │  120ms  │      1       │      4       │   99%  │  │
 │  │  salesforce │ ❌ DOWN│    -    │     47       │      0       │    0%  │  │
 │  │                                                                        │  │
 │  │  [ Test Connection ] [ Refresh ] [ View Backend Logs ]                │  │
@@ -701,7 +699,7 @@ IT Administrators use the Gateway Operations Dashboard to monitor system health,
 │  │  Time     │ Agent           │ Error Type           │ Backend │ User   │  │
 │  │ ──────────├─────────────────├──────────────────────├─────────├─────── │  │
 │  │  10:18:45 │ agent-hr-003    │ Vault token expired  │ notion  │ sarah  │  │
-│  │  10:15:22 │ agent-sdr-001   │ Backend timeout      │ hubspot │ mike   │  │
+│  │  10:15:22 │ agent-sdr-001   │ Backend timeout      │ gmail   │ mike   │  │
 │  │  10:12:03 │ agent-sales-007 │ Connection refused   │ salesforce│ jane │  │
 │  │  10:08:17 │ agent-hr-003    │ Permission denied    │ slack   │ sarah  │  │
 │  │                                                                        │  │
@@ -715,7 +713,7 @@ IT Administrators use the Gateway Operations Dashboard to monitor system health,
 │  │                                                                        │  │
 │  │  Tokens Requiring Attention:                                          │  │
 │  │  • sarah@acme.com - notion - Expires in 2 days                        │  │
-│  │  • mike@acme.com - hubspot - Refresh failed (re-auth needed)          │  │
+│  │  • mike@acme.com - gmail - Refresh failed (re-auth needed)             │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -978,10 +976,10 @@ PATCH /api/v1/delegations/{delegation_id}
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────┐     │
 │  │                                                                     │     │
-│  │  📊 HubSpot CRM                                                    │     │
-│  │  Access contacts, deals, and sales data                           │     │
+│  │  📊 GitHub                                                          │     │
+│  │  Access repositories, issues, and pull requests                   │     │
 │  │  Status: Not Connected                                             │     │
-│  │  [ Connect HubSpot ]                                               │     │
+│  │  [ Connect GitHub ]                                                │     │
 │  │                                                                     │     │
 │  │  ────────────────────────────────────────────────────────────────  │     │
 │  │                                                                     │     │
@@ -1005,14 +1003,14 @@ PATCH /api/v1/delegations/{delegation_id}
 │  │                                                                     │     │
 │  └────────────────────────────────────────────────────────────────────┘     │
 │                                                                              │
-│  OAUTH CONSENT FLOW (When clicking "Connect HubSpot"):                      │
+│  OAUTH CONSENT FLOW (When clicking "Connect GitHub"):                       │
 │                                                                              │
-│  1. Browser redirects to HubSpot OAuth                                      │
-│  2. Sarah sees HubSpot consent screen:                                      │
-│     "DeepSecure wants to access your HubSpot data"                         │
-│     ☑ View contacts   ☑ Edit contacts   ☑ View deals                       │
-│  3. Sarah clicks "Allow"                                                    │
-│  4. HubSpot returns OAuth tokens to DeepSecure                             │
+│  1. Browser redirects to GitHub OAuth                                       │
+│  2. Sarah sees GitHub consent screen:                                       │
+│     "DeepSecure wants to access your GitHub data"                          │
+│     ☑ View repos   ☑ Read issues   ☑ Read pull requests                    │
+│  3. Sarah clicks "Authorize"                                                │
+│  4. GitHub returns OAuth tokens to DeepSecure                              │
 │  5. Tokens stored securely in DeepSecure vault                             │
 │  6. Sarah NEVER sees or handles the OAuth tokens                           │
 │                                                                              │
@@ -1100,21 +1098,9 @@ curl -X POST http://localhost:8000/api/v1/users/me/services/connect \
 │  DELEGATE PERMISSIONS TO: My Sales Assistant                                │
 │                                                                             │
 │  ┌────────────────────────────────────────────────────────────────────┐     │
-│  │  HUBSPOT PERMISSIONS:                                              │     │ 
-│  │                                                                    │     │
-│  │  ☑ Read contacts (hubspot:contacts:read)                           │     │
-│  │  ☑ Create contacts (hubspot:contacts:create)                       │     │
-│  │  ☐ Update contacts (hubspot:contacts:update)                       │     │
-│  │  🔒 Delete contacts - Not available for your role                  │     │
-│  │                                                                    │     │
-│  │  ☑ Read deals (hubspot:deals:read)                                 │     │
-│  │  ☐ Update deals (hubspot:deals:update)                             │     │
-│  │                                                                    │     │
-│  │  ────────────────────────────────────────────────────────────────  │     │
-│  │                                                                    │     │
 │  │  SLACK PERMISSIONS:                                                │     │
 │  │                                                                    │     │
-│  │  ☑ Read messages (slack:messages:read)                             │     │
+│  │  ☑ Search messages (slack:messages:search)                         │     │
 │  │  ☐ Send messages (slack:messages:send)                             │     │
 │  │  ☑ List channels (slack:channels:list)                             │     │
 │  │                                                                    │     │
@@ -1152,8 +1138,7 @@ curl -X POST http://localhost:8000/api/v1/delegations/delegate \
       "notion:pages:search",
       "notion:pages:read",
       "slack:messages:search",
-      "slack:channels:list",
-      "hubspot:contacts:read"
+      "slack:channels:list"
     ],
     "constraints": {
       "expires_in_hours": 168
@@ -1170,8 +1155,7 @@ curl -X POST http://localhost:8000/api/v1/delegations/delegate \
     "notion:pages:search",
     "notion:pages:read",
     "slack:messages:search",
-    "slack:channels:list",
-    "hubspot:contacts:read"
+    "slack:channels:list"
   ],
   "expires_in": 604800
 }
@@ -1202,7 +1186,7 @@ curl -X POST http://localhost:8000/api/v1/delegations/delegate \
 │  │  10:15:32    │ notion.search_pages    │ ✅ Success │ 3 pages found │     │
 │  │  10:16:45    │ notion.read_page       │ ✅ Success │ Read "Q1 Plan"│     │
 │  │  10:17:12    │ slack.search_messages  │ ✅ Success │ 12 messages   │     │
-│  │  10:18:03    │ hubspot.get_contacts   │ ✅ Success │ 5 contacts    │     │
+│  │  10:18:03    │ gmail.search_messages  │ ✅ Success │ 5 messages    │     │
 │  │  10:19:22    │ notion.create_page     │ ❌ Denied  │ Not delegated │     │
 │  │                                                                    │     │
 │  │  [View Full Audit Log]  [Export Activity]                          │     │
@@ -1345,7 +1329,7 @@ POST /api/v1/admin/policies/apply
 │  │  ─────────────────────────┼─────────┼─────────────────────────────│     │
 │  │  notion:pages:create      │    8    │ agent-sarah-*, agent-bob-* │     │
 │  │  slack:messages:send      │    6    │ agent-marketing-*           │     │
-│  │  hubspot:contacts:delete  │    5    │ agent-sales-*               │     │
+│  │  gmail:messages:read      │    5    │ agent-sales-*               │     │
 │  │  financial:reports:read   │    4    │ agent-analyst-*             │     │
 │  └────────────────────────────────────────────────────────────────────┘     │
 │                                                                              │
@@ -1395,7 +1379,7 @@ The Tool Call Analytics Dashboard provides visual insights into MCP tool usage p
 │  │                                                                        │  │
 │  │  notion     ████████████████████████████████████████  68%  (8,234)   │  │
 │  │  slack      ██████████████████                       28%  (3,412)   │  │
-│  │  hubspot    ████                                      4%    (487)   │  │
+│  │  gmail      ████                                      4%    (487)   │  │
 │  │                                                                        │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
@@ -1407,10 +1391,10 @@ The Tool Call Analytics Dashboard provides visual insights into MCP tool usage p
 │  │   2   │ slack.list_channels     │  2,103 │ 100.0%  │    0    │   67  │  │
 │  │   3   │ notion.read_page        │  1,892 │  99.9%  │    2    │   54  │  │
 │  │   4   │ slack.search_messages   │  1,309 │ 100.0%  │    0    │   45  │  │
-│  │   5   │ hubspot.get_contacts    │    412 │  98.5%  │    6    │   23  │  │
+│  │   5   │ gmail.search_messages   │    412 │  98.5%  │    6    │   23  │  │
 │  │   6   │ notion.create_page      │    234 │  95.3%  │   11    │   12  │  │
 │  │   7   │ slack.send_message      │    198 │  91.4%  │   17    │   28  │  │
-│  │   8   │ hubspot.create_contact  │     75 │  89.3%  │    8    │    8  │  │
+│  │   8   │ gmail.list_messages     │     75 │  89.3%  │    8    │    8  │  │
 │  │                                                                        │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
@@ -1421,7 +1405,7 @@ The Tool Call Analytics Dashboard provides visual insights into MCP tool usage p
 │  │  By Permission Required:                                               │  │
 │  │  • slack:messages:write     (17 denials) - 6 agents, 4 users          │  │
 │  │  • notion:pages:create      (11 denials) - 3 agents, 3 users          │  │
-│  │  • hubspot:contacts:create  ( 8 denials) - 2 agents, 2 users          │  │
+│  │  • gmail:messages:read      ( 8 denials) - 2 agents, 2 users          │  │
 │  │  • notion:pages:delete      ( 6 denials) - 4 agents, 4 users          │  │
 │  │                                                                        │  │
 │  │  💡 Insight: 65% of denials are write operations agents weren't       │  │
@@ -1437,12 +1421,12 @@ The Tool Call Analytics Dashboard provides visual insights into MCP tool usage p
 │  │       │                                                                │  │
 │  │       ├─ Connected Services                                           │  │
 │  │       │   ├─ notion (pages:read, pages:search)                        │  │
-│  │       │   └─ slack  (messages:read, channels:list)                    │  │
+│  │       │   └─ slack  (messages:search, channels:list)                   │  │
 │  │       │                                                                │  │
 │  │       └─ Delegated to: agent-sdr-001                                  │  │
 │  │           ├─ notion:pages:read    ✅ Used 234 times                   │  │
 │  │           ├─ notion:pages:search  ✅ Used 1,021 times                 │  │
-│  │           ├─ slack:messages:read  ✅ Used 89 times                    │  │
+│  │           ├─ slack:messages:search ✅ Used 89 times                    │  │
 │  │           └─ slack:channels:list  ⚪ Never used                       │  │
 │  │                                                                        │  │
 │  │  📊 Permission Utilization: 75% (3 of 4 permissions used)             │  │
@@ -1965,7 +1949,7 @@ Engineers can use the MCP Debug Console to inspect sessions, trace tool calls, a
 │  │  Protocol Version: 2024-11-05                                         │  │
 │  │  Client Info: MySalesAgent v1.0.0                                     │  │
 │  │  Initialized: 2026-02-15 10:15:01                                     │  │
-│  │  Allowed Permissions: notion:pages:read, slack:messages:read          │  │
+│  │  Allowed Permissions: notion:pages:read, slack:messages:search        │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ┌─ MCP Call Trace ──────────────────────────────────────────────────────┐  │
@@ -1982,7 +1966,7 @@ Engineers can use the MCP Debug Console to inspect sessions, trace tool calls, a
 │  │  ❌ PERMISSION DENIED                                                  │  │
 │  │                                                                        │  │
 │  │  Required Permission: slack:messages:write                            │  │
-│  │  Agent Has: [slack:messages:read, slack:channels:list]                │  │
+│  │  Agent Has: [slack:messages:search, slack:channels:list]              │  │
 │  │                                                                        │  │
 │  │  Request:                                                              │  │
 │  │  {                                                                     │  │
