@@ -117,7 +117,7 @@ def mock_delegation(agent_id):
     delegation.id = f"del-{uuid.uuid4().hex[:12]}"
     delegation.agent_id = agent_id
     delegation.is_valid = True
-    delegation.delegated_permissions = ["notion:pages:search", "slack:messages:read"]
+    delegation.delegated_permissions = ["notion:pages:search", "slack:messages:search"]
     delegation.delegator = "sarah@acme.com"
     delegation.delegator_idp = "https://acme.okta.com"
     delegation.created_at = datetime.now(timezone.utc)

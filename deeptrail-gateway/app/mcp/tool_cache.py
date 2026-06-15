@@ -54,6 +54,9 @@ class CachedTool(BaseModel):
         name: Tool name (as returned by backend, not namespaced)
         description: Human-readable description
         inputSchema: JSON Schema for the tool's input parameters
+        permission: DeepSecure permission string (e.g. "notion:pages:search").
+                    When set, PermissionMapper auto-builds its mapping from
+                    the ToolCache at startup, eliminating drift between the two.
     """
     name: str = Field(..., description="Tool name")
     description: str = Field(default="", description="Tool description")
@@ -62,16 +65,23 @@ class CachedTool(BaseModel):
         alias="inputSchema",
         description="JSON Schema for input parameters"
     )
+    permission: str | None = Field(
+        default=None,
+        description="DeepSecure permission string, e.g. notion:pages:search",
+    )
     
     model_config = {"populate_by_name": True}
     
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        result: dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "inputSchema": self.inputSchema,
         }
+        if self.permission is not None:
+            result["permission"] = self.permission
+        return result
     
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CachedTool":
@@ -80,6 +90,7 @@ class CachedTool(BaseModel):
             name=data["name"],
             description=data.get("description", ""),
             inputSchema=data.get("inputSchema", {}),
+            permission=data.get("permission"),
         )
 
 
@@ -434,6 +445,14 @@ class ToolCache:
                 backend_id
                 for backend_id, entry in self._cache.items()
                 if not entry.is_expired
+            ]
+
+    def get_all_services(self) -> list[tuple[str, list["CachedTool"]]]:
+        """Return (backend_id, tools) pairs for every cached backend."""
+        with self._lock:
+            return [
+                (bid, list(entry.tools))
+                for bid, entry in self._cache.items()
             ]
     
     def get_ttl_remaining(self, backend_id: str) -> float | None:

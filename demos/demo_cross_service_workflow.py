@@ -3,15 +3,15 @@
 Cross-Service Workflow Demo
 
 Demonstrates an agent orchestrating actions across multiple
-backend MCP servers (Notion, Slack, HubSpot) in a realistic
+backend MCP servers (Notion, Slack, Gmail) in a realistic
 business workflow.
 
 Workflow: "Sales Research and Outreach"
 1. Search Notion for product info
-2. Find relevant contacts in HubSpot
+2. Find relevant emails in Gmail
 3. Get outreach templates from Notion
 4. Send notification to Slack
-5. Update contact status in HubSpot
+5. Create follow-up task in Notion
 
 Value Proposition:
 - Single agent connection to gateway
@@ -119,14 +119,14 @@ def get_workflow_steps() -> list[WorkflowStep]:
         ),
         WorkflowStep(
             step_num=2,
-            backend="hubspot",
-            tool="hubspot.search_contacts",
-            description="Find contacts interested in AI security",
-            arguments={"query": "AI security", "industry": "fintech"},
+            backend="gmail",
+            tool="gmail.search_messages",
+            description="Find emails about AI security leads",
+            arguments={"query": "AI security fintech"},
             result={
-                "contacts": [
-                    {"id": "contact-456", "name": "John Smith", "company": "FinBank Inc"},
-                    {"id": "contact-789", "name": "Jane Doe", "company": "SecureFinance"},
+                "messages": [
+                    {"id": "msg-456", "subject": "AI Security Demo Request", "from": "john@finbank.com"},
+                    {"id": "msg-789", "subject": "Security Platform Inquiry", "from": "jane@securefinance.com"},
                 ]
             },
         ),
@@ -158,17 +158,16 @@ def get_workflow_steps() -> list[WorkflowStep]:
         ),
         WorkflowStep(
             step_num=5,
-            backend="hubspot",
-            tool="hubspot.update_contact",
-            description="Update contact status to 'Contacted'",
+            backend="notion",
+            tool="notion.create_page",
+            description="Create follow-up task page in Notion",
             arguments={
-                "contact_id": "contact-456",
-                "status": "Contacted",
-                "notes": "AI security outreach - DeepSecure demo scheduled",
+                "title": "Follow up: AI security leads",
+                "content": "Contact John Smith (FinBank) and Jane Doe (SecureFinance)",
             },
             result={
-                "success": True,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "page_id": "page-new-001",
+                "created_at": datetime.now(timezone.utc).isoformat(),
             },
         ),
     ]
@@ -178,7 +177,7 @@ def get_backend_icon(backend: str) -> str:
     """Get the icon for a backend."""
     icons = {
         "notion": "📝",
-        "hubspot": "💼",
+        "gmail": "📧",
         "slack": "💬",
     }
     return icons.get(backend, "🔧")
@@ -228,7 +227,7 @@ def print_banner() -> None:
     print()
     print("  Backend Services Used:")
     print("  • Notion  - Knowledge base, templates")
-    print("  • HubSpot - CRM, contact management")
+    print("  • Gmail   - Email communication")
     print("  • Slack   - Team communication")
     print()
     print("  Value Proposition:")
@@ -303,8 +302,8 @@ def print_data_flow() -> None:
          │                     │                     │
          ▼                     ▼                     ▼
    ┌───────────┐         ┌───────────┐         ┌───────────┐
-   │  NOTION   │         │  HUBSPOT  │         │   SLACK   │
-   │  📝       │         │  💼       │         │   💬      │
+   │  NOTION   │         │   GMAIL   │         │   SLACK   │
+   │  📝       │         │  📧       │         │   💬      │
    ├───────────┤         ├───────────┤         ├───────────┤
    │ Step 1:   │         │ Step 2:   │         │ Step 4:   │
    │ Search    │────────▶│ Find      │         │ Notify    │
@@ -359,7 +358,7 @@ def print_comparison() -> None:
     print("""
    TRADITIONAL APPROACH:
    ┌─────────────────────────────────────────────────────┐
-   │  • Agent needs 3 API keys (Notion, HubSpot, Slack) │
+   │  • Agent needs 3 API keys (Notion, Gmail, Slack)    │
    │  • Agent manages 3 separate connections             │
    │  • Audit logs scattered across 3 platforms          │
    │  • Credential rotation = update agent config        │
@@ -491,7 +490,7 @@ def main() -> int:
     """Main entry point for CLI."""
     parser = argparse.ArgumentParser(
         description="Cross-Service Workflow Demo - "
-                    "Agent orchestrates across Notion, Slack, and HubSpot",
+                    "Agent orchestrates across Notion, Slack, and Gmail",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

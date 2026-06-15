@@ -308,7 +308,6 @@ def connect_service(
         service_names = {
             "notion": "Notion",
             "slack": "Slack",
-            "hubspot": "HubSpot",
             "github": "GitHub",
             "google": "Google Calendar",
         }

@@ -95,13 +95,6 @@ SLACK_SERVICE = TestService(
     test_token="test_slack_token_67890",
 )
 
-HUBSPOT_SERVICE = TestService(
-    id="hubspot",
-    name="HubSpot",
-    oauth_scopes=["crm.objects.contacts.read", "crm.objects.deals.read"],
-    test_token="test_hubspot_token_abcde",
-)
-
 GDRIVE_SERVICE = TestService(
     id="gdrive",
     name="Google Drive",
@@ -150,8 +143,8 @@ NON_DELEGATED_PERMISSIONS = [
     # Slack - Write operations
     "slack:messages:post",
     "slack:channels:create",
-    # HubSpot - Not connected at all
-    "hubspot:contacts:read",
+    # Gmail - Not connected at all
+    "gmail:messages:read",
 ]
 
 
@@ -177,7 +170,7 @@ EXPECTED_HIDDEN_TOOLS = [
     "notion.delete_page",
     "slack.post_message",
     "slack.create_channel",
-    "hubspot.search_contacts",
+    "gmail.list_messages",
 ]
 
 

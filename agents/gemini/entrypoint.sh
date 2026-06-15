@@ -4,7 +4,7 @@ set -euo pipefail
 # === Configuration ===
 CONTROL_URL="${DEEPSECURE_CONTROL_URL:-https://app.deepsecure.one}"
 GATEWAY_URL="${DEEPSECURE_GATEWAY_URL:-https://app.deepsecure.one/mcp}"
-AGENT_ID="${AGENT_ID:-debugging-agent-sa}"
+AGENT_ID="${AGENT_ID:-debugging-deepsecure-agent}"
 MAX_ROUNDS="${AGENT_MAX_ROUNDS:-3}"
 PROMPTS_PER_DELEGATION="${AGENT_PROMPTS_PER_DELEGATION:-2}"
 INTERVAL="${AGENT_INTERVAL_SECONDS:-300}"

@@ -31,12 +31,12 @@
     },
     {
       "id": "mcp-4",
-      "label": "List HubSpot Contacts (Denied)",
-      "description": "Agent attempts to access HubSpot contacts — permission not delegated",
+      "label": "List Gmail Messages (Denied)",
+      "description": "Agent attempts to access Gmail messages — permission not delegated",
       "actor": "sarah-research-agent",
       "action": "tools/call",
-      "result": "Permission denied: hubspot:contacts:read not delegated",
-      "metadata": { "tool": "hubspot.list_contacts", "denied": true }
+      "result": "Permission denied: gmail:messages:read not delegated",
+      "metadata": { "tool": "gmail.list_messages", "denied": true }
     }
   ]
 }

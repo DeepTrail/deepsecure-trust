@@ -1014,7 +1014,7 @@ notion:pages:create
 notion:databases:query
 slack:messages:search
 slack:channels:list
-hubspot:contacts:read
+gmail:messages:read
 ...
 ```
 
@@ -1255,7 +1255,7 @@ This section tracks the current state of the permission architecture relative to
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| `ScopeMapper` class | **Done** | `deeptrail-control/app/services/scope_mapper.py` -- full static mapping for notion, slack, hubspot, gdrive, gcalendar, gmail |
+| `ScopeMapper` class | **Done** | `deeptrail-control/app/services/scope_mapper.py` -- full static mapping for notion, slack, gdrive, gcalendar, gmail, github |
 | `GET /users/me/available-permissions` | **Done** | Computes on-the-fly from `connected_services.scopes_granted` |
 | `PermissionMapper` (Gateway) | **Done** | `deeptrail-gateway/app/mcp/permission_mapper.py` -- enforces at tool call time |
 | OAuth connect flow (browser-based) | **Done** | `services/page.tsx` uses real OAuth via `GET /oauth/{serviceId}/authorize` |
@@ -1278,7 +1278,7 @@ The following permission strings appear in `ScopeMapper` but their presence in `
 - `slack:users:search` (from `search:read.users` scope)
 - `slack:reactions:write` (from `reactions:write` scope)  
 - `slack:channels:join` (from `channels:join` scope)
-- `hubspot:*` permissions (HubSpot backend is listed as supported but not confirmed wired in gateway)
+- `github:*` permissions (GitHub backend is listed as supported but not confirmed wired in gateway)
 
 **Action:** Add a cross-mapper consistency test before adding any new permission strings.
 

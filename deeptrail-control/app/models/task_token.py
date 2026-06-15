@@ -328,7 +328,7 @@ class ScopedPermission(Base):
 class ScopedPermissionRequest(BaseModel):
     """Request schema for a single scoped permission."""
 
-    permission_urn: str = Field(..., description="Permission URN (e.g., hubspot:contacts:read)")
+    permission_urn: str = Field(..., description="Permission URN (e.g., notion:pages:search)")
     constraints: Dict[str, Any] = Field(default_factory=dict, description="Per-permission constraints")
     max_usage: Optional[int] = Field(None, description="Max usage count (null = unlimited)")
 

@@ -347,7 +347,7 @@ Sarah connects her Notion account, storing OAuth token in the vault.
 
 ```json
 {
-  "service_id": "string (required) - notion|slack|hubspot",
+  "service_id": "string (required) - notion|slack|gmail",
   "oauth_token": {
     "access_token": "string (required)",
     "token_type": "string (default: bearer)",
@@ -1049,7 +1049,7 @@ Agent retrieves OAuth token from vault for a connected service.
 
 | Parameter | Description |
 |-----------|-------------|
-| `service_id` | Service identifier: `notion`, `slack`, `hubspot` |
+| `service_id` | Service identifier: `notion`, `slack`, `gmail` |
 
 ### Command
 
@@ -2892,7 +2892,7 @@ Agent request → Permission check → Prompt injection scan
 - PII filtering is enabled by default at gateway startup
 - The filter is transparent to the agent — responses look normal, just with PII masked
 - With mock responses (e.g., `test_notion_token_12345`), PII masking may not trigger since mock responses contain no real PII
-- For comprehensive PII filtering testing, use real API keys that return contact data (e.g., HubSpot contacts with emails/phones)
+- For comprehensive PII filtering testing, use real API keys that return data with PII (e.g., Gmail messages with emails/phone numbers)
 - IP address masking is typically disabled by default (operational data often includes IPs)
 
 ---
@@ -3799,7 +3799,7 @@ With P1-B3 complete, you can test with **real API keys** instead of mock tokens.
 |---------|------------|------------|
 | **Notion** | Internal Integration Token | [notion.so/my-integrations](https://www.notion.so/my-integrations) |
 | **Slack** | Bot User OAuth Token | [api.slack.com/apps](https://api.slack.com/apps) → OAuth & Permissions |
-| **HubSpot** | Private App Access Token | [developers.hubspot.com](https://developers.hubspot.com) → Private Apps |
+| **GitHub** | Personal Access Token | [github.com/settings/tokens](https://github.com/settings/tokens) → Fine-grained tokens |
 
 ### Quick Setup
 
@@ -3808,12 +3808,12 @@ With P1-B3 complete, you can test with **real API keys** instead of mock tokens.
 # Notion tokens start with 'ntn_' (newer) or 'secret_' (older)
 export NOTION_API_KEY="ntn_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 export SLACK_BOT_TOKEN="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxx"
-export HUBSPOT_ACCESS_TOKEN="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+export GITHUB_ACCESS_TOKEN="github_pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 # 2. Verify keys are set
 echo "Notion: ${NOTION_API_KEY:+✅ Set}${NOTION_API_KEY:-❌ Not set}"
 echo "Slack:  ${SLACK_BOT_TOKEN:+✅ Set}${SLACK_BOT_TOKEN:-❌ Not set}"
-echo "HubSpot: ${HUBSPOT_ACCESS_TOKEN:+✅ Set}${HUBSPOT_ACCESS_TOKEN:-❌ Not set}"
+echo "GitHub:  ${GITHUB_ACCESS_TOKEN:+✅ Set}${GITHUB_ACCESS_TOKEN:-❌ Not set}"
 
 # 3. The validation script will use these instead of mock tokens
 ./scripts/validate_integration.sh

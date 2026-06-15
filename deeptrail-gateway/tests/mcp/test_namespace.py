@@ -57,7 +57,7 @@ class TestValidateBackendId:
         """Test valid simple backend IDs."""
         validate_backend_id("notion")  # Should not raise
         validate_backend_id("slack")
-        validate_backend_id("hubspot")
+        validate_backend_id("gdrive")
     
     def test_valid_backend_id_with_underscore(self):
         """Test valid backend IDs with underscores."""
@@ -83,7 +83,7 @@ class TestValidateBackendId:
         with pytest.raises(NamespaceError, match="lowercase"):
             validate_backend_id("SLACK")
         with pytest.raises(NamespaceError, match="lowercase"):
-            validate_backend_id("hubSpot")
+            validate_backend_id("gDrive")
     
     def test_backend_id_starting_with_number_rejected(self):
         """Test that backend IDs starting with numbers are rejected."""

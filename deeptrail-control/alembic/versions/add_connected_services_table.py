@@ -22,7 +22,7 @@ def upgrade() -> None:
         'connected_services',
         sa.Column('id', sa.String(64), primary_key=True, comment='Unique connection identifier (e.g., conn-<uuid>)'),
         sa.Column('user_id', sa.String(255), nullable=False, index=True, comment='User identifier, typically email (e.g., sarah@acme.com)'),
-        sa.Column('service_id', sa.String(64), nullable=False, index=True, comment='Backend service identifier (e.g., notion, slack, hubspot)'),
+        sa.Column('service_id', sa.String(64), nullable=False, index=True, comment='Backend service identifier (e.g., notion, slack, gmail)'),
         sa.Column('service_name', sa.String(128), nullable=True, comment='Human-readable service name (e.g., Notion, Slack)'),
         sa.Column('oauth_token_ref', sa.String(512), nullable=False, comment='Reference to OAuth token in vault (e.g., vault://sarah-notion-oauth-xyz)'),
         sa.Column('scopes_granted', postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default='[]', comment='Scopes granted during OAuth consent'),

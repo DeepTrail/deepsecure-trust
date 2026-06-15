@@ -54,11 +54,6 @@ else
   echo "  Slack:  ⚪ Using mock token (set SLACK_BOT_TOKEN for real API)"
 fi
 
-if [[ -n "$HUBSPOT_ACCESS_TOKEN" ]] && [[ "$HUBSPOT_ACCESS_TOKEN" == pat-* ]]; then
-  echo "  HubSpot: ✅ Real API key detected (${HUBSPOT_ACCESS_TOKEN:0:12}...)"
-  REAL_API_MODE=true
-else
-  echo "  HubSpot: ⚪ Using mock token (set HUBSPOT_ACCESS_TOKEN for real API)"
 fi
 
 if [ "$REAL_API_MODE" = true ]; then
@@ -69,7 +64,7 @@ if [ "$REAL_API_MODE" = true ]; then
 else
   echo ""
   echo "MOCK MODE: Tool calls will return simulated responses"
-  echo "For real API testing, set: NOTION_API_KEY, SLACK_BOT_TOKEN, HUBSPOT_ACCESS_TOKEN"
+  echo "For real API testing, set: NOTION_API_KEY, SLACK_BOT_TOKEN"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -503,7 +498,6 @@ else
   echo "For REAL API testing, set environment variables:"
   echo "  export NOTION_API_KEY=secret_xxx..."
   echo "  export SLACK_BOT_TOKEN=xoxb-xxx..."
-  echo "  export HUBSPOT_ACCESS_TOKEN=pat-na1-xxx..."
 fi
 echo ""
 echo "Services are still running. To stop:"

@@ -150,7 +150,7 @@ slack:channels:list
 gdrive:files:read
 gcalendar:events:list
 gmail:messages:search
-hubspot:contacts:create
+github:repos:list
 ```
 
 ### Wildcard Rules
@@ -704,7 +704,7 @@ Connect a backend service by storing its OAuth token in the encrypted vault.
 }
 ```
 
-Supported `service_id` values: `notion`, `slack`, `hubspot`, `gdrive`, `gcalendar`, `gmail`.
+Supported `service_id` values: `notion`, `slack`, `gdrive`, `gcalendar`, `gmail`, `github`.
 
 **Response (200):**
 
@@ -1384,106 +1384,6 @@ All 34 tools available through the Gateway, organized by backend service.
 
 ---
 
-### HubSpot (7 tools)
-
-| Tool Name | Description | Permission URN |
-|-----------|-------------|----------------|
-| `hubspot.get_contact` | Get a specific HubSpot contact by ID | `hubspot:contacts:read` |
-| `hubspot.create_contact` | Create a new contact in HubSpot | `hubspot:contacts:create` |
-| `hubspot.update_contact` | Update an existing HubSpot contact | `hubspot:contacts:update` |
-| `hubspot.list_contacts` | List HubSpot contacts | `hubspot:contacts:list` |
-| `hubspot.list_deals` | List HubSpot deals | `hubspot:deals:list` |
-| `hubspot.create_deal` | Create a new deal in HubSpot | `hubspot:deals:create` |
-| `hubspot.update_deal` | Update an existing HubSpot deal | `hubspot:deals:update` |
-
-#### hubspot.get_contact
-
-```json
-{
-  "properties": {
-    "contact_id": {"type": "string", "description": "Contact ID"}
-  },
-  "required": ["contact_id"]
-}
-```
-
-#### hubspot.create_contact
-
-```json
-{
-  "properties": {
-    "email": {"type": "string", "description": "Contact email"},
-    "firstname": {"type": "string", "description": "First name"},
-    "lastname": {"type": "string", "description": "Last name"},
-    "company": {"type": "string", "description": "Company name"}
-  },
-  "required": ["email"]
-}
-```
-
-#### hubspot.update_contact
-
-```json
-{
-  "properties": {
-    "contact_id": {"type": "string", "description": "Contact ID"},
-    "properties": {"type": "object", "description": "Properties to update"}
-  },
-  "required": ["contact_id"]
-}
-```
-
-#### hubspot.list_contacts
-
-```json
-{
-  "properties": {
-    "limit": {"type": "integer", "description": "Max results", "default": 20}
-  },
-  "required": []
-}
-```
-
-#### hubspot.list_deals
-
-```json
-{
-  "properties": {
-    "stage": {"type": "string", "description": "Filter by deal stage"},
-    "limit": {"type": "integer", "description": "Max results", "default": 20}
-  },
-  "required": []
-}
-```
-
-#### hubspot.create_deal
-
-```json
-{
-  "properties": {
-    "dealname": {"type": "string", "description": "Deal name"},
-    "amount": {"type": "number", "description": "Deal amount"},
-    "dealstage": {"type": "string", "description": "Deal stage"},
-    "pipeline": {"type": "string", "description": "Pipeline name"}
-  },
-  "required": ["dealname"]
-}
-```
-
-#### hubspot.update_deal
-
-```json
-{
-  "properties": {
-    "deal_id": {"type": "string", "description": "Deal ID"},
-    "properties": {"type": "object", "description": "Properties to update"}
-  },
-  "required": ["deal_id"]
-}
-```
-
----
-
 ### Google Drive (4 tools)
 
 | Tool Name | Description | Permission URN |
@@ -2090,7 +1990,7 @@ Initiate OAuth authorization for a backend service.
 | Field | Value |
 |-------|-------|
 | **Auth** | `Authorization: Bearer <USER_TOKEN>` |
-| **Path Params** | `service_id` (`notion`, `slack`, `hubspot`, `gdrive`, `gcalendar`, `gmail`) |
+| **Path Params** | `service_id` (`notion`, `slack`, `gdrive`, `gcalendar`, `gmail`, `github`) |
 | **Query Params** | `scopes` (optional), `redirect` (boolean, default `false`), `post_connect_redirect` (URL) |
 
 **Response (200, redirect=false):**

@@ -198,7 +198,7 @@ async def handle_step_3_connect_tools(ctx: DemoContext) -> None:
     # Multi-select tools to connect
     tools = await ctx.ui.multi_select(
         prompt="Select tools to connect:",
-        choices=["OpenAI", "GitHub", "Slack", "Salesforce", "HubSpot"],
+        choices=["OpenAI", "GitHub", "Slack", "Salesforce", "Google Drive"],
         default=["OpenAI", "GitHub"],
     )
 
@@ -429,8 +429,8 @@ async def handle_step_6_grant_permissions(ctx: DemoContext) -> None:
             "openai:chat:*",
             "github:repos:read",
             "slack:messages:send",
-            "salesforce:contacts:read",
-            "hubspot:contacts:write",
+            "notion:pages:search",
+            "gmail:messages:read",
         ],
         default=["openai:chat:*", "github:repos:read"],
     )

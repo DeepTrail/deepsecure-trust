@@ -19,7 +19,7 @@
       "actor": "sarah@acme.com",
       "action": "select_permissions",
       "result": "4 permissions selected",
-      "metadata": { "permissions": ["notion:pages:read", "notion:pages:write", "slack:messages:read", "slack:messages:write"] }
+      "metadata": { "permissions": ["notion:pages:read", "notion:pages:write", "slack:messages:search", "slack:messages:write"] }
     },
     {
       "id": "del-3",

@@ -69,7 +69,7 @@ DeepSecure implements a **Virtual MCP Server** pattern — a security-aware prox
 
 ```
 Agent sees:     ONE MCP server endpoint (the Gateway)
-Reality:        Gateway multiplexes across N backend services (Notion, Slack, HubSpot, ...)
+Reality:        Gateway multiplexes across N backend services (Notion, Slack, Gmail, ...)
 Security:       Every tool call is permission-checked, credential-injected, and audit-logged
 ```
 
@@ -189,7 +189,7 @@ This separation provides:
                                                   │  ┌───────────────────────┐
                                                   │  │  External APIs        │
                                                   │  │  (Notion, Slack,      │
-                                                  │  │   HubSpot, Google)    │
+                                                  │  │   Gmail, Google)      │
                                                   │  └───────────────────────┘
 ```
 
@@ -467,7 +467,7 @@ Examples:
   notion:pages:search       → Can search Notion pages
   notion:pages:read         → Can read a specific Notion page
   slack:messages:send       → Can send Slack messages
-  hubspot:contacts:update   → Can update HubSpot contacts
+  gmail:messages:read       → Can read Gmail messages
 ```
 
 ### 6.4 Monotonic Attenuation
@@ -634,7 +634,7 @@ Every `tools/call` request passes through a 10-stage security pipeline:
 | 5 | **Constraint Check** | Rate limits, quotas, time bounds | Reject if violated |
 | 6 | **Prompt Injection Scan** | Scan arguments for injection patterns | Block if threat=high |
 | 7 | **Credential Injection** | Resolve vault ref → OAuth token, inject | Error if vault unreachable |
-| 8 | **Backend Forwarding** | Forward to Notion/Slack/HubSpot API | Handle backend errors |
+| 8 | **Backend Forwarding** | Forward to Notion/Slack/Gmail API | Handle backend errors |
 | 9 | **PII Result Filter** | Mask sensitive data in response (email, phone) | Pass-through in MVP |
 | 10 | **Audit Log** | Log success/failure with full attribution | Async, non-blocking |
 
@@ -963,9 +963,9 @@ Background agents run as Cloud Run Jobs triggered by Cloud Scheduler (every 6 ho
 
 | Job Name | Agent ID | SA Email | Schedule |
 |----------|----------|----------|----------|
-| `gemini-deepsecure-agent` | `debugging-agent-sa` | `debugging-agent-sa@deepsecure-saas.iam.gserviceaccount.com` | `0 */6 * * *` |
-| `thunderbolt-deepsecure-agent` | `thunderbolt-agent` | `thunderbolt-agent-sa@deepsecure-saas.iam.gserviceaccount.com` | `0 */6 * * *` |
-| `engineering-audit` | `engineering-audit-agent` | `engineering-audit-sa@deepsecure-saas.iam.gserviceaccount.com` | `0 */6 * * *` |
+| `debugging-deepsecure-agent-job` | `debugging-deepsecure-agent` | `debugging-agent-sa@deepsecure-saas.iam.gserviceaccount.com` | `0 */1 * * *` |
+| `engineering-audit-deepsecure-agent-job` | `engineering-audit-deepsecure-agent` | `engineering-audit-sa@deepsecure-saas.iam.gserviceaccount.com` | `0 */1 * * *` |
+| `thunderbolt-deepsecure-agent-job` | `thunderbolt-deepsecure-agent` | `thunderbolt-agent-sa@deepsecure-saas.iam.gserviceaccount.com` | `0 */1 * * *` |
 
 #### Round-Robin Execution Model
 
@@ -1238,7 +1238,7 @@ The platform is designed with a clear open-source/enterprise boundary:
 | Delegation Validation Against Scopes (WS-K4) | ✅ Done | P1 | Post-MVP |
 | GCP Cloud Run Deployment | ✅ Done | — | Production |
 | Task-Scoped Tokens | ✅ Done | — | MVP |
-| HubSpot Backend Integration | ✅ Done | — | Phase 2 |
+| Gmail Backend Integration | ✅ Done | — | Phase 2 |
 | SSE Streaming for Audit Events | ✅ Done | P2 | Post-MVP |
 | GCP Workload Identity Bootstrap | ✅ Done | P4 | Production |
 | Agent Lifecycle (4-state) | ✅ Done | P2 | Production |

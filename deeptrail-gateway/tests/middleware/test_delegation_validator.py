@@ -238,7 +238,7 @@ class TestBasicValidation:
     ):
         """C6: Should deny tool from non-delegated backend."""
         result = await validator.validate_tool_call(
-            tool_name="hubspot.get_contact",
+            tool_name="gdrive.search_files",
             agent_context=agent_with_limited_perms,
         )
         
@@ -386,7 +386,7 @@ class TestWildcardPermissions:
     ):
         """C6: Full wildcard should allow any tool."""
         # Test various tools
-        for tool in ["notion.search_pages", "slack.send_message", "hubspot.get_contact"]:
+        for tool in ["notion.search_pages", "slack.send_message", "gdrive.search_files"]:
             result = await validator.validate_tool_call(
                 tool_name=tool,
                 agent_context=agent_with_full_wildcard,

@@ -10,8 +10,6 @@ Environment Variables:
     NOTION_OAUTH_CLIENT_SECRET: Notion app client secret
     SLACK_OAUTH_CLIENT_ID: Slack app client ID
     SLACK_OAUTH_CLIENT_SECRET: Slack app client secret
-    HUBSPOT_OAUTH_CLIENT_ID: HubSpot app client ID
-    HUBSPOT_OAUTH_CLIENT_SECRET: HubSpot app client secret
 
 Usage:
     from app.core.oauth_config import get_oauth_settings
@@ -90,27 +88,6 @@ class SlackOAuthConfig(OAuthProviderConfig):
     uses_pkce: bool = False
 
 
-class HubSpotOAuthConfig(OAuthProviderConfig):
-    """HubSpot OAuth configuration.
-
-    HubSpot uses standard OAuth 2.0.
-    Scopes are specified in the authorization URL.
-
-    Docs: https://developers.hubspot.com/docs/api/oauth-quickstart-guide
-    """
-
-    model_config = SettingsConfigDict(env_prefix="HUBSPOT_OAUTH_")
-
-    client_id: str = Field(default="")
-    client_secret: str = Field(default="")
-    authorization_url: str = "https://app.hubspot.com/oauth/authorize"
-    token_url: str = "https://api.hubapi.com/oauth/v1/token"
-    scopes: list[str] = Field(
-        default=["crm.objects.contacts.read", "crm.objects.deals.read"]
-    )
-    uses_pkce: bool = False
-
-
 class OAuthSettings(BaseSettings):
     """Main OAuth configuration container.
 
@@ -121,7 +98,6 @@ class OAuthSettings(BaseSettings):
         state_ttl_seconds: How long state tokens remain valid (default 10 min).
         notion: Notion OAuth provider configuration.
         slack: Slack OAuth provider configuration.
-        hubspot: HubSpot OAuth provider configuration.
     """
 
     model_config = SettingsConfigDict(env_prefix="OAUTH_")
@@ -130,7 +106,6 @@ class OAuthSettings(BaseSettings):
     state_ttl_seconds: int = Field(default=600)
     notion: NotionOAuthConfig = Field(default_factory=NotionOAuthConfig)
     slack: SlackOAuthConfig = Field(default_factory=SlackOAuthConfig)
-    hubspot: HubSpotOAuthConfig = Field(default_factory=HubSpotOAuthConfig)
 
 
 # Singleton instance for consistent configuration access

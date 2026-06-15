@@ -5,7 +5,6 @@ const SERVICE_DISPLAY_NAMES: Record<string, string> = {
   gcalendar: "Google Calendar",
   gdrive: "Google Drive",
   gmail: "Gmail",
-  hubspot: "HubSpot",
   jira: "Jira",
   confluence: "Confluence",
   salesforce: "Salesforce",

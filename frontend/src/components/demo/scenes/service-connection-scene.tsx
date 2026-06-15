@@ -8,7 +8,7 @@ import type { DemoSceneProps } from "./types";
 const services = [
   { name: "Notion", scopes: ["pages:read", "pages:write"], delay: 0 },
   { name: "Slack", scopes: ["messages:read", "messages:write"], delay: 0.4 },
-  { name: "HubSpot", scopes: ["contacts:read"], delay: 0.8 },
+  { name: "GitHub", scopes: ["repos:read"], delay: 0.8 },
 ];
 
 export function ServiceConnectionScene({
@@ -35,7 +35,7 @@ export function ServiceConnectionScene({
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Sarah connects Notion, Slack, and HubSpot via OAuth. Credentials are
+                Sarah connects Notion, Slack, and GitHub via OAuth. Credentials are
                 stored in the vault — never exposed to agents.
               </p>
               <div className="space-y-3">

@@ -293,7 +293,7 @@ class TestMCPSessionManager:
         session = manager.create_agent_session(
             agent_session_id="agent-multi",
             delegator="user@example.com",
-            delegated_permissions=["notion:pages:search", "slack:messages:read"],
+            delegated_permissions=["notion:pages:search", "slack:messages:search"],
             connected_services=[
                 {"service_id": "notion", "oauth_token_ref": "vault://n", "available_tools": ["search_pages"]},
                 {"service_id": "slack", "oauth_token_ref": "vault://s", "available_tools": ["search_messages"]},
@@ -351,7 +351,7 @@ class TestMCPSessionManager:
     def test_get_all_backend_sessions(self, manager):
         """Test getting all backend sessions."""
         manager.create_agent_session(
-            "agent-123", "user", ["notion:pages:read", "slack:messages:read"],
+            "agent-123", "user", ["notion:pages:read", "slack:messages:search"],
             [
                 {"service_id": "notion", "available_tools": ["read_page"]},
                 {"service_id": "slack", "available_tools": ["search_messages"]},
@@ -526,7 +526,7 @@ class TestSessionIsolation:
         
         # Agent 2: Has Slack access
         manager.create_agent_session(
-            "agent-2", "user-2", ["slack:messages:read"],
+            "agent-2", "user-2", ["slack:messages:search"],
             [{"service_id": "slack", "oauth_token_ref": "vault://user2-slack", "available_tools": ["search_messages"]}]
         )
         
@@ -632,7 +632,7 @@ class TestEdgeCases:
     def test_unique_session_ids(self, manager):
         """Test that generated session IDs are unique."""
         manager.create_agent_session(
-            "agent-1", "user", ["notion:pages:read", "slack:messages:read"],
+            "agent-1", "user", ["notion:pages:read", "slack:messages:search"],
             [
                 {"service_id": "notion", "available_tools": ["read"]},
                 {"service_id": "slack", "available_tools": ["search"]},

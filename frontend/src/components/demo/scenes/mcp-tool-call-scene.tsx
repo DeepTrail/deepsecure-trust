@@ -21,10 +21,10 @@ const toolCalls = [
     delay: 0.6,
   },
   {
-    tool: "hubspot.list_contacts",
+    tool: "gmail.list_messages",
     args: "{}",
     result: "denied",
-    detail: "hubspot:contacts:read not delegated",
+    detail: "gmail:messages:read not delegated",
     delay: 1.2,
   },
 ];

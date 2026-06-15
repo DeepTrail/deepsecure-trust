@@ -42,11 +42,11 @@
     {
       "id": "audit-5",
       "label": "Denial Logged",
-      "description": "Permission denial for HubSpot access recorded with full attribution chain",
+      "description": "Permission denial for Gmail access recorded with full attribution chain",
       "actor": "sarah-research-agent",
       "action": "permission_denied",
       "result": "Event logged",
-      "metadata": { "layer": "L3", "tool": "hubspot.list_contacts", "time": "09:05" }
+      "metadata": { "layer": "L3", "tool": "gmail.list_messages", "time": "09:05" }
     }
   ]
 }
