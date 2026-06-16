@@ -473,12 +473,13 @@ def issue_delegation_token(
             },
         )
 
-    session = AgentSession.from_delegation(
-        delegation=delegation,
-        agent_id=agent_id,
+    existing_session = (
+        db.query(AgentSession)
+        .filter(AgentSession.agent_id == agent_id, AgentSession.is_active.is_(True))
+        .order_by(AgentSession.created_at.desc())
+        .first()
     )
-    db.add(session)
-    db.commit()
+    session_id = str(existing_session.id) if existing_session else None
 
     access_token = create_access_token(
         subject=agent_id,
@@ -488,22 +489,22 @@ def issue_delegation_token(
             "owner": delegation.delegator or "",
             "delegation_id": str(delegation.id),
             "delegated_permissions": delegation.delegated_permissions or [],
-            "session_id": str(session.id),
+            "session_id": session_id or "",
         },
     )
 
     logger.info(
-        "Issued delegation-scoped JWT for agent %s, delegation %s (owner=%s), session %s",
+        "Issued delegation-scoped JWT for agent %s, delegation %s (owner=%s), reusing session %s",
         agent_id,
         delegation.id,
         delegation.delegator,
-        session.id,
+        session_id,
     )
 
     return DelegationTokenResponse(
         access_token=access_token,
         expires_in=3600,
-        session_id=str(session.id),
+        session_id=session_id or "",
         delegation_id=str(delegation.id),
         owner=delegation.delegator or "",
     )

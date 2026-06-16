@@ -51,8 +51,8 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "")
 PROMPT_TIMEOUT = int(os.environ.get("PROMPT_TIMEOUT_SECONDS", "300"))
 
 _FALLBACK_PROMPTS_PER_DELEGATION = 10
-_FALLBACK_MAX_ROUNDS = 3
-_FALLBACK_INTERVAL = 300
+_FALLBACK_MAX_ROUNDS = 1
+_FALLBACK_INTERVAL = 120
 
 PROVIDER_KEY_ENV: Dict[str, str] = {
     "gemini": "GEMINI_API_KEY",
@@ -378,6 +378,44 @@ def run_prompt_with_fallback(providers: List[str], jwt: str, prompt: str) -> boo
     return False
 
 
+# ── LLM provider reporting ────────────────────────────────────────────
+
+def _extract_session_id(jwt: str) -> str | None:
+    """Decode the session_id from a JWT payload (no signature verification)."""
+    import base64 as _b64
+    try:
+        payload = jwt.split(".")[1]
+        payload += "=" * (4 - len(payload) % 4)
+        claims = json.loads(_b64.urlsafe_b64decode(payload))
+        return claims.get("session_id")
+    except Exception:
+        return None
+
+
+def _report_llm_provider(jwt: str, providers: list[str]) -> None:
+    """Report the first available LLM provider to the Control Plane.
+
+    Best-effort: failures are logged but do not affect prompt execution.
+    """
+    session_id = _extract_session_id(jwt)
+    if not session_id:
+        return
+    provider = providers[0] if providers else None
+    if not provider:
+        return
+    import httpx
+    try:
+        httpx.patch(
+            f"{CONTROL_URL}/api/v1/agents/internal/sessions/{session_id}/provider",
+            json={"llm_provider": provider},
+            headers={"Authorization": f"Bearer {jwt}"},
+            timeout=5,
+        )
+        log(f"Reported llm_provider={provider} for session {session_id}")
+    except Exception as exc:
+        log(f"WARNING: Failed to report llm_provider: {exc}")
+
+
 # ── Bootstrap with retry ─────────────────────────────────────────────
 
 def bootstrap_with_retry(
@@ -421,20 +459,28 @@ def main() -> None:
 
     client = BootstrapClient(control_url=CONTROL_URL, gateway_url=GATEWAY_URL)
 
-    # ── Bootstrap (Phase 0) to get a JWT for config fetch ──
+    # ── Single bootstrap: creates 1 session, used for config fetch + all prompts ──
     if pre_set_jwt:
-        boot_jwt = pre_set_jwt
+        from deepsecure._core.bootstrap import Delegation
+        result = BootstrapResult(
+            agent_id=AGENT_ID,
+            jwt=pre_set_jwt,
+            platform=platform,
+            control_url=CONTROL_URL,
+            gateway_url=GATEWAY_URL,
+            delegations=[],
+            expires_in=3600,
+        )
         resolved_agent_id = AGENT_ID
     else:
-        log("Phase 0: Bootstrapping to obtain JWT for config fetch...")
-        boot_result = bootstrap_with_retry(client, AGENT_ID, platform)
-        boot_jwt = boot_result.jwt
-        resolved_agent_id = boot_result.agent_id
-        log(f"Phase 0 complete. JWT obtained. Resolved agent_id: {resolved_agent_id}")
+        log("Bootstrapping via GCP OIDC (single session)...")
+        result = bootstrap_with_retry(client, AGENT_ID, platform)
+        resolved_agent_id = result.agent_id
+        log(f"Bootstrap complete. agent_id={resolved_agent_id}, {len(result.delegations)} delegation(s).")
 
-    # ── Fetch config from DB via Control Plane ──
+    # ── Fetch config from DB via Control Plane (no extra session) ──
     log("Fetching agent config from Control Plane...")
-    raw_config = fetch_config(resolved_agent_id, boot_jwt, CONTROL_URL)
+    raw_config = fetch_config(resolved_agent_id, result.jwt, CONTROL_URL)
     if raw_config is None:
         log("WARNING: Config fetch failed. Using safety fallbacks.")
     else:
@@ -456,28 +502,14 @@ def main() -> None:
     log(f" Interval: {interval}s")
     log(f" Tagged Prompts: {len(tagged_prompts)}")
 
+    if not pre_set_jwt and not result.delegations:
+        log("FATAL: No active delegations. Cannot operate.")
+        sys.exit(1)
+
+    provider_reported = False
+
     for round_num in range(1, max_rounds + 1):
         log(f"===== Round {round_num}/{max_rounds} =====")
-
-        if pre_set_jwt:
-            from deepsecure._core.bootstrap import Delegation
-            result = BootstrapResult(
-                agent_id=AGENT_ID,
-                jwt=pre_set_jwt,
-                platform=platform,
-                control_url=CONTROL_URL,
-                gateway_url=GATEWAY_URL,
-                delegations=[],
-                expires_in=3600,
-            )
-        else:
-            log(f"Phase 1: Bootstrapping via {platform.value}...")
-            result = bootstrap_with_retry(client, AGENT_ID, platform)
-            log(f"Phase 1 complete. JWT obtained, {len(result.delegations)} delegation(s).")
-
-        if not result.delegations:
-            log("FATAL: No active delegations. Cannot operate.")
-            sys.exit(1)
 
         for d_idx, delegation in enumerate(result.delegations):
             log(f"--- Delegation {d_idx + 1}/{len(result.delegations)}: {delegation.service} ({delegation.delegation_id}) ---")
@@ -498,6 +530,9 @@ def main() -> None:
                 log(f"Running prompt {p_idx + 1}: {prompt[:80]}...")
                 if run_prompt_with_fallback(providers, jwt, prompt):
                     succeeded += 1
+                    if not provider_reported:
+                        _report_llm_provider(jwt, providers)
+                        provider_reported = True
 
             total = min(len(prompts), prompts_per_delegation)
             log(f"Completed {succeeded}/{total} prompt(s) for delegation")

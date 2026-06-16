@@ -285,6 +285,7 @@ class AgentSessionService:
                 groups=[],
                 is_active=True,
                 expires_at=session_expires_at,
+                created_via="challenge_response",
             )
         else:
             # No delegation — still create a session but use the MVP in-memory approach
