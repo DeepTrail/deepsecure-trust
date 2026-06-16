@@ -118,15 +118,15 @@ def connected_service_slack(db: Session):
 
 
 @pytest.fixture
-def connected_service_hubspot(db: Session):
-    """Create a connected service record for HubSpot in the test database."""
+def connected_service_gmail(db: Session):
+    """Create a connected service record for Gmail in the test database."""
     connection = ConnectedService(
-        id="conn-test-hubspot-001",
+        id="conn-test-gmail-001",
         user_id="user@example.com",
-        service_id="hubspot",
-        service_name="HubSpot",
-        oauth_token_ref="vault://user-hubspot-oauth-test789",
-        scopes_granted=["contacts", "deals"],
+        service_id="gmail",
+        service_name="Gmail",
+        oauth_token_ref="vault://user-gmail-oauth-test789",
+        scopes_granted=["messages", "labels"],
     )
     db.add(connection)
     db.commit()
@@ -346,9 +346,9 @@ class TestGetTokenForbidden:
         self, client, mock_vault_client, valid_agent_jwt
     ):
         """Should return 403 when service is not in delegated_permissions."""
-        # hubspot is NOT in valid_agent_jwt's delegated_permissions
+        # gmail is NOT in valid_agent_jwt's delegated_permissions
         response = client.get(
-            "/api/v1/vault/tokens/hubspot",
+            "/api/v1/vault/tokens/gmail",
             headers={"Authorization": f"Bearer {valid_agent_jwt}"},
         )
 
@@ -526,7 +526,7 @@ class TestPermissionMatching:
             db.commit()
 
     def test_multiple_permissions_for_same_service(
-        self, client, mock_vault_client, sample_token_data, connected_service_hubspot
+        self, client, mock_vault_client, sample_token_data, connected_service_gmail
     ):
         """Should work when user has multiple permissions for service."""
         now = datetime.now(timezone.utc)
@@ -537,9 +537,9 @@ class TestPermissionMatching:
             "exp": int((now + timedelta(hours=1)).timestamp()),
             "owner": "user@example.com",
             "delegated_permissions": [
-                "hubspot:contacts:read",
-                "hubspot:contacts:write",
-                "hubspot:deals:read",
+                "notion:pages:search",
+                "notion:pages:read",
+                "slack:messages:search",
             ],
         }
         token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
@@ -547,7 +547,7 @@ class TestPermissionMatching:
         mock_vault_client.retrieve_token.return_value = sample_token_data
 
         response = client.get(
-            "/api/v1/vault/tokens/hubspot",
+            "/api/v1/vault/tokens/gmail",
             headers={"Authorization": f"Bearer {token}"},
         )
 

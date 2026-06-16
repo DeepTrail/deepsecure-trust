@@ -105,7 +105,7 @@ class DelegationToken(Base):
         JSON().with_variant(postgresql.JSONB(), "postgresql"),
         nullable=False,
         default=list,
-        comment='Delegated permissions (e.g., ["notion:pages:search", "slack:messages:read"])',
+        comment='Delegated permissions (e.g., ["notion:pages:search", "slack:messages:search"])',
     )
 
     # Constraints on delegation

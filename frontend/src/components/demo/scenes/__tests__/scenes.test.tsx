@@ -108,7 +108,7 @@ describe("Demo Scene Components", () => {
       render(<ServiceConnectionScene isActive={true} />);
       expect(screen.getByText("Notion")).toBeInTheDocument();
       expect(screen.getByText("Slack")).toBeInTheDocument();
-      expect(screen.getByText("HubSpot")).toBeInTheDocument();
+      expect(screen.getByText("GitHub")).toBeInTheDocument();
     });
 
     it("AgentRegistrationScene renders registration steps", () => {

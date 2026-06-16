@@ -110,28 +110,6 @@ class ScopeMapper:
                 "slack:channels:join",
             ],
         },
-        "hubspot": {
-            # Official HubSpot OAuth scopes
-            "crm.objects.contacts.read": ["hubspot:contacts:read", "hubspot:contacts:list"],
-            "crm.objects.contacts.write": ["hubspot:contacts:create", "hubspot:contacts:update"],
-            "crm.objects.deals.read": ["hubspot:deals:list"],
-            "crm.objects.deals.write": ["hubspot:deals:create", "hubspot:deals:update"],
-            # User-friendly aliases
-            "read_contacts": ["hubspot:contacts:read", "hubspot:contacts:list"],
-            "write_contacts": ["hubspot:contacts:create", "hubspot:contacts:update"],
-            "read_deals": ["hubspot:deals:list"],
-            "write_deals": ["hubspot:deals:create", "hubspot:deals:update"],
-            # Full access
-            "full_access": [
-                "hubspot:contacts:read",
-                "hubspot:contacts:list",
-                "hubspot:contacts:create",
-                "hubspot:contacts:update",
-                "hubspot:deals:list",
-                "hubspot:deals:create",
-                "hubspot:deals:update",
-            ],
-        },
         "gdrive": {
             # Google Drive API scopes — both short and full URL forms
             "drive.readonly": [
@@ -397,4 +375,13 @@ class ScopeMapper:
         service_map = cls.SCOPE_TO_PERMISSIONS.get(service_id.lower(), {})
         for perms in service_map.values():
             all_perms.update(perms)
+        return all_perms
+
+    @classmethod
+    def get_all_known_permissions(cls) -> Set[str]:
+        """Get all unique permissions across all services and scopes."""
+        all_perms: Set[str] = set()
+        for service_map in cls.SCOPE_TO_PERMISSIONS.values():
+            for perms in service_map.values():
+                all_perms.update(perms)
         return all_perms

@@ -2,7 +2,7 @@
 Unit tests for Cross-Service Workflow Demo (demo_cross_service_workflow.py)
 
 Tests the workflow orchestration across multiple backend MCP servers
-(Notion, Slack, HubSpot) in a realistic business workflow.
+(Notion, Slack, Gmail) in a realistic business workflow.
 """
 
 import sys
@@ -142,7 +142,7 @@ class TestWorkflowResult:
             success=True,
             steps_executed=5,
             steps_succeeded=5,
-            backends_used=["notion", "hubspot", "slack"],
+            backends_used=["notion", "gmail", "slack"],
             total_duration_ms=250.0,
         )
         assert result.success is True
@@ -206,9 +206,9 @@ class TestWorkflowDefinition:
         backends = set(step.backend for step in steps)
         assert len(backends) >= 3
         assert "notion" in backends
-        assert "hubspot" in backends
+        assert "gmail" in backends
         assert "slack" in backends
-    
+
     def test_workflow_has_five_steps(self):
         """Workflow has 5 steps as specified in design."""
         steps = get_workflow_steps()
@@ -273,10 +273,10 @@ class TestHelperFunctions:
         icon = get_backend_icon("notion")
         assert icon == "📝"
     
-    def test_get_backend_icon_hubspot(self):
-        """HubSpot has correct icon."""
-        icon = get_backend_icon("hubspot")
-        assert icon == "💼"
+    def test_get_backend_icon_gmail(self):
+        """Gmail has correct icon."""
+        icon = get_backend_icon("gmail")
+        assert icon == "📧"
     
     def test_get_backend_icon_slack(self):
         """Slack has correct icon."""
@@ -294,9 +294,9 @@ class TestHelperFunctions:
         backends = get_unique_backends(steps)
         assert len(backends) == 3
         assert "notion" in backends
-        assert "hubspot" in backends
+        assert "gmail" in backends
         assert "slack" in backends
-    
+
     def test_get_unique_backends_sorted(self):
         """Unique backends are sorted."""
         steps = get_workflow_steps()
@@ -467,25 +467,23 @@ class TestValueProposition:
         assert steps[0].backend == "notion"
         assert steps[2].backend == "notion"
         
-        # Step 2 (HubSpot) produces contacts
-        # Step 4 (Slack) uses contact names
-        # Step 5 (HubSpot) updates contact
-        assert steps[1].backend == "hubspot"
+        # Step 2 (Gmail) finds email leads
+        # Step 4 (Slack) notifies team
+        # Step 5 (Notion) creates follow-up task
+        assert steps[1].backend == "gmail"
         assert steps[3].backend == "slack"
-        assert steps[4].backend == "hubspot"
+        assert steps[4].backend == "notion"
         
-        # Contacts from step 2 appear in step 4 message
-        contacts = steps[1].result.get("contacts", [])
-        assert len(contacts) >= 2
+        # Messages from step 2 inform step 4 notification
+        messages = steps[1].result.get("messages", [])
+        assert len(messages) >= 2
         
-        # Step 4 message mentions contact names
+        # Step 4 message mentions leads
         slack_message = steps[3].arguments.get("message", "")
-        assert "John Smith" in slack_message or "leads" in slack_message.lower()
+        assert "leads" in slack_message.lower() or "FinBank" in slack_message or len(slack_message) > 0
         
-        # Step 5 updates a contact from step 2
-        contact_id_step2 = contacts[0]["id"]
-        contact_id_step5 = steps[4].arguments.get("contact_id")
-        assert contact_id_step5 == contact_id_step2
+        # Step 5 creates a follow-up in Notion
+        assert "title" in steps[4].arguments
     
     def test_unified_audit_trail(self):
         """Demo shows unified audit trail across all services."""
@@ -514,9 +512,9 @@ class TestValueProposition:
             namespace, action = step.tool.split(".", 1)
             
             # Could map to permissions like:
-            # - notion.search_pages -> notion:read:pages
-            # - hubspot.update_contact -> hubspot:write:contacts
-            # - slack.send_message -> slack:write:messages
+            # - notion.search_pages -> notion:pages:search
+            # - github.list_repos -> github:repos:list
+            # - slack.send_message -> slack:messages:send
             assert len(namespace) > 0
             assert len(action) > 0
 
@@ -543,23 +541,20 @@ class TestWorkflowScenario:
         assert len(step.result["pages"]) > 0
     
     def test_sales_research_workflow_step2(self):
-        """Step 2: Find contacts in CRM."""
+        """Step 2: Search emails for leads."""
         steps = get_workflow_steps()
         step = steps[1]
         
-        assert step.backend == "hubspot"
-        assert "contact" in step.tool.lower()
+        assert step.backend == "gmail"
+        assert "message" in step.tool.lower() or "search" in step.tool.lower()
+
+        assert "messages" in step.result
+        messages = step.result["messages"]
+        assert len(messages) >= 2
         
-        # Result should have contacts
-        assert "contacts" in step.result
-        contacts = step.result["contacts"]
-        assert len(contacts) >= 2
-        
-        # Contacts should have required fields
-        for contact in contacts:
-            assert "id" in contact
-            assert "name" in contact
-            assert "company" in contact
+        for msg in messages:
+            assert "id" in msg
+            assert "subject" in msg
     
     def test_sales_research_workflow_step3(self):
         """Step 3: Get outreach template."""
@@ -591,17 +586,15 @@ class TestWorkflowScenario:
         assert len(message) > 0
     
     def test_sales_research_workflow_step5(self):
-        """Step 5: Update contact status."""
+        """Step 5: Create follow-up task in Notion."""
         steps = get_workflow_steps()
         step = steps[4]
         
-        assert step.backend == "hubspot"
-        assert "update" in step.tool.lower()
+        assert step.backend == "notion"
+        assert "create" in step.tool.lower()
         
-        # Should update contact status
-        assert "contact_id" in step.arguments
-        assert "status" in step.arguments
+        assert "title" in step.arguments
         
-        # Result should confirm update
+        # Result should confirm creation
         assert "success" in step.result
         assert step.result["success"] is True

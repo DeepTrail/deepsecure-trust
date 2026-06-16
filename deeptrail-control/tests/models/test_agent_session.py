@@ -71,7 +71,7 @@ class TestAgentSessionModel:
             agent_id="agent-sdr-001",
             delegation_id="del-sarah-sdr-001",
             owner_email="sarah@acme.com",
-            scoped_permissions=["notion:pages:search", "slack:messages:read"],
+            scoped_permissions=["notion:pages:search", "slack:messages:search"],
             expires_at=datetime.now(timezone.utc) + timedelta(hours=8),
         )
 
@@ -466,12 +466,12 @@ class TestAgentSessionPermissions:
             agent_id="agent-001",
             delegation_id="del-test",
             owner_email="test@example.com",
-            scoped_permissions=["notion:pages:search", "slack:messages:read"],
+            scoped_permissions=["notion:pages:search", "slack:messages:search"],
             expires_at=datetime.now(timezone.utc) + timedelta(hours=8),
         )
 
         assert session.has_permission("notion:pages:search") is True
-        assert session.has_permission("slack:messages:read") is True
+        assert session.has_permission("slack:messages:search") is True
 
     def test_has_permission_absent(self):
         """has_permission returns False when permission is absent."""
@@ -641,7 +641,7 @@ class TestAgentSessionFromDelegation:
             agent_id="agent-sdr-001",
             delegator="sarah@acme.com",
             delegator_idp="https://acme.okta.com",
-            delegated_permissions=["notion:pages:search", "slack:messages:read"],
+            delegated_permissions=["notion:pages:search", "slack:messages:search"],
             organization_id="org-acme",
             expires_at=datetime.now(timezone.utc) + timedelta(days=7),
         )

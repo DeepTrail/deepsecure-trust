@@ -1,7 +1,7 @@
 """SQLAlchemy model for Connected Service entities.
 
 Connected services represent OAuth connections between a user and backend services
-(Notion, Slack, HubSpot, etc.). The actual OAuth tokens are stored in vault;
+(Notion, Slack, etc.). The actual OAuth tokens are stored in vault;
 this model only stores references to those tokens.
 """
 
@@ -62,7 +62,7 @@ class ConnectedService(Base):
         String(64),
         nullable=False,
         index=True,
-        comment="Backend service identifier (e.g., notion, slack, hubspot)",
+        comment="Backend service identifier (e.g., notion, slack)",
     )
 
     service_name = Column(

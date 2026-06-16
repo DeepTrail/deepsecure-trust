@@ -1,7 +1,7 @@
 """OAuth schemas for authorization flows.
 
 This module defines data classes for OAuth 2.0 authorization flows, including:
-- Provider enumeration (Notion, Slack, HubSpot)
+- Provider enumeration (Notion, Slack, Google, GitHub)
 - Authorization request/response models
 - Token exchange request/response models
 - PKCE support for enhanced security
@@ -21,13 +21,11 @@ class OAuthProvider(str, Enum):
     Each provider has different OAuth configurations:
     - NOTION: Requires PKCE (code_challenge)
     - SLACK: Standard OAuth 2.0
-    - HUBSPOT: Standard OAuth 2.0
     - GOOGLE: Standard OAuth 2.0 (shared by gdrive, gcalendar, gmail)
     """
 
     NOTION = "notion"
     SLACK = "slack"
-    HUBSPOT = "hubspot"
     GOOGLE = "google"
     GITHUB = "github"
     CUSTOM = "custom"

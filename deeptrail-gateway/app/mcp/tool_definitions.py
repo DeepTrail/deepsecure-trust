@@ -44,7 +44,8 @@ NOTION_TOOLS = [
                 }
             },
             "required": ["query"]
-        }
+        },
+        permission="notion:pages:search",
     ),
     CachedTool(
         name="read_page",
@@ -58,7 +59,8 @@ NOTION_TOOLS = [
                 }
             },
             "required": ["page_id"]
-        }
+        },
+        permission="notion:pages:read",
     ),
     CachedTool(
         name="get_page_content",
@@ -77,7 +79,8 @@ NOTION_TOOLS = [
                 }
             },
             "required": ["page_id"]
-        }
+        },
+        permission="notion:blocks:read",
     ),
     CachedTool(
         name="create_page",
@@ -99,7 +102,8 @@ NOTION_TOOLS = [
                 }
             },
             "required": ["parent_id", "title"]
-        }
+        },
+        permission="notion:pages:create",
     ),
     CachedTool(
         name="update_page",
@@ -117,7 +121,8 @@ NOTION_TOOLS = [
                 }
             },
             "required": ["page_id"]
-        }
+        },
+        permission="notion:pages:update",
     ),
     CachedTool(
         name="delete_page",
@@ -131,7 +136,8 @@ NOTION_TOOLS = [
                 }
             },
             "required": ["page_id"]
-        }
+        },
+        permission="notion:pages:delete",
     ),
     CachedTool(
         name="list_databases",
@@ -145,7 +151,8 @@ NOTION_TOOLS = [
                     "default": 10
                 }
             }
-        }
+        },
+        permission="notion:databases:list",
     ),
     CachedTool(
         name="query_database",
@@ -168,7 +175,8 @@ NOTION_TOOLS = [
                 }
             },
             "required": ["database_id"]
-        }
+        },
+        permission="notion:databases:query",
     ),
 ]
 
@@ -199,7 +207,8 @@ SLACK_TOOLS = [
                 }
             },
             "required": ["query"]
-        }
+        },
+        permission="slack:messages:search",
     ),
     CachedTool(
         name="send_message",
@@ -221,7 +230,8 @@ SLACK_TOOLS = [
                 }
             },
             "required": ["channel", "text"]
-        }
+        },
+        permission="slack:messages:send",
     ),
     CachedTool(
         name="list_channels",
@@ -240,7 +250,8 @@ SLACK_TOOLS = [
                     "default": 100
                 }
             }
-        }
+        },
+        permission="slack:channels:list",
     ),
     CachedTool(
         name="get_channel_history",
@@ -259,7 +270,8 @@ SLACK_TOOLS = [
                 }
             },
             "required": ["channel"]
-        }
+        },
+        permission="slack:channels:history",
     ),
     CachedTool(
         name="join_channel",
@@ -273,7 +285,8 @@ SLACK_TOOLS = [
                 }
             },
             "required": ["channel"]
-        }
+        },
+        permission="slack:channels:join",
     ),
     CachedTool(
         name="post_reaction",
@@ -295,7 +308,8 @@ SLACK_TOOLS = [
                 }
             },
             "required": ["channel", "timestamp", "name"]
-        }
+        },
+        permission="slack:reactions:write",
     ),
     CachedTool(
         name="list_users",
@@ -309,149 +323,574 @@ SLACK_TOOLS = [
                     "default": 100
                 }
             }
-        }
+        },
+        permission="slack:users:list",
+    ),
+    CachedTool(
+        name="search_users",
+        description="Search for users in Slack workspace by name or email",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (name or email)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum users to return",
+                    "default": 20
+                }
+            },
+            "required": ["query"]
+        },
+        permission="slack:users:search",
     ),
 ]
 
 
 # =============================================================================
-# HubSpot Tools
+# Google Drive Tools
 # =============================================================================
 
-HUBSPOT_TOOLS = [
+GDRIVE_TOOLS = [
     CachedTool(
-        name="get_contact",
-        description="Get a specific HubSpot contact by ID",
+        name="search_files",
+        description="Search for files in Google Drive",
         inputSchema={
             "type": "object",
             "properties": {
-                "contact_id": {
+                "query": {
                     "type": "string",
-                    "description": "HubSpot contact ID"
-                }
-            },
-            "required": ["contact_id"]
-        }
-    ),
-    CachedTool(
-        name="create_contact",
-        description="Create a new contact in HubSpot",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string",
-                    "description": "Contact email address"
+                    "description": "Search query string (supports Google Drive query syntax)"
                 },
-                "firstname": {
-                    "type": "string",
-                    "description": "First name"
-                },
-                "lastname": {
-                    "type": "string",
-                    "description": "Last name"
-                },
-                "company": {
-                    "type": "string",
-                    "description": "Company name"
-                }
-            },
-            "required": ["email"]
-        }
-    ),
-    CachedTool(
-        name="update_contact",
-        description="Update an existing HubSpot contact",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "contact_id": {
-                    "type": "string",
-                    "description": "HubSpot contact ID"
-                },
-                "properties": {
-                    "type": "object",
-                    "description": "Contact properties to update"
-                }
-            },
-            "required": ["contact_id"]
-        }
-    ),
-    CachedTool(
-        name="list_contacts",
-        description="List HubSpot contacts with optional filters",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "limit": {
+                "page_size": {
                     "type": "integer",
-                    "description": "Maximum contacts to return",
-                    "default": 20
+                    "description": "Maximum number of results to return",
+                    "default": 10
+                }
+            },
+            "required": ["query"]
+        },
+        permission="gdrive:files:search",
+    ),
+    CachedTool(
+        name="read_file",
+        description="Read file content by ID",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "file_id": {
+                    "type": "string",
+                    "description": "The Google Drive file ID"
+                }
+            },
+            "required": ["file_id"]
+        },
+        permission="gdrive:files:read",
+    ),
+    CachedTool(
+        name="list_files",
+        description="List files in a folder",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "folder_id": {
+                    "type": "string",
+                    "description": "Folder ID to list files from (omit for root)"
+                },
+                "page_size": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return",
+                    "default": 10
                 }
             }
-        }
+        },
+        permission="gdrive:files:list",
     ),
     CachedTool(
-        name="list_deals",
-        description="List HubSpot deals with optional filters",
+        name="get_file_metadata",
+        description="Get metadata for a file",
         inputSchema={
             "type": "object",
             "properties": {
-                "stage": {
+                "file_id": {
                     "type": "string",
-                    "description": "Filter by deal stage"
-                },
-                "limit": {
+                    "description": "The Google Drive file ID"
+                }
+            },
+            "required": ["file_id"]
+        },
+        permission="gdrive:files:metadata",
+    ),
+]
+
+
+# =============================================================================
+# Google Calendar Tools
+# =============================================================================
+
+GCALENDAR_TOOLS = [
+    CachedTool(
+        name="list_calendars",
+        description="List available calendars",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "page_size": {
                     "type": "integer",
-                    "description": "Maximum deals to return",
-                    "default": 20
+                    "description": "Maximum number of calendars to return",
+                    "default": 10
                 }
             }
-        }
+        },
+        permission="gcalendar:calendars:list",
     ),
     CachedTool(
-        name="create_deal",
-        description="Create a new deal in HubSpot",
+        name="list_events",
+        description="List events from a calendar",
         inputSchema={
             "type": "object",
             "properties": {
-                "dealname": {
+                "calendar_id": {
                     "type": "string",
-                    "description": "Deal name"
+                    "description": "Calendar ID (defaults to primary calendar)",
+                    "default": "primary"
                 },
-                "amount": {
-                    "type": "number",
-                    "description": "Deal amount"
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of events to return",
+                    "default": 10
                 },
-                "dealstage": {
+                "time_min": {
                     "type": "string",
-                    "description": "Deal stage"
+                    "description": "Lower bound for event start time (ISO 8601 format)"
                 },
-                "pipeline": {
+                "time_max": {
                     "type": "string",
-                    "description": "Pipeline ID"
+                    "description": "Upper bound for event start time (ISO 8601 format)"
                 }
-            },
-            "required": ["dealname"]
-        }
+            }
+        },
+        permission="gcalendar:events:list",
     ),
     CachedTool(
-        name="update_deal",
-        description="Update an existing HubSpot deal",
+        name="read_event",
+        description="Read a specific calendar event",
         inputSchema={
             "type": "object",
             "properties": {
-                "deal_id": {
+                "event_id": {
                     "type": "string",
-                    "description": "HubSpot deal ID"
+                    "description": "The calendar event ID"
                 },
-                "properties": {
-                    "type": "object",
-                    "description": "Deal properties to update"
+                "calendar_id": {
+                    "type": "string",
+                    "description": "Calendar ID (defaults to primary calendar)",
+                    "default": "primary"
                 }
             },
-            "required": ["deal_id"]
-        }
+            "required": ["event_id"]
+        },
+        permission="gcalendar:events:read",
+    ),
+    CachedTool(
+        name="search_events",
+        description="Search events across calendars",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Free-text search query"
+                },
+                "calendar_id": {
+                    "type": "string",
+                    "description": "Calendar ID (defaults to primary calendar)",
+                    "default": "primary"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of events to return",
+                    "default": 10
+                }
+            },
+            "required": ["query"]
+        },
+        permission="gcalendar:events:search",
+    ),
+]
+
+
+# =============================================================================
+# Gmail Tools
+# =============================================================================
+
+GMAIL_TOOLS = [
+    CachedTool(
+        name="list_messages",
+        description="List messages in mailbox",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of messages to return",
+                    "default": 10
+                },
+                "label_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by label IDs (e.g. INBOX, UNREAD)"
+                }
+            }
+        },
+        permission="gmail:messages:list",
+    ),
+    CachedTool(
+        name="read_message",
+        description="Read a specific email message",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": "The Gmail message ID"
+                },
+                "format": {
+                    "type": "string",
+                    "description": "Response format: full, metadata, minimal, or raw",
+                    "default": "full"
+                }
+            },
+            "required": ["message_id"]
+        },
+        permission="gmail:messages:read",
+    ),
+    CachedTool(
+        name="search_messages",
+        description="Search emails by query",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Gmail search query (e.g. from:alice subject:meeting)"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of messages to return",
+                    "default": 10
+                }
+            },
+            "required": ["query"]
+        },
+        permission="gmail:messages:search",
+    ),
+    CachedTool(
+        name="list_labels",
+        description="List Gmail labels",
+        inputSchema={
+            "type": "object",
+            "properties": {}
+        },
+        permission="gmail:labels:list",
+    ),
+]
+
+
+# =============================================================================
+# GitHub Tools
+# =============================================================================
+
+GITHUB_TOOLS = [
+    CachedTool(
+        name="list_repos",
+        description="List repositories for the authenticated GitHub user",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (max 100)",
+                    "default": 30
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number for pagination",
+                    "default": 1
+                },
+                "sort": {
+                    "type": "string",
+                    "description": "Sort field (created, updated, pushed, full_name)",
+                    "enum": ["created", "updated", "pushed", "full_name"]
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Filter by repo type (all, owner, public, private, member)",
+                    "enum": ["all", "owner", "public", "private", "member"]
+                }
+            }
+        },
+        permission="github:repos:list",
+    ),
+    CachedTool(
+        name="read_repo",
+        description="Get details of a GitHub repository",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (user or org)"
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name"
+                }
+            },
+            "required": ["owner", "repo"]
+        },
+        permission="github:repos:read",
+    ),
+    CachedTool(
+        name="list_issues",
+        description="List issues for a GitHub repository",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner"
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name"
+                },
+                "state": {
+                    "type": "string",
+                    "description": "Filter by state (open, closed, all)",
+                    "default": "open",
+                    "enum": ["open", "closed", "all"]
+                },
+                "labels": {
+                    "type": "string",
+                    "description": "Comma-separated list of label names"
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (max 100)",
+                    "default": 30
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number",
+                    "default": 1
+                }
+            },
+            "required": ["owner", "repo"]
+        },
+        permission="github:issues:read",
+    ),
+    CachedTool(
+        name="create_issue",
+        description="Create a new issue in a GitHub repository",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner"
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Issue title"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Issue body (markdown)"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Labels to apply"
+                },
+                "assignees": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Usernames to assign"
+                }
+            },
+            "required": ["owner", "repo", "title"]
+        },
+        permission="github:issues:create",
+    ),
+    CachedTool(
+        name="list_pulls",
+        description="List pull requests for a GitHub repository",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner"
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name"
+                },
+                "state": {
+                    "type": "string",
+                    "description": "Filter by state (open, closed, all)",
+                    "default": "open",
+                    "enum": ["open", "closed", "all"]
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (max 100)",
+                    "default": 30
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number",
+                    "default": 1
+                }
+            },
+            "required": ["owner", "repo"]
+        },
+        permission="github:pulls:read",
+    ),
+    CachedTool(
+        name="create_pull",
+        description="Create a pull request in a GitHub repository",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner"
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Pull request title"
+                },
+                "head": {
+                    "type": "string",
+                    "description": "Branch containing changes"
+                },
+                "base": {
+                    "type": "string",
+                    "description": "Branch to merge into"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Pull request body (markdown)"
+                },
+                "draft": {
+                    "type": "boolean",
+                    "description": "Create as draft PR",
+                    "default": False
+                }
+            },
+            "required": ["owner", "repo", "title", "head", "base"]
+        },
+        permission="github:pulls:create",
+    ),
+    CachedTool(
+        name="list_commits",
+        description="List commits for a GitHub repository",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner"
+                },
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name"
+                },
+                "sha": {
+                    "type": "string",
+                    "description": "Branch name or commit SHA to list from"
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (max 100)",
+                    "default": 30
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number",
+                    "default": 1
+                }
+            },
+            "required": ["owner", "repo"]
+        },
+        permission="github:commits:read",
+    ),
+    CachedTool(
+        name="read_org",
+        description="Get details of a GitHub organization",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "org": {
+                    "type": "string",
+                    "description": "Organization name"
+                }
+            },
+            "required": ["org"]
+        },
+        permission="github:orgs:read",
+    ),
+    CachedTool(
+        name="list_teams",
+        description="List teams in a GitHub organization",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "org": {
+                    "type": "string",
+                    "description": "Organization name"
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Results per page (max 100)",
+                    "default": 30
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number",
+                    "default": 1
+                }
+            },
+            "required": ["org"]
+        },
+        permission="github:teams:list",
+    ),
+    CachedTool(
+        name="read_user",
+        description="Get a GitHub user's public profile",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "username": {
+                    "type": "string",
+                    "description": "GitHub username"
+                }
+            },
+            "required": ["username"]
+        },
+        permission="github:users:read",
     ),
 ]
 
@@ -472,7 +911,10 @@ def populate_tool_cache(cache: ToolCache) -> None:
     """
     cache.set_tools("notion", NOTION_TOOLS)
     cache.set_tools("slack", SLACK_TOOLS)
-    cache.set_tools("hubspot", HUBSPOT_TOOLS)
+    cache.set_tools("github", GITHUB_TOOLS)
+    cache.set_tools("gdrive", GDRIVE_TOOLS)
+    cache.set_tools("gcalendar", GCALENDAR_TOOLS)
+    cache.set_tools("gmail", GMAIL_TOOLS)
 
 
 def get_all_tool_definitions() -> dict[str, list[CachedTool]]:
@@ -485,5 +927,8 @@ def get_all_tool_definitions() -> dict[str, list[CachedTool]]:
     return {
         "notion": NOTION_TOOLS,
         "slack": SLACK_TOOLS,
-        "hubspot": HUBSPOT_TOOLS,
+        "gdrive": GDRIVE_TOOLS,
+        "gcalendar": GCALENDAR_TOOLS,
+        "gmail": GMAIL_TOOLS,
+        "github": GITHUB_TOOLS,
     }

@@ -232,7 +232,7 @@ class TestFilterResponseDict:
                 },
             }
         }
-        result = rf.filter_response(data, backend_id="hubspot")
+        result = rf.filter_response(data, backend_id="notion")
         content = result.filtered_content
         assert "sarah@acme.com" not in str(content)
         assert "555-123-4567" not in str(content)
@@ -306,15 +306,15 @@ class TestExcludedFields:
 class TestAllowlistedFields:
     def test_allowlisted_fields_preserved(self):
         config = BackendFilterConfig(
-            backend_id="hubspot",
+            backend_id="notion",
             allowlisted_fields={"owner_email"},
         )
-        rf = ResultFilter(backend_configs={"hubspot": config})
+        rf = ResultFilter(backend_configs={"notion": config})
         data = {
             "owner_email": "sarah@acme.com",
             "contact_email": "user@example.com",
         }
-        result = rf.filter_response(data, backend_id="hubspot")
+        result = rf.filter_response(data, backend_id="notion")
         assert result.filtered_content["owner_email"] == "sarah@acme.com"
         assert "[EMAIL REDACTED]" in result.filtered_content["contact_email"]
 

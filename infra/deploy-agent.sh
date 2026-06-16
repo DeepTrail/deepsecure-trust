@@ -141,13 +141,24 @@ ENV_VARS+=";LLM_PROVIDERS=gemini,claude,codex"
 
 echo "--- Creating/updating Cloud Run Job: ${JOB_NAME} ---"
 
+LLM_PROVIDERS="${LLM_PROVIDERS:-gemini,claude,codex}"
+
+# Use ^||^ as the kv-pair delimiter so commas inside values (e.g. LLM_PROVIDERS) are preserved.
+ENV_VARS="^||^DEEPSECURE_CONTROL_URL=${CONTROL_URL}"
+ENV_VARS+="||DEEPSECURE_GATEWAY_URL=${GATEWAY_URL}"
+ENV_VARS+="||AGENT_ID=${AGENT_ID}"
+ENV_VARS+="||GEMINI_CLI_TRUST_WORKSPACE=true"
+ENV_VARS+="||GEMINI_MODEL=gemini-2.5-flash"
+ENV_VARS+="||PROMPT_TIMEOUT_SECONDS=300"
+ENV_VARS+="||LLM_PROVIDERS=${LLM_PROVIDERS}"
+
 if gcloud run jobs describe "${JOB_NAME}" --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
   echo "Job exists — updating..."
   gcloud run jobs update "${JOB_NAME}" \
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --image="${LATEST}" \
-    --set-secrets="${SECRETS}" \
+    --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,OPENAI_API_KEY=openai-api-key:latest" \
     --set-env-vars="${ENV_VARS}" \
     --service-account="${SA_EMAIL}" \
     --task-timeout=1800 \
@@ -160,7 +171,7 @@ else
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --image="${LATEST}" \
-    --set-secrets="${SECRETS}" \
+    --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,OPENAI_API_KEY=openai-api-key:latest" \
     --set-env-vars="${ENV_VARS}" \
     --service-account="${SA_EMAIL}" \
     --task-timeout=1800 \
@@ -171,6 +182,8 @@ fi
 
 echo "✅ Cloud Run Job ready: ${JOB_NAME}"
 echo ""
+
+# ── Step 3: Create or update Cloud Scheduler ────────────────────────
 
 echo "--- Creating/updating Cloud Scheduler: ${SCHEDULER_NAME} ---"
 
@@ -198,12 +211,14 @@ else
     --oauth-service-account-email="${SCHEDULER_SA}" \
     --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform" \
     --time-zone="America/Los_Angeles" \
-    --description="Triggers ${JOB_NAME} (${AGENT_ID}) on schedule"
+    --description="Triggers ${JOB_NAME} (${AGENT_ID}) on schedule '${SCHEDULE}'"
+
 fi
 
 echo "✅ Cloud Scheduler ready: ${SCHEDULER_NAME}"
 echo ""
 
+# ── Step 4: Summary ─────────────────────────────────────────────────
 echo "=== Deployment Complete ==="
 echo ""
 echo "Cloud Run Job:     ${JOB_NAME}"

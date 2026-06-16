@@ -67,7 +67,7 @@ The headline change in 2026-07-28 is that **MCP is now stateless at the protocol
 
 Despite comments in `main.py` stating "stateless — JWT is source of truth," the Gateway is **actually stateful at the protocol level**:
 
-1. **`initialize` is required.** The `handle_initialize` handler calls `session_manager.create_agent_session()` which creates an in-memory `AgentMCPSession` with backend sessions (Notion, Slack, HubSpot, etc.). Without this, `tools/list` and `tools/call` return empty results or fail.
+1. **`initialize` is required.** The `handle_initialize` handler calls `session_manager.create_agent_session()` which creates an in-memory `AgentMCPSession` with backend sessions (Notion, Slack, Gmail, etc.). Without this, `tools/list` and `tools/call` return empty results or fail.
 
 2. **In-memory session store.** `MCPSessionManager._sessions` is a Python `dict` — not distributed, not Redis-backed. The docstring explicitly states: "This is in-memory storage for MVP. Production should use Redis or distributed cache for horizontal scaling."
 
@@ -506,7 +506,7 @@ The `scopes_supported` field is intended to be the minimal set for basic functio
 Uses standard OAuth scope patterns with space-delimited strings (e.g., `files:read files:write user:profile`).
 
 **DeepSecure:**
-Uses a custom permission model with URN-like strings (`notion:pages:search`, `slack:messages:read`) stored in the JWT's `delegated_permissions` array. This is semantically richer but:
+Uses a custom permission model with URN-like strings (`notion:pages:search`, `slack:messages:search`) stored in the JWT's `delegated_permissions` array. This is semantically richer but:
 
 1. **Not interoperable** with standard OAuth scope mechanisms
 2. No step-up authorization flow (insufficient scope → re-auth with elevated scopes)
@@ -666,7 +666,7 @@ If DeepSecure implements the MCP OAuth flow, PKCE is not optional — it's MUST-
 
 ## 11. Backend OAuth Implementation (Partial Compliance)
 
-The Control Plane's OAuth implementation for connecting to **backend services** (Notion, Slack, HubSpot) is **well-implemented** relative to OAuth best practices:
+The Control Plane's OAuth implementation for connecting to **backend services** (Notion, Slack, Gmail) is **well-implemented** relative to OAuth best practices:
 
 | Feature | Status | Notes |
 |---|---|---|

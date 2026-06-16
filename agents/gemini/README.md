@@ -35,7 +35,7 @@ docker run --rm \
   -e DEEPSECURE_GATEWAY_URL=https://app.deepsecure.one/mcp \
   -e AGENT_ID=debugging-deepsecure-agent \
   -e GEMINI_API_KEY=<your-key> \
-  -e AGENT_MAX_ITERATIONS=1 \
+  -e AGENT_MAX_ROUNDS=1 \
   gemini-agent
 ```
 
@@ -47,12 +47,24 @@ docker run --rm \
 | `DEEPSECURE_GATEWAY_URL` | `https://app.deepsecure.one/mcp` | MCP gateway URL |
 | `AGENT_ID` | `debugging-deepsecure-agent` | Agent identity |
 | `GEMINI_API_KEY` | (required) | Google Gemini API key |
-| `AGENT_MAX_ITERATIONS` | `6` | Number of tool call iterations |
-| `AGENT_INTERVAL_SECONDS` | `300` | Sleep between iterations (seconds) |
+| `AGENT_MAX_ROUNDS` | `3` | Number of tool call rounds |
+| `AGENT_PROMPTS_PER_DELEGATION` | `2` | Prompts per delegation per round |
+| `AGENT_INTERVAL_SECONDS` | `60` | Sleep between rounds (seconds) |
+
+### Agent Naming Convention
+
+All agents follow the `{slug}-deepsecure-agent` pattern:
+
+| Agent | AGENT_SLUG | AGENT_ID | JOB_NAME | SA |
+|-------|------------|----------|----------|----|
+| Debugging | `debugging` | `debugging-deepsecure-agent` | `debugging-deepsecure-agent-job` | `debugging-agent-sa@...` |
+| Engineering Audit | `engineering-audit` | `engineering-audit-deepsecure-agent` | `engineering-audit-deepsecure-agent-job` | `engineering-audit-sa@...` |
+| Thunderbolt | `thunderbolt` | `thunderbolt-deepsecure-agent` | `thunderbolt-deepsecure-agent-job` | `thunderbolt-agent-sa@...` |
 
 ## Deployment (GCP)
 
-See `infra/deploy-agent.sh` for the full deployment script.
+See `infra/deploy-agent.sh` for the full deployment script. It derives all
+resource names from `AGENT_SLUG`:
 
 Naming convention (`TENANT_NAME=deepsecure` by default):
 
@@ -63,6 +75,7 @@ Naming convention (`TENANT_NAME=deepsecure` by default):
 | Thunderbolt | `thunderbolt` | `thunderbolt-deepsecure-agent` | `thunderbolt-deepsecure-agent-job` | `trigger-thunderbolt-deepsecure-agent` | `thunderbolt-sa@...` |
 
 ```bash
+
 # Deploy all 3 agents (build image once)
 AGENT_SLUG=debugging          ./infra/deploy-agent.sh
 AGENT_SLUG=engineering-audit  SKIP_BUILD=1 ./infra/deploy-agent.sh

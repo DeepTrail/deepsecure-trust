@@ -488,7 +488,7 @@ No Alembic migration required — the column already exists but is simply never 
 # GCP Secret Manager
 gemini-api-key:
   description: "Gemini API key for background agent (free tier)"
-  used_by: "Cloud Run Job: gemini-deepsecure-agent"
+  used_by: "Cloud Run Jobs: *-deepsecure-agent-job"
 ```
 
 ---
@@ -553,7 +553,7 @@ The Gemini CLI agent's JWT has a 1-hour TTL (set in `bootstrap_gcp_agent()`). Fo
 
 ### GCP Workload Identity Trust
 
-The agent container runs with the `debugging-agent-sa` service account. The trust chain:
+The agent container runs with a `{slug}-sa` service account (e.g., `debugging-sa`). The trust chain:
 1. GCP guarantees the Metadata Server only issues tokens for the attached service account
 2. DeepSecure validates the OIDC token against Google's JWKS and extracts the service account email
 3. The email matches the registered `selector` in the agent's registration
@@ -643,11 +643,11 @@ No static credentials are stored in the container image or environment variables
 ### Scenario 1: Engineer — Deploy Background Agent on GCP
 
 **Persona:** Dev, deploying an AI agent that searches Slack and Notion
-**Pre-conditions:** Agent registered in UI as `debugging-agent-sa@deepsecure-saas.iam.gserviceaccount.com`, delegation active with Slack + Notion + GDrive + GCal + Gmail permissions
+**Pre-conditions:** Agent registered in UI as `debugging-sa@deepsecure-saas.iam.gserviceaccount.com`, delegation active with Slack + Notion + GDrive + GCal + Gmail permissions
 
 | Step | Action | Expected Result | Validates |
 |------|--------|-----------------|-----------|
-| 1 | Run `gcloud run jobs execute gemini-deepsecure-agent` | Job starts, container pulls image | Cloud Run Job works |
+| 1 | Run `gcloud run jobs execute debugging-deepsecure-agent-job` | Job starts, container pulls image | Cloud Run Job works |
 | 2 | Container fetches OIDC token from Metadata Server | Token obtained (audience=app.deepsecure.one) | GCP identity flow |
 | 3 | Container calls `POST /api/v1/auth/bootstrap/gcp` | Returns `access_token` + `agent_id` | Bootstrap endpoint |
 | 4 | Container configures Gemini CLI with DeepSecure MCP | `~/.gemini/settings.json` written | MCP config |
@@ -661,7 +661,7 @@ No static credentials are stored in the container image or environment variables
 **Success criteria:**
 ```bash
 # Trigger the job manually (first time)
-gcloud run jobs execute gemini-deepsecure-agent --region=us-central1
+gcloud run jobs execute debugging-deepsecure-agent-job --region=us-central1
 
 # Verify lifecycle (within 60s of first tool call)
 curl -s https://app.deepsecure.one/api/v1/agents/{agent_id} \
@@ -732,9 +732,9 @@ curl -s https://app.deepsecure.one/api/v1/agents/{agent_id} \
 gcloud scheduler jobs create http gemini-agent-trigger \
   --location=us-central1 \
   --schedule="0 */6 * * *" \
-  --uri="https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/deepsecure-saas/jobs/gemini-deepsecure-agent:run" \
+  --uri="https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/deepsecure-saas/jobs/debugging-deepsecure-agent-job:run" \
   --http-method=POST \
-  --oauth-service-account-email=debugging-agent-sa@deepsecure-saas.iam.gserviceaccount.com
+  --oauth-service-account-email=debugging-sa@deepsecure-saas.iam.gserviceaccount.com
 ```
 
 ### Phase 4 (Future, P5): Persistent Cloud Run Service
@@ -861,7 +861,7 @@ gcloud scheduler jobs create http gemini-agent-trigger \
 
 | # | Assumption | Verified? | Finding |
 |---|-----------|-----------|---------|
-| 21 | **`debugging-agent-sa` IAM roles** | ⚠️ Unverified | Needs: `roles/run.invoker` (to be triggered by `gcloud run jobs execute`), `roles/secretmanager.secretAccessor` (for Gemini API key). Not documented whether already granted. |
+| 21 | **`{slug}-sa` IAM roles** | ⚠️ Unverified | Needs: `roles/run.invoker` (to be triggered by `gcloud run jobs execute`), `roles/secretmanager.secretAccessor` (for Gemini API key). Not documented whether already granted. |
 | 22 | **Cloud Run Job egress** | ✅ Likely OK | Cloud Run Jobs have outbound internet by default (no VPC connector needed). `app.deepsecure.one` is a public endpoint. |
 | 23 | **Metadata Server audience format** | ⚠️ Sensitive | Earlier debugging confirmed audience must be `https://app.deepsecure.one` (with protocol prefix). The entrypoint uses `${CONTROL_URL}` which defaults to `https://app.deepsecure.one`. Must ensure no trailing slash mismatch. |
 | 24 | **`gemini-api-key` secret doesn't exist** | ⚠️ Unverified | May already exist from manual creation. Terraform will error on `google_secret_manager_secret` if it does. Use `terraform import` or check with `gcloud secrets list` first. |
@@ -873,7 +873,7 @@ gcloud scheduler jobs create http gemini-agent-trigger \
 |---|-----------|-----------|---------|
 | 26 | **OAuth tokens for all 5 services are fresh** | ⚠️ Unverified | Google tokens (GDrive, GCal, Gmail) expire after 1 hour unless refresh tokens are stored and working. Slack + Notion tokens are longer-lived. Must verify vault has valid refresh tokens or re-connect services in UI before demo. |
 | 27 | **Tool names match gateway** | ⚠️ Unverified | Spec assumes `slack.list_channels`, `notion.search_pages`, etc. Must verify against actual `tools/list` response from gateway for the agent's delegation. |
-| 28 | **Delegation covers all 5 services** | ⚠️ Open question | Current delegation for `debugging-agent-sa` may only have a subset of services. Must check/update in UI before demo. |
+| 28 | **Delegation covers all 5 services** | ⚠️ Open question | Current delegation for `debugging-deepsecure-agent` may only have a subset of services. Must check/update in UI before demo. |
 | 29 | **30-second completion target** | ⚠️ Optimistic | Bootstrap ~2s + MCP init ~1s + 5 tool calls ~10s + LLM processing ~15-30s = likely 30-45s total. Cloud Run Job timeout (5 min) is safe, but "30 seconds" success criterion should be relaxed to "60 seconds". |
 | 30 | **LLM calls correct tools** | ⚠️ Non-deterministic | LLM behavior is non-deterministic. Prompt should be explicit: "Call these specific tools in order: 1) slack.list_channels 2) notion.search_pages..." rather than "use the tools" vaguely. |
 

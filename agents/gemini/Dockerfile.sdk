@@ -22,7 +22,7 @@ ENV PATH="/opt/deepsecure-venv/bin:$PATH"
 COPY pyproject.toml /tmp/sdk/pyproject.toml
 COPY deepsecure/ /tmp/sdk/deepsecure/
 COPY README.md /tmp/sdk/README.md
-RUN pip install --no-cache-dir /tmp/sdk && rm -rf /tmp/sdk
+RUN pip install --no-cache-dir /tmp/sdk httpx && rm -rf /tmp/sdk
 RUN /opt/deepsecure-venv/bin/python3 -c "from deepsecure._core.bootstrap import BootstrapClient, Platform; print('SDK import OK')"
 RUN gemini --version && claude --version && codex --version
 

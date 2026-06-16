@@ -265,27 +265,6 @@ async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
                     "available_tools": slack_tools,
                 })
         
-        # Check for hubspot permissions
-        hubspot_perms = [p for p in delegated_permissions if p.startswith("hubspot:")]
-        if hubspot_perms:
-            # Use Permission Mapper to get correct tool names
-            hubspot_tools = []
-            for perm in hubspot_perms:
-                tools = PermissionMapper.get_all_tools_for_permission(perm)
-                for tool in tools:
-                    if "." in tool:
-                        _, tool_name = tool.split(".", 1)
-                        hubspot_tools.append(tool_name)
-            
-            hubspot_tools = list(dict.fromkeys(hubspot_tools))
-            
-            if hubspot_tools:
-                connected_services.append({
-                    "service_id": "hubspot",
-                    "oauth_token_ref": f"vault://hubspot-oauth-{agent_session_id}",
-                    "available_tools": hubspot_tools,
-                })
-
         # Check for gdrive permissions (WS-D5)
         gdrive_perms = [p for p in delegated_permissions if p.startswith("gdrive:")]
         if gdrive_perms:
@@ -344,6 +323,26 @@ async def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
                     "service_id": "gmail",
                     "oauth_token_ref": f"vault://gmail-oauth-{agent_session_id}",
                     "available_tools": gmail_tools,
+                })
+
+        # Check for github permissions
+        github_perms = [p for p in delegated_permissions if p.startswith("github:")]
+        if github_perms:
+            github_tools = []
+            for perm in github_perms:
+                tools = PermissionMapper.get_all_tools_for_permission(perm)
+                for tool in tools:
+                    if "." in tool:
+                        _, tool_name = tool.split(".", 1)
+                        github_tools.append(tool_name)
+
+            github_tools = list(dict.fromkeys(github_tools))
+
+            if github_tools:
+                connected_services.append({
+                    "service_id": "github",
+                    "oauth_token_ref": f"vault://github-oauth-{agent_session_id}",
+                    "available_tools": github_tools,
                 })
 
         # Create the agent session

@@ -115,11 +115,6 @@ class TestStripNamespace:
         result = adapter._strip_namespace("slack.post_message")
         assert result == "post_message"
 
-    def test_strip_hubspot_namespace(self, adapter: BackendClientAdapter):
-        """Should strip hubspot. prefix."""
-        result = adapter._strip_namespace("hubspot.create_contact")
-        assert result == "create_contact"
-
     def test_no_namespace(self, adapter: BackendClientAdapter):
         """Should return unchanged if no namespace."""
         result = adapter._strip_namespace("search_pages")
@@ -210,8 +205,8 @@ class TestClientRegistration:
         """Should register multiple clients."""
         adapter.register_client("notion", mock_client)
         adapter.register_client("slack", mock_client)
-        adapter.register_client("hubspot", mock_client)
-        assert adapter.registered_backends == ["notion", "slack", "hubspot"]
+        adapter.register_client("gdrive", mock_client)
+        assert adapter.registered_backends == ["notion", "slack", "gdrive"]
 
     def test_register_empty_backend_id(
         self, adapter: BackendClientAdapter, mock_client: MagicMock
@@ -349,17 +344,15 @@ class TestCreateBackendAdapter:
 
         assert "notion" in adapter.registered_backends
         assert "slack" in adapter.registered_backends
-        assert "hubspot" in adapter.registered_backends
         assert "gdrive" in adapter.registered_backends
         assert "gcalendar" in adapter.registered_backends
         assert "gmail" in adapter.registered_backends
-        assert len(adapter.registered_backends) == 6
+        assert len(adapter.registered_backends) == 5
 
     def test_clients_are_correct_types(self):
         """Should register correct client types."""
         from app.backends.notion_client import NotionDirectClient
         from app.backends.slack_client import SlackDirectClient
-        from app.backends.hubspot_client import HubSpotDirectClient
         from app.backends.gdrive_client import GDriveDirectClient
         from app.backends.gcalendar_client import GCalendarDirectClient
         from app.backends.gmail_client import GmailDirectClient
@@ -368,7 +361,6 @@ class TestCreateBackendAdapter:
 
         assert isinstance(adapter._clients["notion"], NotionDirectClient)
         assert isinstance(adapter._clients["slack"], SlackDirectClient)
-        assert isinstance(adapter._clients["hubspot"], HubSpotDirectClient)
         assert isinstance(adapter._clients["gdrive"], GDriveDirectClient)
         assert isinstance(adapter._clients["gcalendar"], GCalendarDirectClient)
         assert isinstance(adapter._clients["gmail"], GmailDirectClient)

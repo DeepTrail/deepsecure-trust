@@ -53,7 +53,7 @@ def config() -> TokenExchangeConfig:
         realm="deepsecure",
         client_id="gateway",
         client_secret="secret",
-        audience_map={"hubspot": "hubspot-api", "notion": "notion-api"},
+        audience_map={"notion": "notion-api", "slack": "slack-api"},
     )
 
 
@@ -92,8 +92,8 @@ class TestBuildExchangeParams:
     def test_correct_rfc8693_params(self, client: TokenExchangeClient):
         params = client._build_exchange_params(
             subject_token="jwt-token",
-            backend_id="hubspot",
-            scopes=["contacts:read"],
+            backend_id="notion",
+            scopes=["pages:read"],
         )
         assert params["grant_type"] == TokenExchangeGrantType.TOKEN_EXCHANGE.value
         assert params["client_id"] == "gateway"
@@ -101,8 +101,8 @@ class TestBuildExchangeParams:
         assert params["subject_token"] == "jwt-token"
         assert params["subject_token_type"] == "urn:ietf:params:oauth:token-type:access_token"
         assert params["requested_token_type"] == "urn:ietf:params:oauth:token-type:access_token"
-        assert params["audience"] == "hubspot-api"
-        assert params["scope"] == "contacts:read"
+        assert params["audience"] == "notion-api"
+        assert params["scope"] == "pages:read"
 
     def test_audience_map_fallback(self, client: TokenExchangeClient):
         params = client._build_exchange_params(
@@ -114,17 +114,17 @@ class TestBuildExchangeParams:
     def test_no_scope_param_when_none(self, client: TokenExchangeClient):
         params = client._build_exchange_params(
             subject_token="jwt-token",
-            backend_id="hubspot",
+            backend_id="notion",
         )
         assert "scope" not in params
 
     def test_multiple_scopes_space_separated(self, client: TokenExchangeClient):
         params = client._build_exchange_params(
             subject_token="jwt",
-            backend_id="hubspot",
-            scopes=["contacts:read", "deals:write"],
+            backend_id="notion",
+            scopes=["pages:read", "blocks:write"],
         )
-        assert params["scope"] == "contacts:read deals:write"
+        assert params["scope"] == "pages:read blocks:write"
 
 
 # =============================================================================
@@ -148,7 +148,7 @@ class TestExchangeToken:
         mock_http.post = AsyncMock(return_value=mock_response)
         client._http_client = mock_http
 
-        token = await client.exchange_token("agent-jwt", "hubspot")
+        token = await client.exchange_token("agent-jwt", "notion")
         assert token.access_token == "backend-token-abc"
         assert token.token_type == "Bearer"
         assert token.expires_in == 300
@@ -169,7 +169,7 @@ class TestExchangeToken:
         client._http_client = mock_http
 
         with pytest.raises(TokenExchangeDeniedError) as exc_info:
-            await client.exchange_token("bad-jwt", "hubspot")
+            await client.exchange_token("bad-jwt", "notion")
         assert exc_info.value.error_code == "invalid_grant"
 
     @pytest.mark.asyncio
@@ -187,7 +187,7 @@ class TestExchangeToken:
         client._http_client = mock_http
 
         with pytest.raises(TokenExchangeDeniedError) as exc_info:
-            await client.exchange_token("jwt", "hubspot")
+            await client.exchange_token("jwt", "notion")
         assert exc_info.value.error_code == "unauthorized_client"
 
     @pytest.mark.asyncio
@@ -197,7 +197,7 @@ class TestExchangeToken:
         client._http_client = mock_http
 
         with pytest.raises(TokenExchangeUnavailableError):
-            await client.exchange_token("jwt", "hubspot")
+            await client.exchange_token("jwt", "notion")
 
     @pytest.mark.asyncio
     async def test_unavailable_timeout(self, client: TokenExchangeClient):
@@ -206,7 +206,7 @@ class TestExchangeToken:
         client._http_client = mock_http
 
         with pytest.raises(TokenExchangeUnavailableError):
-            await client.exchange_token("jwt", "hubspot")
+            await client.exchange_token("jwt", "notion")
 
     @pytest.mark.asyncio
     async def test_unknown_error_code(self, client: TokenExchangeClient):
@@ -223,7 +223,7 @@ class TestExchangeToken:
         client._http_client = mock_http
 
         with pytest.raises(TokenExchangeError) as exc_info:
-            await client.exchange_token("jwt", "hubspot")
+            await client.exchange_token("jwt", "notion")
         assert exc_info.value.error_code == "server_error"
 
 
@@ -234,22 +234,22 @@ class TestExchangeToken:
 
 class TestCaching:
     def test_cache_key_deterministic(self, client: TokenExchangeClient):
-        key1 = client._cache_key("token-a", "hubspot")
-        key2 = client._cache_key("token-a", "hubspot")
+        key1 = client._cache_key("token-a", "notion")
+        key2 = client._cache_key("token-a", "notion")
         assert key1 == key2
 
     def test_cache_key_varies_by_backend(self, client: TokenExchangeClient):
-        key1 = client._cache_key("token-a", "hubspot")
-        key2 = client._cache_key("token-a", "notion")
+        key1 = client._cache_key("token-a", "notion")
+        key2 = client._cache_key("token-a", "slack")
         assert key1 != key2
 
     def test_cache_key_varies_by_token(self, client: TokenExchangeClient):
-        key1 = client._cache_key("token-a", "hubspot")
-        key2 = client._cache_key("token-b", "hubspot")
+        key1 = client._cache_key("token-a", "notion")
+        key2 = client._cache_key("token-b", "notion")
         assert key1 != key2
 
     def test_cache_key_uses_hash_not_token(self, client: TokenExchangeClient):
-        key = client._cache_key("my-secret-jwt", "hubspot")
+        key = client._cache_key("my-secret-jwt", "notion")
         assert "my-secret-jwt" not in key
 
     @pytest.mark.asyncio
@@ -259,10 +259,10 @@ class TestCaching:
             expires_in=200,
             issued_at=datetime.now(timezone.utc),
         )
-        cache_key = client._cache_key("agent-jwt", "hubspot")
+        cache_key = client._cache_key("agent-jwt", "notion")
         client._cache[cache_key] = cached_token
 
-        token = await client.get_backend_token("agent-jwt", "hubspot")
+        token = await client.get_backend_token("agent-jwt", "notion")
         assert token.access_token == "cached-abc"
 
     @pytest.mark.asyncio
@@ -278,7 +278,7 @@ class TestCaching:
         mock_http.post = AsyncMock(return_value=mock_response)
         client._http_client = mock_http
 
-        token = await client.get_backend_token("agent-jwt", "hubspot")
+        token = await client.get_backend_token("agent-jwt", "notion")
         assert token.access_token == "fresh-token"
         mock_http.post.assert_called_once()
 
@@ -289,7 +289,7 @@ class TestCaching:
             expires_in=1,
             issued_at=datetime.now(timezone.utc) - timedelta(seconds=60),
         )
-        cache_key = client._cache_key("agent-jwt", "hubspot")
+        cache_key = client._cache_key("agent-jwt", "notion")
         client._cache[cache_key] = expired_token
 
         mock_response = MagicMock()
@@ -303,7 +303,7 @@ class TestCaching:
         mock_http.post = AsyncMock(return_value=mock_response)
         client._http_client = mock_http
 
-        token = await client.get_backend_token("agent-jwt", "hubspot")
+        token = await client.get_backend_token("agent-jwt", "notion")
         assert token.access_token == "new-token"
         mock_http.post.assert_called_once()
 
@@ -314,7 +314,7 @@ class TestCaching:
             expires_in=200,
             issued_at=datetime.now(timezone.utc),
         )
-        cache_key = client._cache_key("agent-jwt", "hubspot")
+        cache_key = client._cache_key("agent-jwt", "notion")
         client._cache[cache_key] = cached_token
 
         mock_response = MagicMock()
@@ -329,7 +329,7 @@ class TestCaching:
         client._http_client = mock_http
 
         token = await client.get_backend_token(
-            "agent-jwt", "hubspot", force_refresh=True
+            "agent-jwt", "notion", force_refresh=True
         )
         assert token.access_token == "forced-fresh"
         mock_http.post.assert_called_once()
@@ -392,7 +392,7 @@ class TestDisabledClient:
     async def test_disabled_raises_error(self):
         c = TokenExchangeClient(config=TokenExchangeConfig(enabled=False))
         with pytest.raises(TokenExchangeError) as exc_info:
-            await c.get_backend_token("jwt", "hubspot")
+            await c.get_backend_token("jwt", "notion")
         assert exc_info.value.error_code == "disabled"
 
 
@@ -429,7 +429,7 @@ class TestModuleAccessors:
 
 class TestSecurity:
     def test_cache_key_hides_token(self, client: TokenExchangeClient):
-        key = client._cache_key("super-secret-agent-jwt-abc123", "hubspot")
+        key = client._cache_key("super-secret-agent-jwt-abc123", "notion")
         assert "super-secret" not in key
         assert "abc123" not in key
         assert ":" in key  # format: hash:backend
@@ -438,7 +438,7 @@ class TestSecurity:
         err = TokenExchangeDeniedError(
             "denied",
             error_code="invalid_grant",
-            details={"backend_id": "hubspot"},
+            details={"backend_id": "notion"},
         )
         assert "secret" not in str(err)
 

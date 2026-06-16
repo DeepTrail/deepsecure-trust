@@ -221,7 +221,37 @@ class CredentialInjector:
                     backend_id,
                 )
 
-        # Step 1: Validate credential reference exists (fail-closed)
+        # Step 1: Resolve credential
+        # If credential_ref is missing but we have an agent JWT, fetch
+        # directly from the vault using backend_id.  This covers the
+        # "stateless session" path where no initialize was called.
+        if not credential_ref and agent_jwt_token and self.control_plane_url:
+            logger.debug(
+                "No credential_ref — attempting direct vault lookup for backend %s",
+                backend_id,
+            )
+            token_data = await self._fetch_from_vault(
+                credential_ref="", backend_id=backend_id, agent_jwt_token=agent_jwt_token,
+            )
+            if token_data is None:
+                return InjectionResult.fail(
+                    InjectionError.NO_CREDENTIAL_REF,
+                    "No credential configured for this backend"
+                )
+            # Jump straight to expiry / header formatting (skip cache)
+            if self._is_token_expired(token_data):
+                refreshed = await self._refresh_token(
+                    "", token_data, backend_id, user_id
+                )
+                if refreshed is None:
+                    return InjectionResult.fail(
+                        InjectionError.REFRESH_FAILED,
+                        "Session expired. User needs to re-authorize."
+                    )
+                token_data = refreshed
+            headers = self._format_auth_headers(token_data, backend_id)
+            return InjectionResult.ok(headers)
+
         if not credential_ref:
             logger.warning(
                 "Credential injection failed: no credential_ref for backend %s",
@@ -549,7 +579,7 @@ class CredentialInjector:
         
         # Backend-specific header formatting
         # Most OAuth APIs use Bearer token
-        if backend_id in ("notion", "slack", "hubspot", "google"):
+        if backend_id in ("notion", "slack", "google"):
             return {
                 "Authorization": f"{token_type} {access_token}"
             }

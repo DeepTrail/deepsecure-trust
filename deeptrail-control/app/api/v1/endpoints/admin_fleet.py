@@ -51,6 +51,8 @@ from app.models.task_token import Task, TaskStatus
 from app.models.idp_session import IdPSession
 from app.models.org_directory import OrgDirectory
 from app.services.lifecycle_service import LifecycleService
+from app.services.scope_mapper import ScopeMapper
+from app.models.service_registry import ServiceRegistry
 
 
 def _ensure_tz(dt: Optional[datetime]) -> Optional[datetime]:
@@ -62,6 +64,39 @@ def _ensure_tz(dt: Optional[datetime]) -> Optional[datetime]:
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _validate_permission_strings(
+    permissions: list[str],
+    db: Session,
+) -> list[str]:
+    """Validate that each permission string is a known permission.
+
+    Returns list of invalid permission strings.  A permission is valid if it
+    appears in ScopeMapper (any service, any scope) OR in the ``permission_map``
+    of an active MCP service in the service_registry.
+    """
+    if not permissions:
+        return []
+
+    known: set[str] = set()
+    for service_id in ScopeMapper.get_supported_services():
+        known.update(ScopeMapper.get_all_permissions_for_service(service_id))
+
+    mcp_services = (
+        db.query(ServiceRegistry)
+        .filter(
+            ServiceRegistry.backend_type == "mcp",
+            ServiceRegistry.status == "active",
+        )
+        .all()
+    )
+    for svc in mcp_services:
+        if svc.permission_map:
+            pmap = svc.permission_map if isinstance(svc.permission_map, dict) else {}
+            known.update(pmap.values())
+
+    return [p for p in permissions if p not in known]
 
 
 # --- Request / Response Models ---
@@ -1033,6 +1068,14 @@ def create_template(
     db: Session = Depends(get_db),
     admin_claims: dict = Depends(require_admin),
 ):
+    if body.max_permissions:
+        invalid = _validate_permission_strings(body.max_permissions, db)
+        if invalid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown permission strings: {invalid}",
+            )
+
     wh_start = time.fromisoformat(body.working_hours_start) if body.working_hours_start else None
     wh_end = time.fromisoformat(body.working_hours_end) if body.working_hours_end else None
 
@@ -1068,6 +1111,13 @@ def update_template(
         raise HTTPException(status_code=404, detail="Template not found")
 
     updates = body.model_dump(exclude_none=True)
+    if "max_permissions" in updates and updates["max_permissions"]:
+        invalid = _validate_permission_strings(updates["max_permissions"], db)
+        if invalid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown permission strings: {invalid}",
+            )
     if "provision_mode" in updates:
         mode = updates["provision_mode"]
         if mode not in ("off", "on_login", "on_invite"):

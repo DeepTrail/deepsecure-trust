@@ -79,9 +79,9 @@ Used when the agent runs on **Cloud Run**, **GKE**, or **Compute Engine** with a
 
 | Component | Value | Set By |
 |-----------|-------|--------|
-| Cloud Run Job | `gemini-deepsecure-agent` | Platform engineer |
-| Service Account | `debugging-agent-sa@project.iam.gserviceaccount.com` | Platform engineer |
-| Agent registered in DeepSecure | `debugging-agent-sa` with `platform=gcp_workload_identity` | Admin via UI/API |
+| Cloud Run Job | `debugging-deepsecure-agent-job` | Platform engineer |
+| Service Account | `debugging-sa@project.iam.gserviceaccount.com` | Platform engineer |
+| Agent registered in DeepSecure | `debugging-deepsecure-agent` with `platform=gcp_workload_identity` | Admin via UI/API |
 | Attestation policy | Maps SA email → agent identity | Admin via UI/API |
 | Delegations | At least one active delegation with permissions | Admin via UI |
 
@@ -90,7 +90,7 @@ Used when the agent runs on **Cloud Run**, **GKE**, or **Compute Engine** with a
 ```yaml
 DEEPSECURE_CONTROL_URL: https://app.deepsecure.one
 DEEPSECURE_GATEWAY_URL: https://app.deepsecure.one/mcp
-AGENT_ID:               debugging-agent-sa
+AGENT_ID:               debugging-deepsecure-agent
 AGENT_MAX_ROUNDS:       3
 AGENT_INTERVAL_SECONDS: 60
 GEMINI_API_KEY:         (from Secret Manager)
@@ -113,7 +113,7 @@ client = BootstrapClient(
     control_url="https://app.deepsecure.one",
     gateway_url="https://app.deepsecure.one/mcp"
 )
-result = client.bootstrap("debugging-agent-sa", Platform.GCP)
+result = client.bootstrap("debugging-deepsecure-agent", Platform.GCP)
 ```
 
 #### Step 2: Fetch GCP OIDC identity token from metadata server
@@ -132,7 +132,7 @@ Returns a **Google-signed OIDC JWT** containing:
 {
   "iss": "https://accounts.google.com",
   "sub": "112345678901234567890",
-  "email": "debugging-agent-sa@deepsecure-saas.iam.gserviceaccount.com",
+  "email": "debugging-sa@deepsecure-saas.iam.gserviceaccount.com",
   "aud": "https://app.deepsecure.one",
   "exp": 1749427200,
   "iat": 1749423600
@@ -168,7 +168,7 @@ Response:
 ```json
 {
   "access_token": "<deepsecure-agent-jwt>",
-  "agent_id": "debugging-agent-sa",
+  "agent_id": "debugging-deepsecure-agent",
   "expires_in": 3600,
   "token_type": "bearer"
 }

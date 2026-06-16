@@ -43,12 +43,6 @@ class TestGetPermissionsForScope:
         perms = ScopeMapper.get_permissions_for_scope("slack", "chat:write")
         assert perms == ["slack:messages:send"]
     
-    def test_hubspot_contacts_read(self):
-        """HubSpot contacts read scope grants read and list permissions."""
-        perms = ScopeMapper.get_permissions_for_scope("hubspot", "crm.objects.contacts.read")
-        assert "hubspot:contacts:read" in perms
-        assert "hubspot:contacts:list" in perms
-    
     def test_unknown_scope_returns_empty(self):
         """Unknown scope returns empty list."""
         perms = ScopeMapper.get_permissions_for_scope("notion", "unknown_scope")
@@ -270,12 +264,11 @@ class TestGetSupportedServices:
         services = ScopeMapper.get_supported_services()
         assert "notion" in services
         assert "slack" in services
-        assert "hubspot" in services
     
-    def test_exactly_seven_services(self):
-        """Supports notion, slack, hubspot, gdrive, gcalendar, gmail, github."""
+    def test_exactly_six_services(self):
+        """Supports notion, slack, gdrive, gcalendar, gmail, github."""
         services = ScopeMapper.get_supported_services()
-        assert len(services) == 7
+        assert len(services) == 6
         assert "github" in services
 
 
@@ -295,12 +288,6 @@ class TestGetSupportedScopes:
         assert "channels:read" in scopes
         assert "chat:write" in scopes
         assert "search:read" in scopes
-    
-    def test_hubspot_scopes(self):
-        """HubSpot has expected scopes."""
-        scopes = ScopeMapper.get_supported_scopes("hubspot")
-        assert "crm.objects.contacts.read" in scopes
-        assert "crm.objects.contacts.write" in scopes
     
     def test_unknown_service_returns_empty(self):
         """Unknown service returns empty list."""
@@ -336,17 +323,6 @@ class TestGetAllPermissionsForService:
         assert "slack:messages:send" in perms
         assert "slack:users:list" in perms
         assert "slack:reactions:write" in perms
-    
-    def test_hubspot_all_permissions(self):
-        """HubSpot has all expected permissions."""
-        perms = ScopeMapper.get_all_permissions_for_service("hubspot")
-        assert "hubspot:contacts:read" in perms
-        assert "hubspot:contacts:list" in perms
-        assert "hubspot:contacts:create" in perms
-        assert "hubspot:contacts:update" in perms
-        assert "hubspot:deals:list" in perms
-        assert "hubspot:deals:create" in perms
-        assert "hubspot:deals:update" in perms
     
     def test_unknown_service_returns_empty(self):
         """Unknown service returns empty set."""
@@ -533,20 +509,6 @@ class TestPermissionConsistency:
         actual = ScopeMapper.get_all_permissions_for_service("slack")
         assert expected == actual
     
-    def test_hubspot_permissions_match_gateway(self):
-        """HubSpot permissions match Gateway's PermissionMapper."""
-        expected = {
-            "hubspot:contacts:read",
-            "hubspot:contacts:create",
-            "hubspot:contacts:update",
-            "hubspot:contacts:list",
-            "hubspot:deals:list",
-            "hubspot:deals:create",
-            "hubspot:deals:update",
-        }
-        actual = ScopeMapper.get_all_permissions_for_service("hubspot")
-        assert expected == actual
-
     def test_all_gateway_permissions_present_in_scope_mapper(self):
         """Every permission in Gateway's PermissionMapper exists in ScopeMapper (L1 golden-set)."""
         import importlib

@@ -162,20 +162,20 @@ def get_mock_events() -> list[AuditEvent]:
             timestamp=now - timedelta(minutes=45),
             agent_id=CONFIG.AGENT_ID,
             on_behalf_of=CONFIG.USER_EMAIL,
-            tool="hubspot.search_contacts",
+            tool="gmail.search_messages",
             status="success",
             duration_ms=178,
-            backend="hubspot",
+            backend="gmail",
             request_id="req-006",
         ),
         AuditEvent(
             timestamp=now - timedelta(minutes=30),
             agent_id=CONFIG.AGENT_ID,
             on_behalf_of=CONFIG.USER_EMAIL,
-            tool="hubspot.update_contact",
+            tool="gmail.list_messages",
             status="success",
             duration_ms=156,
-            backend="hubspot",
+            backend="gmail",
             request_id="req-007",
         ),
         AuditEvent(
@@ -367,7 +367,7 @@ def print_comparison() -> None:
    │                                                                 │
    │  1. Check Notion audit logs              → 30 min               │
    │  2. Check Slack audit logs               → 30 min               │
-   │  3. Check HubSpot audit logs             → 30 min               │
+   │  3. Check Google Drive audit logs          → 30 min               │
    │  4. Cross-reference agent identity       → 60 min               │
    │  5. Correlate timestamps                 → 60 min               │
    │  6. Compile report                       → 60 min               │

@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### **Virtual MCP Server MVP (Gateway-side)**
 - **MCP JSON-RPC entrypoint** at `POST /mcp` on the Gateway, implementing the required `initialize` → `tools/list` → `tools/call` sequence.
 - **JWT validation middleware** on `/mcp`, `/proxy`, and `/api/v1/tools` with layered token support.
-- **Connector backends** for 3rd-party tool invocation (Notion, Slack, HubSpot) with OAuth credential injection.
+- **Connector backends** for 3rd-party tool invocation (Notion, Slack, Gmail) with OAuth credential injection.
 - **Agent JWT challenge-response flow** (`POST /api/v1/auth/agent/challenge` + `/verify`) for agent-to-Control authentication using Ed25519 signatures.
 
 #### **Production Hardening (P2)**
@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Redis pub/sub cache invalidation** on the Control Plane (new `REDIS_URL` env var on `deeptrail-control`) — propagates policy and permission changes across replicas in real time.
 
 #### **OAuth 3rd-Party Connector Configuration**
-- New env vars on `deeptrail-control`: `OAUTH_REDIRECT_BASE_URL`, `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET`, `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`, `HUBSPOT_CLIENT_ID` / `HUBSPOT_CLIENT_SECRET`.
+- New env vars on `deeptrail-control`: `OAUTH_REDIRECT_BASE_URL`, `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET`, `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`, `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`.
 - `POST /api/v1/oauth/{provider}/authorize` endpoints for initiating connector authorization flows.
 
 #### **Documentation & Developer Experience**

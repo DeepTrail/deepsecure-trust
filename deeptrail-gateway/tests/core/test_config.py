@@ -14,7 +14,6 @@ from app.core.config import (
     GCalendarConfig,
     GDriveConfig,
     GmailConfig,
-    HubSpotConfig,
     NotionConfig,
     SlackConfig,
     create_backend_config_from_settings,
@@ -64,15 +63,6 @@ class TestDefaultValues:
         assert config.timeout_seconds == 30.0
         assert config.retry_attempts == 3
 
-    def test_hubspot_defaults(self):
-        """Test HubSpotConfig has correct defaults."""
-        config = HubSpotConfig()
-        assert config.base_url == "https://api.hubapi.com"
-        assert config.api_version is None
-        assert config.version_header is None
-        assert config.timeout_seconds == 30.0
-        assert config.retry_attempts == 3
-
     def test_gateway_settings_defaults(self):
         """Test GatewaySettings has correct defaults."""
         settings = GatewaySettings()
@@ -86,7 +76,6 @@ class TestDefaultValues:
         settings = GatewaySettings()
         assert isinstance(settings.notion, NotionConfig)
         assert isinstance(settings.slack, SlackConfig)
-        assert isinstance(settings.hubspot, HubSpotConfig)
         assert isinstance(settings.gdrive, GDriveConfig)
         assert isinstance(settings.gcalendar, GCalendarConfig)
         assert isinstance(settings.gmail, GmailConfig)
@@ -157,12 +146,6 @@ class TestEnvironmentOverrides:
         with patch.dict(os.environ, {"SLACK_BASE_URL": "https://custom.slack.api"}):
             config = SlackConfig()
             assert config.base_url == "https://custom.slack.api"
-
-    def test_hubspot_base_url_override(self):
-        """Test HUBSPOT_BASE_URL environment variable."""
-        with patch.dict(os.environ, {"HUBSPOT_BASE_URL": "https://custom.hubspot.api"}):
-            config = HubSpotConfig()
-            assert config.base_url == "https://custom.hubspot.api"
 
     def test_gateway_control_plane_url_override(self):
         """Test GATEWAY_CONTROL_PLANE_URL environment variable."""
@@ -264,13 +247,6 @@ class TestBackendConfigMapping:
         assert backend_config.base_url == "https://api.notion.com/v1"
         # Version header mapping is handled separately in extra_headers
 
-    def test_create_backend_config_custom_timeout(self):
-        """Test custom timeout is mapped correctly."""
-        with patch.dict(os.environ, {"HUBSPOT_TIMEOUT_SECONDS": "45.0"}):
-            config = HubSpotConfig()
-            backend_config = create_backend_config_from_settings("hubspot", config)
-            assert backend_config.timeout_seconds == 45.0
-
     def test_get_backend_extra_headers_notion(self):
         """Test extra headers extraction for Notion."""
         config = NotionConfig()
@@ -343,8 +319,6 @@ class TestIntegration:
         # Slack
         assert settings.slack.base_url == "https://slack.com/api"
 
-        # HubSpot
-        assert settings.hubspot.base_url == "https://api.hubapi.com"
 
     def test_create_backend_configs_from_settings(self):
         """Test creating all backend configs from settings."""
@@ -352,11 +326,9 @@ class TestIntegration:
 
         notion_config = create_backend_config_from_settings("notion", settings.notion)
         slack_config = create_backend_config_from_settings("slack", settings.slack)
-        hubspot_config = create_backend_config_from_settings("hubspot", settings.hubspot)
 
         assert notion_config.backend_id == "notion"
         assert slack_config.backend_id == "slack"
-        assert hubspot_config.backend_id == "hubspot"
 
     def test_settings_with_multiple_env_overrides(self):
         """Test settings with multiple environment variable overrides."""
@@ -364,14 +336,12 @@ class TestIntegration:
             "GATEWAY_CONTROL_PLANE_URL": "http://custom-control:9000",
             "NOTION_BASE_URL": "https://custom.notion.com/v1",
             "SLACK_BASE_URL": "https://custom.slack.com/api",
-            "HUBSPOT_TIMEOUT_SECONDS": "60.0",
         }
         with patch.dict(os.environ, env_vars):
             settings = GatewaySettings()
             assert settings.control_plane_url == "http://custom-control:9000"
             assert settings.notion.base_url == "https://custom.notion.com/v1"
             assert settings.slack.base_url == "https://custom.slack.com/api"
-            assert settings.hubspot.timeout_seconds == 60.0
 
 
 # =============================================================================
@@ -391,7 +361,6 @@ class TestConnectionManagerIntegration:
         # Verify all backends are registered
         assert manager.is_backend_registered("notion")
         assert manager.is_backend_registered("slack")
-        assert manager.is_backend_registered("hubspot")
 
     def test_create_connection_manager_with_custom_urls(self):
         """Test connection manager uses custom URLs from env vars."""
@@ -416,5 +385,5 @@ class TestConnectionManagerIntegration:
 
         manager = create_connection_manager()
         backend_ids = manager.get_backend_ids()
-        assert len(backend_ids) == 6
-        assert set(backend_ids) == {"notion", "slack", "hubspot", "gdrive", "gcalendar", "gmail"}
+        assert len(backend_ids) == 5
+        assert set(backend_ids) == {"notion", "slack", "gdrive", "gcalendar", "gmail"}

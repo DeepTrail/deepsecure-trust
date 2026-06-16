@@ -235,7 +235,7 @@ Responsibilities:
 | `POST` | `/api/v1/auth/delegate` | Issue a delegation to an agent |
 | `POST` | `/api/v1/agents/` | Register an agent (with public key) |
 | `GET`  | `/api/v1/policies` | List policies |
-| `POST` | `/api/v1/oauth/{provider}/authorize` | Connect a 3rd-party service (Notion, Slack, HubSpot) |
+| `POST` | `/api/v1/oauth/{provider}/authorize` | Connect a 3rd-party service (Notion, Slack, Gmail) |
 | `GET`  | `/api/v1/vault/tokens/*` | Vault token retrieval (requires Agent JWT) |
 
 Full OpenAPI spec: <http://localhost:8000/docs> when the service is running.
@@ -318,7 +318,7 @@ Defined in `docker-compose.yml`:
 | `OAUTH_REDIRECT_BASE_URL` | `http://localhost:8000` | Base URL for 3rd-party OAuth callbacks |
 | `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` | test values | Notion OAuth connector |
 | `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET` | test values | Slack OAuth connector |
-| `HUBSPOT_CLIENT_ID` / `HUBSPOT_CLIENT_SECRET` | test values | HubSpot OAuth connector |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | test values | GitHub OAuth connector |
 
 **Gateway (`deeptrail-gateway`):**
 

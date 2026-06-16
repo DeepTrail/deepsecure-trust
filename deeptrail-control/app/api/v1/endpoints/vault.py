@@ -89,7 +89,7 @@ async def get_token_for_service(
     This endpoint enables credential injection by the Gateway.
 
     Args:
-        service_id: Service identifier (e.g., "notion", "slack", "hubspot")
+        service_id: Service identifier (e.g., "notion", "slack")
         agent_claims: Validated agent JWT claims from dependency
         vault_client: VaultClient instance for token storage
 
@@ -225,7 +225,6 @@ async def get_token_for_service(
 SERVICE_TO_PROVIDER = {
     "notion": OAuthProvider.NOTION,
     "slack": OAuthProvider.SLACK,
-    "hubspot": OAuthProvider.HUBSPOT,
     "gdrive": OAuthProvider.GOOGLE,
     "gcalendar": OAuthProvider.GOOGLE,
     "gmail": OAuthProvider.GOOGLE,
@@ -283,7 +282,7 @@ async def refresh_token(
     requiring agent re-authentication.
 
     Args:
-        service_id: Service identifier (e.g., "notion", "slack", "hubspot")
+        service_id: Service identifier (e.g., "notion", "slack")
         request: Refresh request with optional force flag
         x_user_id: User ID from X-User-ID header
         internal_token: Validated internal API token
@@ -627,6 +626,94 @@ async def scheduled_refresh(
         request.user_id,
     )
     return ScheduledRefreshResponse(refreshed=True, message="Token refreshed")
+
+
+@router.post(
+    "/internal/tokens/refresh-sweep",
+    responses={
+        401: {"description": "Invalid internal or cron token"},
+    },
+    summary="Sweep and refresh all expiring OAuth tokens (internal)",
+    description="""
+    Finds all tokens expiring within the threshold window and refreshes them.
+    Designed to be called periodically by Cloud Scheduler to ensure tokens
+    never expire even if the event-driven scheduler lost its timers
+    (e.g. after a cold start or container restart).
+
+    Accepts auth via either:
+    - Authorization: Bearer <internal_token>  (direct call)
+    - X-Cron-Secret: <internal_token>  (Cloud Scheduler with OIDC on Authorization)
+    """,
+)
+async def refresh_sweep(
+    threshold_minutes: int = 120,
+    db: Any = Depends(deps.get_db),
+    vault_client: VaultClient = Depends(get_vault_client),
+    oauth_service: OAuthService = Depends(get_oauth_service_dep),
+    authorization: Optional[str] = Header(None),
+    x_cron_secret: Optional[str] = Header(None),
+):
+    from app.core.config import settings
+
+    token = None
+    if authorization and "Bearer " in authorization:
+        token = authorization.split("Bearer ", 1)[1]
+    if x_cron_secret:
+        token = x_cron_secret
+    if token != settings.GATEWAY_INTERNAL_API_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid internal or cron token")
+    """Sweep all tokens needing refresh and refresh them."""
+    expiring = vault_client.get_tokens_needing_refresh(
+        threshold_minutes=threshold_minutes, db=db
+    )
+    logger.info("Refresh sweep: found %d token(s) needing refresh", len(expiring))
+
+    results = {"total": len(expiring), "refreshed": 0, "skipped": 0, "failed": 0, "details": []}
+
+    for token_ref, service_id, user_id, expires_at in expiring:
+        try:
+            token_data = vault_client.retrieve_token(token_ref, update_usage=False, db=db)
+            if not token_data:
+                results["skipped"] += 1
+                results["details"].append({"service": service_id, "user": user_id, "status": "skipped", "reason": "not found"})
+                continue
+
+            refresh_token_value = token_data.get("refresh_token")
+            if not refresh_token_value:
+                results["skipped"] += 1
+                results["details"].append({"service": service_id, "user": user_id, "status": "skipped", "reason": "no refresh token"})
+                continue
+
+            provider = SERVICE_TO_PROVIDER.get(service_id.lower())
+            if not provider:
+                results["skipped"] += 1
+                results["details"].append({"service": service_id, "user": user_id, "status": "skipped", "reason": "unsupported service"})
+                continue
+
+            oauth_request = OAuthTokenRefreshRequest(
+                provider=provider,
+                refresh_token=refresh_token_value,
+                user_id=user_id,
+            )
+            new_tokens = await oauth_service.refresh_tokens(oauth_request)
+
+            vault_client.refresh_token(
+                token_ref=token_ref,
+                new_access_token=new_tokens.access_token,
+                new_expires_in=new_tokens.expires_in,
+                new_refresh_token=new_tokens.refresh_token,
+                db=db,
+            )
+            results["refreshed"] += 1
+            results["details"].append({"service": service_id, "user": user_id, "status": "refreshed"})
+            logger.info("Sweep refreshed: service=%s user=%s", service_id, user_id)
+
+        except Exception as e:
+            results["failed"] += 1
+            results["details"].append({"service": service_id, "user": user_id, "status": "failed", "error": str(e)})
+            logger.error("Sweep failed: service=%s user=%s error=%s", service_id, user_id, str(e))
+
+    return results
 
 
 @router.get("/secrets", status_code=status.HTTP_200_OK)

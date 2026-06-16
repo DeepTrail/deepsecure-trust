@@ -1,7 +1,7 @@
 """Seed script to set initial admin users and default service registry.
 
 Reads ADMIN_EMAILS env var (comma-separated) and sets role='admin'
-on matching user_sessions rows. Also seeds the 6 default REST services
+on matching user_sessions rows. Also seeds the 5 default REST services
 into the service_registry table if they don't already exist.
 
 Usage:
@@ -40,13 +40,6 @@ DEFAULT_SERVICES = [
         "description": "Search messages and send notifications",
         "backend_type": "rest",
         "endpoint_url": "https://slack.com/api",
-    },
-    {
-        "service_id": "hubspot",
-        "display_name": "HubSpot",
-        "description": "Manage contacts, deals, and CRM data",
-        "backend_type": "rest",
-        "endpoint_url": "https://api.hubapi.com",
     },
     {
         "service_id": "gmail",
@@ -149,6 +142,43 @@ def sync_org_directory(db: SASession) -> dict:
     return result
 
 
+DEFAULT_AGENT_CONFIG = {
+    "prompts_per_delegation": 10,
+    "max_rounds": 3,
+    "interval_seconds": 60,
+    "tagged_prompts": [
+        {"services": "notion", "prompt": "You have access to tools via the deepsecure MCP server. Call notion.search_pages with query 'strategy' and limit 5. For each result, show the page title and ID. Then pick the first result and call notion.read_page with that page_id to read its properties."},
+        {"services": "slack", "prompt": "You have access to tools via the deepsecure MCP server. Call slack.list_channels with limit 10 and types 'public_channel'. Pick the first channel and call slack.get_channel_history with that channel ID and limit 5 to read the last 5 messages. Then call slack.send_message to post '[DeepSecure Agent] Daily sync complete' to that channel."},
+        {"services": "gmail", "prompt": "You have access to tools via the deepsecure MCP server. Call gmail.search_messages with query 'is:unread' and limit 5. List the sender and subject of each email found."},
+        {"services": "gdrive", "prompt": "You have access to tools via the deepsecure MCP server. Call gdrive.search_files with query 'quarterly report' and limit 5. List the file name, type, and last modified date for each result."},
+        {"services": "gcalendar", "prompt": "You have access to tools via the deepsecure MCP server. Call gcalendar.list_events with calendar_id 'primary' and limit 5. Summarize each event: title, start time, and attendees."},
+        {"services": "slack,notion,gmail", "prompt": "You have access to tools via the deepsecure MCP server. First call slack.list_channels (limit 3), then call notion.search_pages with query 'meeting notes' (limit 3), then call gmail.search_messages with query 'action items' (limit 3). Write a brief summary of what you found across all three services."},
+        {"services": "exa", "prompt": "You have access to tools via the deepsecure MCP server. IMPORTANT: Tool names use dot notation like 'backend.tool_name'. For Exa tools, the names are exactly 'exa.web_search_exa' and 'exa.web_fetch_exa' (dot-separated, not colon or slash). Call the tool named exa.web_search_exa with query 'DeepSecure AI agent security platform' and numResults 3. Show the title and URL of each result."},
+        {"services": "github", "prompt": "You have access to tools via the deepsecure MCP server. Call github.list_repos with limit 5 to list available repositories. Pick the first repo and call github.read_repo with that owner and repo name to get its details. Then call github.list_issues for that repo with limit 5 and state 'open' to show recent open issues."},
+    ],
+}
+
+
+def seed_agent_config(db: SASession) -> int:
+    """Populate the config column for agents that don't have one yet.
+
+    Returns the number of agents updated.
+    """
+    from app.models.agent import Agent
+
+    agents = db.query(Agent).filter(
+        (Agent.config.is_(None)) | (Agent.config == {})
+    ).all()
+    count = 0
+    for agent in agents:
+        agent.config = dict(DEFAULT_AGENT_CONFIG)
+        count += 1
+    if count:
+        db.commit()
+    logger.info("Seeded config for %d agent(s)", count)
+    return count
+
+
 def main() -> None:
     db = SessionLocal()
     try:
@@ -170,6 +200,8 @@ def main() -> None:
             logger.info("Done. Updated: %s, Not found: %s", result["updated"], result["not_found"])
         else:
             logger.info("ADMIN_EMAILS not set — skipping admin role seeding")
+
+        seed_agent_config(db)
     finally:
         db.close()
 

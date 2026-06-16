@@ -47,14 +47,6 @@ ALL_PERMISSIONS = [
     "slack:channels:join",
     "slack:reactions:write",
     "slack:users:list",
-    # HubSpot (7 tools)
-    "hubspot:contacts:read",
-    "hubspot:contacts:create",
-    "hubspot:contacts:update",
-    "hubspot:contacts:list",
-    "hubspot:deals:list",
-    "hubspot:deals:create",
-    "hubspot:deals:update",
     # Google Drive (4 tools)
     "gdrive:files:search",
     "gdrive:files:read",
@@ -75,24 +67,19 @@ ALL_PERMISSIONS = [
 SCOPED_PERMISSIONS = [
     "notion:pages:search",
     "notion:pages:read",
-    "hubspot:contacts:read",
-    "hubspot:contacts:list",
-    "hubspot:deals:list",
     "slack:messages:search",
     "slack:channels:list",
 ]
 
 ENVELOPE_PERMISSIONS = [
     "notion:pages:search",
-    "hubspot:contacts:read",
-    "hubspot:deals:list",
+    "notion:pages:read",
     "slack:messages:search",
 ]
 
 TASK_TOOLS_USED = [
     "notion.search_pages",
-    "hubspot.get_contact",
-    "hubspot.list_deals",
+    "notion.read_page",
     "slack.search_messages",
 ]
 
@@ -126,7 +113,7 @@ def connect_services(client: httpx.Client, user_token: str):
     services = [
         ("notion", "test_notion_token_12345", ["full_access"]),
         ("slack", "test_slack_token_67890", ["full_access"]),
-        ("hubspot", "test_hubspot_token_11111", ["full_access"]),
+        ("github", "test_github_token_11111", ["full_access"]),
         ("gdrive", "test_gdrive_token_22222", ["drive.readonly"]),
         ("gcalendar", "test_gcalendar_token_33333", ["calendar.readonly", "calendar.events.readonly"]),
         ("gmail", "test_gmail_token_44444", ["gmail.readonly"]),
@@ -299,8 +286,7 @@ def run_state(client: httpx.Client, user_token: str, state_name: str,
         print(f"\n  Executing 'research prospect' task:")
         task_calls = [
             ("notion.search_pages", {"query": "Acme Corp CTO", "limit": 5}),
-            ("hubspot.get_contact", {"contact_id": "prospect-cto-001"}),
-            ("hubspot.list_deals", {"limit": 5}),
+            ("notion.read_page", {"page_id": "prospect-cto-001"}),
             ("slack.search_messages", {"query": "Acme Corp CTO", "limit": 5}),
         ]
         for tool_name, args in task_calls:
@@ -345,7 +331,7 @@ def main():
     user_token = login(client)
     print(f"  ✓ Authenticated")
 
-    print("\n[SETUP] Connecting services (Notion, Slack, HubSpot)...")
+    print("\n[SETUP] Connecting services (Notion, Slack, Google Drive)...")
     connect_services(client, user_token)
 
     # Run three states

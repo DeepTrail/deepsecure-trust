@@ -9,7 +9,6 @@ This service manages the complete OAuth lifecycle for external services:
 Supported providers:
 - Notion (requires PKCE)
 - Slack (requires PKCE for localhost redirect URIs)
-- HubSpot (standard OAuth 2.0)
 
 Security features:
 - State tokens are cryptographically random (32 bytes)
@@ -88,7 +87,6 @@ class OAuthRefreshError(OAuthError):
 DEFAULT_SCOPES = {
     OAuthProvider.NOTION: [],  # Notion uses integration-level permissions
     OAuthProvider.SLACK: ["channels:read", "channels:history", "chat:write"],
-    OAuthProvider.HUBSPOT: ["crm.objects.contacts.read", "crm.objects.contacts.write"],
     OAuthProvider.GOOGLE: [],  # Service-specific scopes used instead
     OAuthProvider.GITHUB: ["repo", "read:org", "read:user"],
 }
@@ -111,11 +109,6 @@ PROVIDER_URLS = {
         "authorization_url": "https://slack.com/oauth/v2/authorize",
         "token_url": "https://slack.com/api/oauth.v2.access",
         "uses_pkce": True,
-    },
-    OAuthProvider.HUBSPOT: {
-        "authorization_url": "https://app.hubspot.com/oauth/authorize",
-        "token_url": "https://api.hubapi.com/oauth/v1/token",
-        "uses_pkce": False,
     },
     OAuthProvider.GOOGLE: {
         "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
@@ -812,7 +805,6 @@ class OAuthService:
         Different providers return different field names:
         - Notion: access_token, token_type, bot_id, workspace_id
         - Slack: access_token, token_type, scope, bot_user_id, etc.
-        - HubSpot: access_token, token_type, expires_in, refresh_token
 
         Args:
             provider: The OAuth provider.

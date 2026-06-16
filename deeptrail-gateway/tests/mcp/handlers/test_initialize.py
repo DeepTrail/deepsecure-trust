@@ -511,31 +511,6 @@ class TestPermissionMapperIntegration:
             "Tool name should be 'send_message'"
     
     @pytest.mark.asyncio
-    async def test_hubspot_permission_creates_service(self, session_manager_mock):
-        """Test that HubSpot permissions create connected service."""
-        params = {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "TestClient", "version": "1.0"},
-            "_context": {
-                "agent_session_id": "test-agent-123",
-                "delegated_permissions": ["hubspot:contacts:read"],
-                "delegator": "user@example.com"
-            }
-        }
-        
-        await handle_initialize(params)
-        
-        session_manager_mock.create_agent_session.assert_called_once()
-        call_kwargs = session_manager_mock.create_agent_session.call_args
-        connected_services = call_kwargs.kwargs.get("connected_services", [])
-        
-        hubspot_service = next((s for s in connected_services if s["service_id"] == "hubspot"), None)
-        assert hubspot_service is not None, "HubSpot service should be in connected_services"
-        assert "get_contact" in hubspot_service["available_tools"], \
-            "Tool name should be 'get_contact'"
-    
-    @pytest.mark.asyncio
     async def test_multiple_permissions_same_backend(self, session_manager_mock):
         """Test that multiple permissions for same backend produce multiple tools."""
         params = {
@@ -706,11 +681,10 @@ class TestGoogleBackendSessions:
 
     @pytest.mark.asyncio
     async def test_google_sessions_alongside_existing_backends(self, session_manager_mock):
-        """Regression: Google sessions coexist with notion/slack/hubspot sessions."""
+        """Regression: Google sessions coexist with notion/slack sessions."""
         perms = [
             "notion:pages:search",
             "slack:messages:send",
-            "hubspot:contacts:read",
             "gdrive:files:search",
             "gcalendar:events:read",
             "gmail:messages:list",
@@ -721,4 +695,4 @@ class TestGoogleBackendSessions:
             "connected_services", []
         )
         ids = {s["service_id"] for s in connected}
-        assert ids == {"notion", "slack", "hubspot", "gdrive", "gcalendar", "gmail"}
+        assert ids == {"notion", "slack", "gdrive", "gcalendar", "gmail"}
