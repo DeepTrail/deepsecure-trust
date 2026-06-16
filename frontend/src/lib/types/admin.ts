@@ -322,7 +322,7 @@ export interface DelegationTemplateListResponse {
 // Health & Emergency
 // ---------------------------------------------------------------------------
 
-export type GatewayStatus = "up" | "down" | "unknown";
+export type GatewayStatus = "up" | "down" | "sleeping" | "unknown";
 
 export interface HealthAggregation {
   total_services: number;
