@@ -133,6 +133,12 @@ class GitHubDirectClient:
         except Exception:
             data = {"raw_text": response.text}
 
+        # GitHub list endpoints return JSON arrays. Wrap them in a dict
+        # so the MCP content payload is always a record (required by the
+        # MCP schema that Gemini CLI validates).
+        if isinstance(data, list):
+            data = {"items": data, "count": len(data)}
+
         logger.debug("GitHub API success for %s in %.1fms", tool_name, duration_ms)
 
         return ToolResult(

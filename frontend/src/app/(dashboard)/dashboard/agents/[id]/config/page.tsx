@@ -185,12 +185,10 @@ export default function AgentConfigPage() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <Link href={`/dashboard/agents/${agentId}/activity`}>
-            <Button variant="outline" size="sm">Activity</Button>
-          </Link>
-          <Button variant="default" size="sm" disabled>
+          <Badge variant="default" className="flex items-center gap-1">
+            <Settings className="h-3 w-3" />
             Configuration
-          </Button>
+          </Badge>
         </div>
       </div>
 
