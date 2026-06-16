@@ -662,11 +662,20 @@ async def refresh_sweep(
         token = x_cron_secret
     if token != settings.GATEWAY_INTERNAL_API_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid internal or cron token")
-    """Sweep all tokens needing refresh and refresh them."""
+    """Sweep all tokens needing refresh and refresh them (including already-expired)."""
     expiring = vault_client.get_tokens_needing_refresh(
-        threshold_minutes=threshold_minutes, db=db
+        threshold_minutes=threshold_minutes,
+        include_expired=True,
+        max_expired_hours=48,
+        db=db,
     )
-    logger.info("Refresh sweep: found %d token(s) needing refresh", len(expiring))
+    from datetime import datetime as _dt, timezone as _tz
+    _now = _dt.now(_tz.utc)
+    expired_count = sum(1 for _, _, _, ea in expiring if ea <= _now)
+    logger.info(
+        "Refresh sweep: %d token(s) — %d already expired, %d expiring soon",
+        len(expiring), expired_count, len(expiring) - expired_count,
+    )
 
     results = {"total": len(expiring), "refreshed": 0, "skipped": 0, "failed": 0, "details": []}
 

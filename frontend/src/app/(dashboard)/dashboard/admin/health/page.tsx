@@ -9,6 +9,7 @@ import {
   Lock,
   Activity,
   Globe,
+  Moon,
   Plug,
   CheckCircle2,
 } from "lucide-react";
@@ -256,6 +257,23 @@ export default function AdminHealthPage() {
           </div>
         </div>
       )}
+      {health.gateway_status === "sleeping" && (
+        <div className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
+          <div className="flex items-start gap-2">
+            <Moon className="mt-0.5 h-5 w-5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold">GATEWAY SLEEPING</p>
+              <p className="text-sm">
+                Scaled to zero {formatRelativeTime(health.gateway_last_seen_at)}. The gateway will
+                wake automatically on the next request. Backend probes may be stale.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={fetchHealth}>
+              Refresh
+            </Button>
+          </div>
+        </div>
+      )}
       {health.gateway_status === "unknown" && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
           <div className="flex items-center gap-2">
@@ -273,6 +291,7 @@ export default function AdminHealthPage() {
           variant="outline"
           className={cn(
             health.gateway_status === "up" && "border-green-500 text-green-700",
+            health.gateway_status === "sleeping" && "border-blue-500 text-blue-700",
             health.gateway_status === "down" && "border-red-500 text-red-700",
             health.gateway_status === "unknown" && "border-amber-500 text-amber-700",
           )}
@@ -280,13 +299,22 @@ export default function AdminHealthPage() {
           Gateway: {health.gateway_status.toUpperCase()}
         </Badge>
         <span className="text-muted-foreground">
-          Backends: {health.services_up} up / {health.services_down} down
-          {health.services_stale > 0 ? ` / ${health.services_stale} stale` : ""}
+          Backends:{" "}
+          <span className="text-green-600">{health.services_up} Healthy</span>
+          {health.services_slow > 0 && (
+            <> · <span className="text-amber-600">{health.services_slow} Slow</span></>
+          )}
+          {health.services_down > 0 && (
+            <> · <span className="text-red-600">{health.services_down} Down</span></>
+          )}
+          {health.services_stale > 0 && (
+            <> · <span className="text-gray-500">{health.services_stale} Stale</span></>
+          )}
         </span>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <Card className="p-4">
           <p className="text-sm text-muted-foreground">Total Services</p>
           <p className="text-2xl font-bold">{health.total_services}</p>
@@ -296,7 +324,11 @@ export default function AdminHealthPage() {
           <p className="text-2xl font-bold text-green-600">{health.services_up}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-muted-foreground">Unhealthy</p>
+          <p className="text-sm text-muted-foreground">Slow</p>
+          <p className="text-2xl font-bold text-amber-600">{health.services_slow}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-sm text-muted-foreground">Down</p>
           <p className="text-2xl font-bold text-red-600">{health.services_down}</p>
         </Card>
         <Card className="p-4">
