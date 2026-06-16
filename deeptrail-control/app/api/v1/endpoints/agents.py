@@ -2,6 +2,7 @@ import base64
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import logging
@@ -329,6 +330,8 @@ def list_agent_sessions(
     agent_id: str,
     db: Session = Depends(deps.get_db),
     active_only: bool = Query(False, description="If true, return only active sessions"),
+    limit: int = Query(None, ge=1, le=500, description="Max results (omit for all)"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
 ):
     """List sessions for an agent, ordered by most recent first."""
     db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
@@ -338,7 +341,12 @@ def list_agent_sessions(
     query = db.query(AgentSession).filter(AgentSession.agent_id == agent_id)
     if active_only:
         query = query.filter(AgentSession.is_active.is_(True))
-    sessions = query.order_by(AgentSession.created_at.desc()).all()
+
+    total = query.count()
+    query = query.order_by(AgentSession.created_at.desc()).offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+    sessions = query.all()
 
     items = []
     for s in sessions:
@@ -351,9 +359,11 @@ def list_agent_sessions(
             created_at=s.created_at,
             expires_at=s.expires_at,
             last_activity_at=getattr(s, "last_activity_at", None),
+            created_via=getattr(s, "created_via", None),
+            llm_provider=getattr(s, "llm_provider", None),
         ))
 
-    return schemas.AgentSessionList(sessions=items, total=len(items))
+    return schemas.AgentSessionList(sessions=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{agent_id}/tools", response_model=schemas.AgentToolsResponse)
@@ -525,3 +535,26 @@ async def session_heartbeat(
     else:
         logger.info("Heartbeat: no active session for agent %s", agent_id)
     return Response(status_code=204)
+
+
+class _ProviderUpdate(BaseModel):
+    llm_provider: str
+
+
+@router.patch(
+    "/internal/sessions/{session_id}/provider",
+    include_in_schema=False,
+    status_code=204,
+)
+def update_session_provider(
+    session_id: str,
+    body: _ProviderUpdate,
+    db: Session = Depends(deps.get_db),
+):
+    """Set the llm_provider on a session (best-effort, called by agent entrypoint)."""
+    session = db.query(AgentSession).filter(AgentSession.id == session_id).first()
+    if session:
+        session.llm_provider = body.llm_provider
+        db.commit()
+    return Response(status_code=204)
+

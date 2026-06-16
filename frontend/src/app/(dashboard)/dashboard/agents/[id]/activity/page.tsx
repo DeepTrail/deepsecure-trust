@@ -44,6 +44,7 @@ interface ToolsResponse {
 
 interface AgentAuditEventsResponse {
   events?: AuditEvent[];
+  total?: number;
 }
 
 interface AgentInfo {
@@ -79,6 +80,7 @@ type PageState =
       delegations: DelegationSummary[];
       tools: AgentTool[];
       events: AuditEvent[];
+      eventsTotal?: number;
     };
 
 function formatTtl(seconds: number): string {
@@ -108,14 +110,19 @@ export default function AgentDetailPage() {
             () => ({ agent_id: agentId, tools: [] }) as ToolsResponse
           ),
           apiClient<AuditEvent[] | AgentAuditEventsResponse>(
-            `audit/events?agent_id=${agentId}&limit=20`
+            `audit/events?agent_id=${agentId}&limit=10`
           ).catch(() => []),
         ]);
 
       const tools = toolsData.tools ?? [];
-      const events = Array.isArray(eventsData)
-        ? eventsData
-        : (eventsData as AgentAuditEventsResponse).events ?? [];
+      let events: AuditEvent[];
+      let eventsTotal: number | undefined;
+      if (Array.isArray(eventsData)) {
+        events = eventsData;
+      } else {
+        events = (eventsData as AgentAuditEventsResponse).events ?? [];
+        eventsTotal = (eventsData as AgentAuditEventsResponse).total;
+      }
 
       const agentDelegations = (
         Array.isArray(delegationsData) ? delegationsData : []
@@ -127,6 +134,7 @@ export default function AgentDetailPage() {
         delegations: agentDelegations,
         tools,
         events,
+        eventsTotal,
       });
     } catch (err) {
       const message =
@@ -151,7 +159,7 @@ export default function AgentDetailPage() {
       />
     );
 
-  const { agent, delegations, tools, events } = state;
+  const { agent, delegations, tools, events, eventsTotal } = state;
 
   const agentLiveEvents = liveEvents.filter(
     (e) => (e as unknown as Record<string, unknown>).agent_id === agentId
@@ -350,7 +358,7 @@ export default function AgentDetailPage() {
       )}
 
       {/* 8. Activity Feed (full width) */}
-      <ActivityFeed events={allEvents} />
+      <ActivityFeed events={allEvents} agentId={agentId} totalFromServer={eventsTotal} />
 
       {/* 9. Unavailable Tools (collapsed) */}
       <UnavailableToolsDisclosure tools={tools} />

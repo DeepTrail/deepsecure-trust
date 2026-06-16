@@ -44,6 +44,7 @@ interface DelegatedToolsCardProps {
 }
 
 export function DelegatedToolsCard({ tools, className }: DelegatedToolsCardProps) {
+  const [open, setOpen] = useState(false);
   const delegated = tools.filter((t) => t.available);
 
   if (delegated.length === 0) {
@@ -76,46 +77,69 @@ export function DelegatedToolsCard({ tools, className }: DelegatedToolsCardProps
   return (
     <Card className={`border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20 ${className ?? ""}`}>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
-          <ShieldCheck className="h-4 w-4" />
-          Delegated Tools &amp; Permissions ({delegated.length})
-          <span className="ml-auto text-xs font-normal text-muted-foreground">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between"
+          onClick={() => setOpen(!open)}
+        >
+          <CardTitle className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400 cursor-pointer hover:opacity-80 transition-opacity">
+            {open ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+            <ShieldCheck className="h-4 w-4" />
+            Delegated Tools &amp; Permissions ({delegated.length})
+          </CardTitle>
+          <span className="text-xs font-normal text-muted-foreground">
             {serviceCount} {serviceCount === 1 ? "service" : "services"}
           </span>
-        </CardTitle>
+        </button>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {Object.entries(grouped).map(([service, serviceTools]) => (
-          <div key={service} className="space-y-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-green-700/70 dark:text-green-400/70">
-              {service}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {serviceTools.map((t) => (
-                <Badge
-                  key={t.name}
-                  variant="outline"
-                  className="border-green-300 text-green-700 dark:border-green-800 dark:text-green-400"
-                  title={t.permission}
-                >
-                  <CheckCircle2 className="mr-1 h-3 w-3" />
-                  {toolDisplayName(t.name)}
-                </Badge>
-              ))}
+
+      {/* Preview when collapsed */}
+      {!open && (
+        <CardContent className="pt-0 pb-3">
+          <p className="text-xs text-muted-foreground">
+            {Object.keys(grouped).join(", ")}
+          </p>
+        </CardContent>
+      )}
+
+      {open && (
+        <CardContent className="space-y-4">
+          {Object.entries(grouped).map(([service, serviceTools]) => (
+            <div key={service} className="space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-green-700/70 dark:text-green-400/70">
+                {service}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {serviceTools.map((t) => (
+                  <Badge
+                    key={t.name}
+                    variant="outline"
+                    className="border-green-300 text-green-700 dark:border-green-800 dark:text-green-400"
+                    title={t.permission}
+                  >
+                    <CheckCircle2 className="mr-1 h-3 w-3" />
+                    {toolDisplayName(t.name)}
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {serviceTools.map((t) => (
+                  <span
+                    key={`perm-${t.permission}`}
+                    className="text-[10px] font-mono text-green-600/60 dark:text-green-500/50"
+                  >
+                    {t.permission}
+                  </span>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-1">
-              {serviceTools.map((t) => (
-                <span
-                  key={`perm-${t.permission}`}
-                  className="text-[10px] font-mono text-green-600/60 dark:text-green-500/50"
-                >
-                  {t.permission}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </CardContent>
+          ))}
+        </CardContent>
+      )}
     </Card>
   );
 }

@@ -1334,6 +1334,7 @@ class BootstrapService:
             session = AgentSession.from_delegation(
                 delegation=delegation,
                 agent_id=agent.agent_id,
+                created_via="bootstrap_gcp",
             )
             db.add(session)
             db.commit()
