@@ -44,7 +44,7 @@ if [ "${SKIP_BUILD:-}" != "1" ]; then
     -t "${IMAGE}" \
     -t "${LATEST}" \
     -f "${REPO_ROOT}/agents/gemini/Dockerfile.sdk" \
-    "${REPO_ROOT}/agents/gemini/"
+    "${REPO_ROOT}"
 
   echo "--- Pushing ${IMAGE_NAME} image ---"
   docker push "${IMAGE}"
@@ -58,12 +58,16 @@ echo ""
 # ── Step 2: Create or update Cloud Run Job ──────────────────────────
 echo "--- Creating/updating Cloud Run Job: ${JOB_NAME} ---"
 
-ENV_VARS="DEEPSECURE_CONTROL_URL=${CONTROL_URL}"
-ENV_VARS+=",DEEPSECURE_GATEWAY_URL=${GATEWAY_URL}"
-ENV_VARS+=",AGENT_ID=${AGENT_ID}"
-ENV_VARS+=",GEMINI_CLI_TRUST_WORKSPACE=true"
-ENV_VARS+=",GEMINI_MODEL=gemini-2.5-flash"
-ENV_VARS+=",PROMPT_TIMEOUT_SECONDS=300"
+LLM_PROVIDERS="${LLM_PROVIDERS:-gemini,claude,codex}"
+
+# Use ^||^ as the kv-pair delimiter so commas inside values (e.g. LLM_PROVIDERS) are preserved.
+ENV_VARS="^||^DEEPSECURE_CONTROL_URL=${CONTROL_URL}"
+ENV_VARS+="||DEEPSECURE_GATEWAY_URL=${GATEWAY_URL}"
+ENV_VARS+="||AGENT_ID=${AGENT_ID}"
+ENV_VARS+="||GEMINI_CLI_TRUST_WORKSPACE=true"
+ENV_VARS+="||GEMINI_MODEL=gemini-2.5-flash"
+ENV_VARS+="||PROMPT_TIMEOUT_SECONDS=300"
+ENV_VARS+="||LLM_PROVIDERS=${LLM_PROVIDERS}"
 
 if gcloud run jobs describe "${JOB_NAME}" --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
   echo "Job exists — updating..."
