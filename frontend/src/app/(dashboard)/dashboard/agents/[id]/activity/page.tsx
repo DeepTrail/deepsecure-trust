@@ -24,6 +24,7 @@ import {
   Shield,
   Clock,
   KeyRound,
+  Settings,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -191,11 +192,14 @@ export default function AgentDetailPage() {
               state={(agent.lifecycle_state as LifecycleState) ?? "registered"}
             />
           )}
-          <Button variant="default" size="sm" disabled>
-            Activity
-          </Button>
           <Link href={`/dashboard/agents/${agentId}/config`}>
-            <Button variant="outline" size="sm">Configuration</Button>
+            <Badge
+              variant="outline"
+              className="flex items-center gap-1 cursor-pointer hover:bg-accent"
+            >
+              <Settings className="h-3 w-3" />
+              Configuration
+            </Badge>
           </Link>
         </div>
       </div>

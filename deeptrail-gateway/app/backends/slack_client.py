@@ -426,7 +426,7 @@ class SlackDirectClient:
 
     async def list_channels(
         self,
-        types: str = "public_channel,private_channel",
+        types: str = "public_channel",
         limit: int = 100,
         cursor: str | None = None,
         exclude_archived: bool = True,
@@ -865,7 +865,7 @@ class SlackDirectClient:
         self, args: dict[str, Any], auth_token: str | None
     ) -> ToolResult:
         return await self.list_channels(
-            types=args.get("types", "public_channel,private_channel"),
+            types=args.get("types", "public_channel"),
             limit=args.get("limit", 100),
             cursor=args.get("cursor"),
             exclude_archived=args.get("exclude_archived", True),
@@ -1324,7 +1324,7 @@ class SlackMCPClient(BaseMCPClient):
     
     async def list_channels(
         self,
-        types: str = "public_channel,private_channel",
+        types: str = "public_channel",
         limit: int = 100,
         exclude_archived: bool = True,
         auth_token: str | None = None,
