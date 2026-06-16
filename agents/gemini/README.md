@@ -45,7 +45,7 @@ docker run --rm \
 |----------|---------|-------------|
 | `DEEPSECURE_CONTROL_URL` | `https://app.deepsecure.one` | Control plane URL for bootstrap |
 | `DEEPSECURE_GATEWAY_URL` | `https://app.deepsecure.one/mcp` | MCP gateway URL |
-| `AGENT_ID` | `debugging-deepsecure-agent` | Agent identity (set by deploy script) |
+| `AGENT_ID` | `debugging-deepsecure-agent` | Agent identity |
 | `GEMINI_API_KEY` | (required) | Google Gemini API key |
 | `AGENT_MAX_ROUNDS` | `3` | Number of tool call rounds |
 | `AGENT_PROMPTS_PER_DELEGATION` | `2` | Prompts per delegation per round |
@@ -66,8 +66,17 @@ All agents follow the `{slug}-deepsecure-agent` pattern:
 See `infra/deploy-agent.sh` for the full deployment script. It derives all
 resource names from `AGENT_SLUG`:
 
+Naming convention (`TENANT_NAME=deepsecure` by default):
+
+| Agent Name | `AGENT_SLUG` | `AGENT_ID` | `JOB_NAME` | `SCHEDULER_NAME` | Service Account |
+|---|---|---|---|---|---|
+| Debugging Agent | `debugging` | `debugging-deepsecure-agent` | `debugging-deepsecure-agent-job` | `trigger-debugging-deepsecure-agent` | `debugging-sa@...` |
+| Engineering Audit | `engineering-audit` | `engineering-audit-deepsecure-agent` | `engineering-audit-deepsecure-agent-job` | `trigger-engineering-audit-deepsecure-agent` | `engineering-audit-sa@...` |
+| Thunderbolt | `thunderbolt` | `thunderbolt-deepsecure-agent` | `thunderbolt-deepsecure-agent-job` | `trigger-thunderbolt-deepsecure-agent` | `thunderbolt-sa@...` |
+
 ```bash
-# Deploy all 3 agents (first builds the image, subsequent skip build)
+
+# Deploy all 3 agents (build image once)
 AGENT_SLUG=debugging          ./infra/deploy-agent.sh
 AGENT_SLUG=engineering-audit  SKIP_BUILD=1 ./infra/deploy-agent.sh
 AGENT_SLUG=thunderbolt        SKIP_BUILD=1 ./infra/deploy-agent.sh
