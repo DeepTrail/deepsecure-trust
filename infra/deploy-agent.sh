@@ -1,59 +1,133 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Deploy a DeepSecure background agent to Cloud Run Jobs + Cloud Scheduler.
+#
+# Naming convention (tenant defaults to "deepsecure"):
+#   AGENT_SLUG=debugging          → debugging-deepsecure-agent
+#   JOB_NAME                      → debugging-deepsecure-agent-job
+#   SCHEDULER_NAME                → trigger-debugging-deepsecure-agent
+#
+# Override any derived value by setting JOB_NAME, AGENT_ID, or SCHEDULER_NAME
+# explicitly before invoking this script.
+#
+# Operational params (max_rounds, prompts_per_delegation, interval) are
+# intentionally NOT set as env vars here.  They are fetched from the Control
+# Plane DB at boot via GET /api/v1/agents/{id}/config so they can be changed
+# in the UI without redeployment.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# ── Required ────────────────────────────────────────────────────────
-AGENT_SLUG="${AGENT_SLUG:?Set AGENT_SLUG (e.g. debugging, engineering-audit, thunderbolt)}"
+usage() {
+  cat <<'EOF'
+Usage: AGENT_SLUG=<slug> [options] ./infra/deploy-agent.sh
 
-# ── Derived naming (override any component via env) ─────────────────
+Required:
+  AGENT_SLUG    Agent short name: debugging | engineering-audit | thunderbolt
+
+Optional:
+  TENANT_NAME   Tenant/company slug (default: deepsecure)
+  SKIP_BUILD    1 = skip image build/push (default: 0)
+  SCHEDULE      Cron expression (default: 0 */1 * * *)
+  SERVICE_ACCOUNT  GCP SA email (default: <AGENT_SLUG>-agent-sa@<project>.iam.gserviceaccount.com)
+
+Derived names (override with env vars if needed):
+  AGENT_ID        <slug>-<tenant>-agent
+  JOB_NAME        <slug>-<tenant>-agent-job
+  SCHEDULER_NAME  trigger-<slug>-<tenant>-agent
+
+Current production agents:
+  Agent Name          AGENT_SLUG         AGENT_ID                           JOB_NAME                              SCHEDULER_NAME
+  Debugging Agent     debugging          debugging-deepsecure-agent         debugging-deepsecure-agent-job        trigger-debugging-deepsecure-agent
+  Engineering Audit   engineering-audit  engineering-audit-deepsecure-agent engineering-audit-deepsecure-agent-job trigger-engineering-audit-deepsecure-agent
+  Thunderbolt         thunderbolt        thunderbolt-deepsecure-agent       thunderbolt-deepsecure-agent-job      trigger-thunderbolt-deepsecure-agent
+
+Deploy all 3 agents (build image once, reuse for the rest):
+  AGENT_SLUG=debugging          ./infra/deploy-agent.sh
+  AGENT_SLUG=engineering-audit  SKIP_BUILD=1 ./infra/deploy-agent.sh
+  AGENT_SLUG=thunderbolt        SKIP_BUILD=1 ./infra/deploy-agent.sh
+
+Note: Operational params (max_rounds, prompts_per_delegation, interval) are
+managed via the UI / DB config, NOT env vars.  Change them at:
+  https://app.deepsecure.one/dashboard/agents/<agent-id>/config
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+# ── Config ───────────────────────────────────────────────────────────
 PROJECT_ID="${GCP_PROJECT_ID:-deepsecure-saas}"
 REGION="${GCP_REGION:-us-central1}"
 REGISTRY="${REGION}-docker.pkg.dev/${PROJECT_ID}/deepsecure"
 TAG="${IMAGE_TAG:-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo latest)}"
 
-AGENT_ID="${AGENT_ID:-${AGENT_SLUG}-deepsecure-agent}"
-JOB_NAME="${JOB_NAME:-${AGENT_SLUG}-deepsecure-agent-job}"
-SCHEDULER_NAME="${SCHEDULER_NAME:-trigger-${AGENT_SLUG}-deepsecure-agent}"
-SA_EMAIL="${SA_EMAIL:-${AGENT_SLUG}-sa@${PROJECT_ID}.iam.gserviceaccount.com}"
-CONTROL_URL="${CONTROL_URL:-https://app.deepsecure.one}"
-GATEWAY_URL="${GATEWAY_URL:-https://app.deepsecure.one/mcp}"
+AGENT_SLUG="${AGENT_SLUG:-}"
+TENANT_NAME="${TENANT_NAME:-deepsecure}"
+SKIP_BUILD="${SKIP_BUILD:-0}"
 SCHEDULE="${SCHEDULE:-0 */1 * * *}"
-IMAGE_NAME="${IMAGE_NAME:-gemini-agent-sdk}"
 
-echo "=== Deploying DeepSecure Agent to Cloud Run Jobs ==="
-echo "Slug:      ${AGENT_SLUG}"
-echo "Project:   ${PROJECT_ID}"
-echo "Region:    ${REGION}"
-echo "Job:       ${JOB_NAME}"
-echo "Agent ID:  ${AGENT_ID}"
-echo "SA:        ${SA_EMAIL}"
-echo "Schedule:  ${SCHEDULE}"
+if [[ -z "${AGENT_SLUG}" ]]; then
+  echo "ERROR: AGENT_SLUG is required."
+  echo ""
+  usage
+  exit 1
+fi
+
+AGENT_ID="${AGENT_ID:-${AGENT_SLUG}-${TENANT_NAME}-agent}"
+JOB_NAME="${JOB_NAME:-${AGENT_SLUG}-${TENANT_NAME}-agent-job}"
+SCHEDULER_NAME="${SCHEDULER_NAME:-trigger-${AGENT_SLUG}-${TENANT_NAME}-agent}"
+
+# Map slugs to existing GCP service account short names.
+case "${AGENT_SLUG}" in
+  debugging)         DEFAULT_SA="debugging-agent-sa" ;;
+  engineering-audit) DEFAULT_SA="engineering-audit-sa" ;;
+  thunderbolt)       DEFAULT_SA="thunderbolt-agent-sa" ;;
+  *)                 DEFAULT_SA="${AGENT_SLUG}-sa" ;;
+esac
+SA_EMAIL="${SERVICE_ACCOUNT:-${DEFAULT_SA}@${PROJECT_ID}.iam.gserviceaccount.com}"
+
+CONTROL_URL="https://app.deepsecure.one"
+GATEWAY_URL="https://app.deepsecure.one/mcp"
+
+echo "=== Deploying Agent to Cloud Run Jobs ==="
+echo "Project:         ${PROJECT_ID}"
+echo "Region:          ${REGION}"
+echo "Agent Slug:      ${AGENT_SLUG}"
+echo "Tenant:          ${TENANT_NAME}"
+echo "Job:             ${JOB_NAME}"
+echo "Agent ID:        ${AGENT_ID}"
+echo "Scheduler:       ${SCHEDULER_NAME}"
+echo "Service Account: ${SA_EMAIL}"
+echo "Schedule:        ${SCHEDULE}"
 echo ""
 
 # ── Step 1: Build and push agent image ──────────────────────────────
-IMAGE="${REGISTRY}/${IMAGE_NAME}:${TAG}"
-LATEST="${REGISTRY}/${IMAGE_NAME}:latest"
+IMAGE="${REGISTRY}/gemini-agent-sdk:${TAG}"
+LATEST="${REGISTRY}/gemini-agent-sdk:latest"
 
-if [ "${SKIP_BUILD:-}" != "1" ]; then
-  echo "--- Building ${IMAGE_NAME} image ---"
+if [[ "${SKIP_BUILD}" != "1" ]]; then
+  echo "--- Building gemini-agent-sdk image (from Dockerfile.sdk) ---"
   gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
   docker buildx build --platform linux/amd64 \
+    -f "${REPO_ROOT}/agents/gemini/Dockerfile.sdk" \
     -t "${IMAGE}" \
     -t "${LATEST}" \
-    -f "${REPO_ROOT}/agents/gemini/Dockerfile.sdk" \
     "${REPO_ROOT}"
 
-  echo "--- Pushing ${IMAGE_NAME} image ---"
+  echo "--- Pushing gemini-agent-sdk image ---"
   docker push "${IMAGE}"
   docker push "${LATEST}"
   echo "✅ Image pushed: ${IMAGE}"
+  echo ""
 else
-  echo "--- SKIP_BUILD=1 — reusing existing image ---"
+  echo "--- Skipping build (SKIP_BUILD=1) ---"
+  echo ""
 fi
-echo ""
 
 # ── Step 2: Create or update Cloud Run Job ──────────────────────────
 echo "--- Creating/updating Cloud Run Job: ${JOB_NAME} ---"
@@ -61,6 +135,7 @@ echo "--- Creating/updating Cloud Run Job: ${JOB_NAME} ---"
 LLM_PROVIDERS="${LLM_PROVIDERS:-gemini,claude,codex}"
 
 # Use ^||^ as the kv-pair delimiter so commas inside values (e.g. LLM_PROVIDERS) are preserved.
+# Operational params (max_rounds, etc.) are NOT set here — they come from DB config.
 ENV_VARS="^||^DEEPSECURE_CONTROL_URL=${CONTROL_URL}"
 ENV_VARS+="||DEEPSECURE_GATEWAY_URL=${GATEWAY_URL}"
 ENV_VARS+="||AGENT_ID=${AGENT_ID}"
@@ -69,13 +144,17 @@ ENV_VARS+="||GEMINI_MODEL=gemini-2.5-flash"
 ENV_VARS+="||PROMPT_TIMEOUT_SECONDS=300"
 ENV_VARS+="||LLM_PROVIDERS=${LLM_PROVIDERS}"
 
+SECRETS="GEMINI_API_KEY=gemini-api-key:latest"
+SECRETS+=",ANTHROPIC_API_KEY=anthropic-api-key:latest"
+SECRETS+=",OPENAI_API_KEY=openai-api-key:latest"
+
 if gcloud run jobs describe "${JOB_NAME}" --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
   echo "Job exists — updating..."
   gcloud run jobs update "${JOB_NAME}" \
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --image="${LATEST}" \
-    --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,OPENAI_API_KEY=openai-api-key:latest" \
+    --set-secrets="${SECRETS}" \
     --set-env-vars="${ENV_VARS}" \
     --service-account="${SA_EMAIL}" \
     --task-timeout=1800 \
@@ -88,7 +167,7 @@ else
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --image="${LATEST}" \
-    --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,OPENAI_API_KEY=openai-api-key:latest" \
+    --set-secrets="${SECRETS}" \
     --set-env-vars="${ENV_VARS}" \
     --service-account="${SA_EMAIL}" \
     --task-timeout=1800 \
@@ -127,7 +206,7 @@ else
     --oauth-service-account-email="${SCHEDULER_SA}" \
     --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform" \
     --time-zone="America/Los_Angeles" \
-    --description="Triggers ${AGENT_ID} on schedule '${SCHEDULE}'"
+    --description="Triggers ${JOB_NAME} (${AGENT_ID}) on schedule '${SCHEDULE}'"
 fi
 
 echo "✅ Cloud Scheduler ready: ${SCHEDULER_NAME}"
@@ -137,9 +216,10 @@ echo ""
 echo "=== Deployment Complete ==="
 echo ""
 echo "Cloud Run Job:     ${JOB_NAME}"
-echo "Cloud Scheduler:   ${SCHEDULER_NAME} (${SCHEDULE})"
-echo "Image:             ${IMAGE}"
 echo "Agent ID:          ${AGENT_ID}"
+echo "Cloud Scheduler:   ${SCHEDULER_NAME} (${SCHEDULE})"
+echo "Service Account:   ${SA_EMAIL}"
+echo "Image:             ${LATEST}"
 echo ""
 echo "Manual trigger:"
 echo "  gcloud run jobs execute ${JOB_NAME} --region=${REGION} --project=${PROJECT_ID}"
@@ -149,3 +229,6 @@ echo "  gcloud run jobs executions list --job=${JOB_NAME} --region=${REGION} --p
 echo ""
 echo "View scheduler:"
 echo "  gcloud scheduler jobs describe ${SCHEDULER_NAME} --location=${REGION} --project=${PROJECT_ID}"
+echo ""
+echo "Agent config (operational params):"
+echo "  https://app.deepsecure.one/dashboard/agents/${AGENT_ID}/config"
