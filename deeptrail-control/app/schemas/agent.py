@@ -122,6 +122,8 @@ class AgentSessionSummary(BaseModel):
     created_at: datetime
     expires_at: datetime
     last_activity_at: Optional[datetime] = None
+    created_via: Optional[str] = None
+    llm_provider: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -130,6 +132,8 @@ class AgentSessionList(BaseModel):
     """Response schema for GET /agents/{agent_id}/sessions."""
     sessions: List[AgentSessionSummary]
     total: int
+    limit: Optional[int] = None
+    offset: Optional[int] = None
 
 # Schema for agent public key rotation request (if needed as separate endpoint)
 class AgentRotateKeyRequest(BaseModel):

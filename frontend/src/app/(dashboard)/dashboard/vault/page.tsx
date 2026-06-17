@@ -195,7 +195,9 @@ function OAuthTokensTab({ encBadge }: { encBadge: React.ReactNode }) {
                         <AgentBadges agents={linkage[t.service_id] ?? []} />
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{fmtDate(t.created_at)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{fmtDate(t.expires_at)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {t.expires_at ? fmtDate(t.expires_at) : <span className="text-muted-foreground/50">Never</span>}
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {t.last_refreshed_at ? (
                           <span title={`Refreshed ${t.refresh_count} time${t.refresh_count !== 1 ? "s" : ""}`}>

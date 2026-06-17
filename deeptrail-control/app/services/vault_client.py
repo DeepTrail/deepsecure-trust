@@ -750,17 +750,40 @@ class VaultClient:
     def get_tokens_needing_refresh(
         self,
         threshold_minutes: int = 120,
+        include_expired: bool = True,
+        max_expired_hours: int = 48,
         db: Optional[Session] = None,
     ) -> List[Tuple[str, str, str, datetime]]:
         """Find tokens expiring within threshold that have a refresh_token.
 
         Returns tuples of (token_ref, service_id, user_id, expires_at)
         for tokens that can and should be proactively refreshed.
+
+        When include_expired=True (default), also picks up tokens that have
+        already expired (up to max_expired_hours ago) so they can be recovered
+        via their refresh_token instead of requiring manual re-authorization.
         """
-        threshold = datetime.now(timezone.utc) + timedelta(minutes=threshold_minutes)
+        now = datetime.now(timezone.utc)
+        threshold = now + timedelta(minutes=threshold_minutes)
+        expired_cutoff = now - timedelta(hours=max_expired_hours)
 
         if self._use_database(db):
             from app.models.vault_token import VaultToken
+            from sqlalchemy import or_
+
+            expiry_filter = [
+                VaultToken.expires_at <= threshold,
+                VaultToken.expires_at > now,
+            ]
+            if include_expired:
+                expiry_filter = [
+                    or_(
+                        # About to expire (proactive)
+                        VaultToken.expires_at.between(now, threshold),
+                        # Already expired but recoverable
+                        VaultToken.expires_at.between(expired_cutoff, now),
+                    )
+                ]
 
             rows = db.query(
                 VaultToken.token_ref,
@@ -769,8 +792,7 @@ class VaultClient:
                 VaultToken.expires_at,
             ).filter(
                 VaultToken.expires_at.isnot(None),
-                VaultToken.expires_at <= threshold,
-                VaultToken.expires_at > datetime.now(timezone.utc),
+                *expiry_filter,
             ).all()
 
             results = []
@@ -787,9 +809,12 @@ class VaultClient:
                 except Exception:
                     continue
 
-            logger.debug(
-                "Found %d tokens needing refresh within %d minutes",
+            expired_count = sum(1 for _, _, _, ea in results if ea <= now)
+            logger.info(
+                "Found %d tokens needing refresh (%d already expired, %d expiring within %d min)",
                 len(results),
+                expired_count,
+                len(results) - expired_count,
                 threshold_minutes,
             )
             return results

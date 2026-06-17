@@ -414,7 +414,17 @@ class ServiceRegistryService:
         return state
 
     def _resolve_gateway_status(self) -> tuple[str, Optional[datetime]]:
-        """Return (gateway_status, gateway_last_seen_at)."""
+        """Return (gateway_status, gateway_last_seen_at).
+
+        Distinguishes between:
+        - "up": heartbeat is fresh (within stale threshold)
+        - "sleeping": heartbeat is stale but within 30 min — likely Cloud Run
+          scale-to-zero, not a crash. Gateway will wake on next request.
+        - "down": heartbeat is stale beyond 30 min — likely a real outage
+        - "unknown": no heartbeat has ever been recorded
+        """
+        SLEEPING_WINDOW_SECONDS = 1800  # 30 min
+
         state = self.db.query(GatewayHealthState).first()
         if state is None or state.gateway_last_seen_at is None:
             return "unknown", None
@@ -424,9 +434,11 @@ class ServiceRegistryService:
             last_seen = last_seen.replace(tzinfo=timezone.utc)
 
         age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
-        if age_seconds > settings.GATEWAY_STALE_THRESHOLD_SECONDS:
-            return "down", state.gateway_last_seen_at
-        return "up", state.gateway_last_seen_at
+        if age_seconds <= settings.GATEWAY_STALE_THRESHOLD_SECONDS:
+            return "up", state.gateway_last_seen_at
+        if age_seconds <= SLEEPING_WINDOW_SECONDS:
+            return "sleeping", state.gateway_last_seen_at
+        return "down", state.gateway_last_seen_at
 
     def _effective_service_status(
         self,

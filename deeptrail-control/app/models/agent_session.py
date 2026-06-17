@@ -236,6 +236,19 @@ class AgentSession(Base):
         comment="IP address of the authenticating agent (IPv4 or IPv6)",
     )
 
+    # Session provenance
+    created_via = Column(
+        String(64),
+        nullable=True,
+        comment="How this session was created (bootstrap_gcp, bootstrap_local, challenge_response)",
+    )
+
+    llm_provider = Column(
+        String(32),
+        nullable=True,
+        comment="LLM provider used in this session (gemini, claude, codex) -- updated post-creation",
+    )
+
     # Indexes for efficient lookups
     __table_args__ = (
         Index("ix_agent_session_agent_owner", "agent_id", "owner_email"),
@@ -436,6 +449,7 @@ class AgentSession(Base):
         party_type: PartyType = PartyType.FIRST_PARTY,
         scoped_permissions: Optional[List[str]] = None,
         groups: Optional[List[str]] = None,
+        created_via: Optional[str] = None,
     ) -> "AgentSession":
         """Create an AgentSession from a DelegationToken.
 
@@ -447,6 +461,7 @@ class AgentSession(Base):
             party_type: Agent party type
             scoped_permissions: Permissions to grant (defaults to delegation permissions)
             groups: User groups
+            created_via: How this session was created (bootstrap_gcp, challenge_response, etc.)
 
         Returns:
             New AgentSession instance
@@ -460,6 +475,7 @@ class AgentSession(Base):
             idp_issuer=delegation.delegator_idp,
             groups=groups or [],
             organization_id=delegation.organization_id,
+            created_via=created_via,
         )
 
     def __repr__(self) -> str:
