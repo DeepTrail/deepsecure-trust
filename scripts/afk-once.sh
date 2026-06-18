@@ -16,6 +16,24 @@ fi
 
 PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 
+# Inject extracted reference docs into system prompt for full AFK coverage.
+# CLAUDE.md is auto-loaded but these docs are not — without injection, the AFK
+# agent would need to proactively Read them, which is unreliable.
+REF_DOCS=""
+for doc in docs/DEVELOPMENT_COMMANDS.md docs/ARCHITECTURE.md docs/TESTING_GUIDE.md CODE_STANDARDS.md; do
+    [ -f "$doc" ] && REF_DOCS="${REF_DOCS}
+$(cat "$doc")
+"
+done
+
+if [ -n "$REF_DOCS" ]; then
+    PROMPT_CONTENT="${PROMPT_CONTENT}
+
+---
+# Reference Documentation (auto-injected for AFK context)
+${REF_DOCS}"
+fi
+
 claude --print \
     --output-format json \
     --system-prompt "$PROMPT_CONTENT" \

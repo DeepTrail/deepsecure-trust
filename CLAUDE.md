@@ -15,7 +15,7 @@ DeepSecure is a security platform that provides Identity-as-Code for AI agents, 
 | Dev commands, env setup, build, debugging | [docs/DEVELOPMENT_COMMANDS.md](docs/DEVELOPMENT_COMMANDS.md) |
 | Module structure, services, key patterns | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Test organization, markers, backend deps | [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) |
-| Token types, Agent JWT, MCP protocol | [docs/TOKEN_TYPES.md](docs/TOKEN_TYPES.md) |
+| Full Agent JWT creation flow, detailed MCP examples | [docs/TOKEN_TYPES.md](docs/TOKEN_TYPES.md) |
 | Engineering preferences, review process, verification | [CODE_STANDARDS.md](CODE_STANDARDS.md) |
 | Developer workflow (E2E) | [docs/DEVELOPER_WORKFLOW.md](docs/DEVELOPER_WORKFLOW.md) |
 | Task ticket template | [docs/workstreams/TASK_TICKET_TEMPLATE.md](docs/workstreams/TASK_TICKET_TEMPLATE.md) |
@@ -136,6 +136,59 @@ Templates: `docs/workstreams/TASK_TICKET_TEMPLATE.md`, `docs/workstreams/TASK_SP
 | `[service]/api/[domain]/` | `[service]/app/api/v1/endpoints/` |
 
 Services: `*_service.py` suffix. Validation: `*_validation.py`. Constraints: active verbs (`*_checker.py`).
+
+## Token Types & API Validation (CRITICAL)
+
+Different endpoints require different authentication tokens. Using the wrong token type causes 401 errors.
+
+| Token Type | How to Obtain | Used For | Header Format |
+|------------|---------------|----------|---------------|
+| **User Token** | `POST /api/v1/auth/login` → `.token` | User-facing endpoints, service connection | `Authorization: Bearer $USER_TOKEN` |
+| **Agent JWT** | Ed25519 challenge-response flow | Agent-to-Control APIs, vault token retrieval | `Authorization: Bearer $AGENT_JWT` |
+| **Internal API Token** | From `docker-compose.yml` env var | Gateway-to-Control internal APIs | `Authorization: Bearer gateway-internal-secret-token` |
+
+**Common Mistakes:**
+
+| Mistake | Error | Fix |
+|---------|-------|-----|
+| Using User Token for vault token retrieval | `401 "missing user identity"` | Use Agent JWT (has `owner` claim) |
+| Using User Token for vault token refresh | `401 "Invalid internal token"` | Use Internal API Token + `X-User-ID` header |
+| Using `.access_token` for login response | Returns `null` | Use `.token` - login returns `token` field |
+
+### MCP Gateway Protocol (CRITICAL)
+
+The Gateway requires `initialize` before any `tools/call`. Skipping returns: `"Session not found. Call initialize first."`
+
+**Required sequence:** `initialize` → `tools/list` (optional) → `tools/call`
+
+```bash
+# Step 1: Initialize MCP session
+curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-agent","version":"1.0.0"}}}'
+
+# Step 2: Now tools/call works
+curl -s -X POST http://localhost:8002/mcp \
+  -H "Authorization: Bearer $AGENT_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":2,"params":{"name":"notion.search_pages","arguments":{"query":"test"}}}'
+```
+
+### Async Test Fixtures
+
+Use `@pytest_asyncio.fixture` for async fixtures, NOT `@pytest.fixture`. Wrong fixture decorator causes `AttributeError: 'async_generator' object has no attribute 'post'`.
+
+### API Contract Verification
+
+Always verify implementation endpoints match design doc specs exactly.
+
+```bash
+# Check implemented endpoints
+grep -r "@router\.\(get\|post\|put\|delete\)" [file] | grep -o '"/api/v1[^"]*"'
+```
+
+For the full Agent JWT creation flow (6-step Ed25519 challenge-response), see [docs/TOKEN_TYPES.md](docs/TOKEN_TYPES.md).
 
 ## Lessons Learned Changelog
 
