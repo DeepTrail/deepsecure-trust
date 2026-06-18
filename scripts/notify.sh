@@ -56,6 +56,20 @@ if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
     fi
 fi
 
+# ── Cloud logging (when running in cloud container) ──────────────────────────
+if [ -n "$CLOUD_ENV" ]; then
+    # Structured JSON log for Cloud Run / ECS log aggregation
+    python3 -c "
+import json, sys
+print(json.dumps({
+    'severity': sys.argv[1].upper(),
+    'message': f'{sys.argv[2]}: {sys.argv[3]}',
+    'labels': {'source': 'afk-notify', 'cloud_env': sys.argv[4]}
+}))
+" "$LEVEL" "$TITLE" "$MESSAGE" "$CLOUD_ENV" 2>/dev/null
+    SENT=$((SENT + 1))
+fi
+
 # ── macOS notification (fallback, skip in cloud) ─────────────────────────────
 if [ -z "$CLOUD_ENV" ] && command -v osascript &>/dev/null; then
     osascript -e "display notification \"$MESSAGE\" with title \"DeepSecure AFK\" subtitle \"$TITLE\" sound name \"Glass\"" 2>/dev/null &

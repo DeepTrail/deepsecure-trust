@@ -110,15 +110,18 @@ Tags MUST include feature branch: `{base-tag}-$(git branch --show-current)`
 
 ALL tests must pass before a batch is declared complete — not just workstream tests. Pre-existing failures must be fixed if encountered.
 
-### Documentation Consistency
+### Post-Batch Status Sync (MANDATORY)
 
-| File | Updated When |
-|------|--------------|
-| `reports/WS-{ID}-completion.md` | Task completed |
-| `STATUS.md` | After each task |
-| `WORKSTREAM.md` | After each task |
-| `BATCH_EXECUTION_PLAN.md` | After each batch |
-| `MERGE_POINTS.md` | After batch triggers MP |
+After EVERY batch — not just merge-point batches — update ALL status files before checkpointing with the user. This is Step 7.6 in `/run-batch`. Files to update:
+
+| File | What to Update |
+|------|----------------|
+| `STATUS.md` | Task counts, batch progress bar, workstream table, completed batch section, history |
+| `BATCH_EXECUTION_PLAN.md` | Quick Reference table: this batch → ✅ Complete, next batch → ⏳ Ready |
+| `WORKSTREAM.md` | Overview status, workstream status table |
+| `MERGE_POINTS.md` | Only if merge point reached: status, converging tasks, summary table |
+
+**The user should NEVER have to ask "did you update the status files?"** — this is a guaranteed post-batch behavior.
 
 ## Task Ticket Structure
 

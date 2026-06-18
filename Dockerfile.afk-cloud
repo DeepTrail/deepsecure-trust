@@ -1,0 +1,56 @@
+# Dockerfile.afk-cloud — Cloud container for AFK agent execution
+# Designed for GCP Cloud Run Jobs and AWS ECS tasks.
+# Unlike the sandbox, this image has network access to clone repos and push results.
+#
+# Usage:
+#   docker build -f Dockerfile.afk-cloud -t afk-cloud .
+#   docker run --rm \
+#     -e ANTHROPIC_API_KEY \
+#     -e AFK_REPO_URL=git@github.com:org/repo.git \
+#     -e AFK_BRANCH=feature/my-feature \
+#     -e AFK_WORKSTREAM=my-workstream \
+#     -e AFK_MAX_ITERATIONS=10 \
+#     afk-cloud
+
+FROM node:20-slim
+
+# System dependencies (includes ssh for git clone over SSH)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    curl \
+    git \
+    jq \
+    openssh-client \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code@latest
+
+# Install Python dependencies for AFK scripts
+RUN pip3 install --break-system-packages pyyaml 2>/dev/null || pip3 install pyyaml
+
+# Create non-root user
+RUN useradd -m -s /bin/bash afk-agent
+
+# Set up SSH directory for git operations
+RUN mkdir -p /home/afk-agent/.ssh && \
+    ssh-keyscan github.com >> /home/afk-agent/.ssh/known_hosts 2>/dev/null && \
+    chown -R afk-agent:afk-agent /home/afk-agent/.ssh
+
+WORKDIR /workspace
+
+# Copy cloud entry point
+COPY scripts/ralph-cloud-entry.sh /workspace/scripts/ralph-cloud-entry.sh
+RUN chmod +x /workspace/scripts/ralph-cloud-entry.sh
+
+# Default: run as non-root
+USER afk-agent
+
+# Health check
+HEALTHCHECK --interval=60s --timeout=10s \
+    CMD claude --version > /dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["bash", "/workspace/scripts/ralph-cloud-entry.sh"]

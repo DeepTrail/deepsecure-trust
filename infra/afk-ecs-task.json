@@ -1,0 +1,77 @@
+{
+  "family": "afk-cloud-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/afk-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/afk-ecs-task-role",
+  "containerDefinitions": [
+    {
+      "name": "afk-cloud",
+      "image": "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/afk-cloud:latest",
+      "essential": true,
+      "entryPoint": ["bash", "/workspace/scripts/ralph-cloud-entry.sh"],
+      "environment": [
+        {
+          "name": "AFK_REPO_URL",
+          "value": "REPO_URL_PLACEHOLDER"
+        },
+        {
+          "name": "AFK_BRANCH",
+          "value": "BRANCH_PLACEHOLDER"
+        },
+        {
+          "name": "AFK_WORKSTREAM",
+          "value": "WORKSTREAM_PLACEHOLDER"
+        },
+        {
+          "name": "AFK_MAX_ITERATIONS",
+          "value": "10"
+        },
+        {
+          "name": "AFK_MAX_BUDGET",
+          "value": "5.00"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:anthropic-api-key"
+        },
+        {
+          "name": "AFK_SSH_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:afk-ssh-key"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/afk-cloud",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "afk"
+        }
+      },
+      "resourceRequirements": [
+        {
+          "type": "CPU",
+          "value": "2048"
+        },
+        {
+          "type": "MEMORY",
+          "value": "4096"
+        }
+      ]
+    }
+  ],
+  "tags": [
+    {
+      "key": "app",
+      "value": "deepsecure-afk"
+    },
+    {
+      "key": "component",
+      "value": "cloud-runner"
+    }
+  ]
+}
