@@ -1,0 +1,55 @@
+# Cross-Session Review Skill — Hermes Observer pattern detection
+# Defines what patterns to look for across Ralph sessions and what actions to take.
+#
+# The observer reads Ralph progress files, cost logs, and git history to detect
+# recurring issues that a single session cannot see.
+
+review:
+  sources:
+    - type: "ralph_progress"
+      glob: "docs/workstreams/*/ralph_progress.json"
+      checks:
+        - name: "circuit_breaker_open"
+          condition: "metadata.circuit_breaker == 'OPEN'"
+          severity: "warning"
+          action: "notify"
+          message: "Circuit breaker opened for {workstream} — check for stuck tasks"
+
+        - name: "high_iteration_count"
+          condition: "metadata.total_iterations >= 8"
+          severity: "info"
+          action: "log"
+          message: "Workstream {workstream} used {total_iterations} iterations — may need task decomposition"
+
+        - name: "zero_progress"
+          condition: "metadata.total_iterations > 0 and tasks_completed == 0"
+          severity: "warning"
+          action: "notify"
+          message: "Workstream {workstream} ran {total_iterations} iterations with zero completed tasks"
+
+    - type: "cost_log"
+      path: ".afk/cost-log.txt"
+      checks:
+        - name: "cost_spike"
+          condition: "iteration_cost > 4.50"
+          severity: "warning"
+          action: "notify"
+          message: "Cost spike: ${iteration_cost} for iteration {iteration}"
+
+    - type: "git_log"
+      command: "git log --oneline --since='7 days ago' --format='%s'"
+      checks:
+        - name: "repeated_fix_commits"
+          condition: "count(subject contains 'fix:') > 5 in 24h"
+          severity: "info"
+          action: "log"
+          message: "High fix-commit rate — possible churn in {branch}"
+
+  actions:
+    notify:
+      channels: ["slack", "macos"]
+    log:
+      file: ".hermes/observer.log"
+
+# Self-improving: Hermes appends learned patterns below this line.
+learned_patterns: []
