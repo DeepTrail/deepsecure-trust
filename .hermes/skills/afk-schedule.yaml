@@ -1,0 +1,38 @@
+# AFK Schedule Skill — Hermes Observer scheduling configuration
+# Defines when and what AFK jobs run. Observer checks this file each poll cycle.
+#
+# Fields per schedule entry:
+#   name:       Human-readable job name
+#   workstream: Workstream name (maps to docs/workstreams/<name>/ralph-prompt.md)
+#   hour:       Hour (0-23) to trigger
+#   days:       ISO weekdays (1=Mon, 7=Sun) when this job runs
+#   max_iter:   Max Ralph iterations per run
+#   budget:     Per-iteration budget in USD
+#   enabled:    Whether this schedule is active
+
+schedules:
+  - name: "nightly-current-workstream"
+    workstream: ""
+    hour: 22
+    days: [1, 2, 3, 4, 5]
+    max_iter: 5
+    budget: 5.00
+    enabled: false
+    description: >
+      Run the current workstream overnight on weeknights.
+      Set 'workstream' to the active workstream name before enabling.
+
+  - name: "weekend-batch"
+    workstream: ""
+    hour: 9
+    days: [6, 7]
+    max_iter: 10
+    budget: 5.00
+    enabled: false
+    description: >
+      Extended weekend run with more iterations.
+      Set 'workstream' to the active workstream name before enabling.
+
+# Self-improving: Hermes appends learned schedule optimizations below this line.
+# Format: YAML entries with 'source: learned' field.
+learned_adjustments: []

@@ -1,0 +1,6 @@
+# Hermes runtime files (not committed)
+memory.db
+memory.db-wal
+memory.db-shm
+*.log
+*.pid

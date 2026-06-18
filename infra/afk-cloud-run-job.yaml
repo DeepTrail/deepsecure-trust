@@ -1,0 +1,50 @@
+# GCP Cloud Run Job manifest for AFK cloud execution
+# Deploy with: gcloud run jobs replace infra/afk-cloud-run-job.yaml
+# Or use: scripts/deploy-afk-cloud.sh gcp --workstream <name>
+
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: afk-cloud-job
+  labels:
+    app: deepsecure-afk
+    component: cloud-runner
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          containers:
+            - image: gcr.io/PROJECT_ID/afk-cloud:latest
+              resources:
+                limits:
+                  memory: "2Gi"
+                  cpu: "2"
+              env:
+                - name: AFK_REPO_URL
+                  value: "REPO_URL_PLACEHOLDER"
+                - name: AFK_BRANCH
+                  value: "BRANCH_PLACEHOLDER"
+                - name: AFK_WORKSTREAM
+                  value: "WORKSTREAM_PLACEHOLDER"
+                - name: AFK_MAX_ITERATIONS
+                  value: "10"
+                - name: AFK_MAX_BUDGET
+                  value: "5.00"
+                - name: ANTHROPIC_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: anthropic-api-key
+                      key: latest
+                - name: AFK_SSH_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: afk-ssh-key
+                      key: latest
+              command: ["bash"]
+              args: ["/workspace/scripts/ralph-cloud-entry.sh"]
+          restartPolicy: Never
+          timeoutSeconds: 3600
+          serviceAccountName: afk-cloud-runner@PROJECT_ID.iam.gserviceaccount.com
+      taskCount: 1
+      parallelism: 1

@@ -565,6 +565,60 @@ python scripts/verify_integration.py
 **If findings INCREASED from previous batch:**
 - STOP. Report to user. A regression was introduced.
 
+### Step 7.6: Status File Sync (MANDATORY — Every Batch)
+
+> **WHY THIS STEP EXISTS:** Status files consistently drift from actual completion state.
+> Without this step, STATUS.md, BATCH_EXECUTION_PLAN.md, WORKSTREAM.md, and MERGE_POINTS.md
+> become stale after every batch, requiring the user to notice and ask for updates. This step
+> runs automatically after EVERY batch — not just merge-point batches.
+
+**This step is NON-NEGOTIABLE. Execute it after every batch, regardless of whether a merge point was triggered.**
+
+#### 7.6a. Update STATUS.md
+
+Update all sections to reflect the just-completed batch:
+
+1. **Current Task Overview table:** Update `Current Batch`, `Tasks Complete` (count and percentage), `Tasks In Progress`, `Tasks Ready`, `Tasks Blocked`
+2. **Batch Progress bar:** Change this batch's bar from `⏳ READY` to `✅ COMPLETE` with commit hash. Change next batch from `⏸️ BLOCKED` to `⏳ READY` if unblocked.
+3. **Merge Points Status table:** Update if a merge point was reached
+4. **Workstream Status table:** Update completed workstream rows (status, progress %, tasks done)
+5. **Completed Batches section:** Add a new subsection for this batch with task table (ID, name, status, files)
+6. **Next Batch section:** Point to the next batch
+7. **History table:** Add entry for this batch completion
+
+#### 7.6b. Update BATCH_EXECUTION_PLAN.md
+
+In the **Quick Reference** table:
+- Change this batch's Status from `⏳ Ready` to `✅ Complete`
+- Change next batch's Status from `⏳ Blocked` to `⏳ Ready` (if unblocked by this batch)
+
+#### 7.6c. Update WORKSTREAM.md
+
+- Update the **Overview** table's `Status` field with current progress
+- Update the **Workstreams** table: mark completed workstreams as `complete`, newly unblocked as `ready`
+
+#### 7.6d. Update MERGE_POINTS.md (if merge point reached)
+
+- Change the merge point's `### Status:` line from `⏳ NOT REACHED` to `✅ REACHED (date, tag: ...)`
+- Update the converging tasks table status
+- Update the bottom **Merge Point Status** table and **Progress Summary** ASCII bar
+
+#### 7.6e. Verification
+
+After all updates, verify consistency:
+
+```bash
+FEATURE="[feature-name]"
+echo "=== Status File Sync Verification ==="
+grep -c "✅ COMPLETE\|✅ Complete" docs/workstreams/${FEATURE}/STATUS.md
+echo "completed batch entries in STATUS.md"
+grep -c "✅ Complete" docs/workstreams/${FEATURE}/BATCH_EXECUTION_PLAN.md
+echo "completed batches in BATCH_EXECUTION_PLAN.md"
+echo "=== Done ==="
+```
+
+**If counts don't match the expected number of completed batches, fix before proceeding.**
+
 ### Step 8: Checkpoint — Report Results
 
 **MANDATORY: Always checkpoint with the user after each batch.**
@@ -669,6 +723,8 @@ The base tag names are feature-specific — read them from `BATCH_EXECUTION_PLAN
 | "The batch failed, I will re-run everything" | Check which tasks succeeded. Re-running completed tasks wastes time and may cause conflicts. |
 | "The audit step is redundant — tests already pass" | Tests verify behavior, not spec compliance. Past batches found 3 CRITICAL security gaps and 10 MEDIUM gaps despite 414 passing tests. |
 | "I will skip the audit for simple batches" | Past batches consistently had spec-implementation gaps. The audit takes ~2 minutes and catches real issues. Never skip it. |
+| "Status files are already up to date" | They never are. Every batch in afk-workflow-enablement required manual user prompts to fix stale status files. Step 7.6 exists because of this — run it every time. |
+| "I will update status files at the merge point" | Non-merge-point batches (like P4-B1) still need status updates. The user should never have to ask "did you update the status files?" |
 
 ## Red Flags
 
@@ -680,6 +736,8 @@ The base tag names are feature-specific — read them from `BATCH_EXECUTION_PLAN
 - Not creating the merge point tag when required
 - Proceeding past a failed task without user acknowledgment
 - Not presenting the checkpoint report to the user
+- **Skipping Step 7.6 status file sync** — status files MUST be updated after EVERY batch, not just merge-point batches
+- Presenting the checkpoint report WITHOUT first updating status files — the report should reflect the updated files
 
 ---
 

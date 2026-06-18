@@ -1,0 +1,14 @@
+{
+    "workstream": "",
+    "created": "",
+    "tasks": [],
+    "metadata": {
+        "total_iterations": 0,
+        "total_cost_usd": 0.0,
+        "last_iteration_at": null,
+        "circuit_breaker": "CLOSED",
+        "circuit_breaker_counter": 0,
+        "max_iterations": 10,
+        "max_budget_usd": 5.00
+    }
+}

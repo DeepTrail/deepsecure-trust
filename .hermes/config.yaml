@@ -1,0 +1,55 @@
+# Hermes Agent Configuration for DeepSecure AFK Workflow
+# Docs: docs/design/afk-workflow-enablement.md (Feature 8)
+#
+# Three-phase authority model:
+#   Phase 1 (Observer): scheduling, notifications, memory — no code authority
+#   Phase 2 (Invoker): triggers Ralph loop, reviews output — indirect authority
+#   Phase 3 (Manager): full lifecycle with DeepSecure delegation_tokens
+
+agent:
+  name: "deepsecure-hermes"
+  version: "0.14.0"
+
+memory:
+  backend: "sqlite"
+  path: ".hermes/memory.db"
+  search: "fts5"
+
+delegation:
+  primary: "claude-code"
+  models:
+    - name: "claude"
+      command: "claude --print"
+      flags: "--permission-mode auto --max-budget-usd 5"
+      output_format: "json"
+
+notifications:
+  channels:
+    - type: "slack"
+      webhook_env: "DEEPSECURE_SLACK_WEBHOOK"
+      enabled: true
+    - type: "telegram"
+      token_env: "DEEPSECURE_TELEGRAM_TOKEN"
+      chat_id_env: "DEEPSECURE_TELEGRAM_CHAT_ID"
+      enabled: true
+    - type: "macos"
+      enabled: true
+
+skills:
+  directory: ".hermes/skills/"
+  auto_create: true
+
+observer:
+  poll_interval_seconds: 300
+  schedule_file: ".hermes/skills/afk-schedule.yaml"
+  review_file: ".hermes/skills/cross-session-review.yaml"
+  pid_file: ".hermes/observer.pid"
+  log_file: ".hermes/observer.log"
+
+invoker:
+  ralph_script: "scripts/ralph.sh"
+  progress_dir: "docs/workstreams"
+  max_concurrent: 1
+  escalation:
+    circuit_breaker_threshold: 3
+    notify_on_escalation: true
