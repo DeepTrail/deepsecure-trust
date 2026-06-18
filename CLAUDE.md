@@ -19,6 +19,7 @@ DeepSecure is a security platform that provides Identity-as-Code for AI agents, 
 | Engineering preferences, review process, verification | [CODE_STANDARDS.md](CODE_STANDARDS.md) |
 | Developer workflow (E2E) | [docs/DEVELOPER_WORKFLOW.md](docs/DEVELOPER_WORKFLOW.md) |
 | Task ticket template | [docs/workstreams/TASK_TICKET_TEMPLATE.md](docs/workstreams/TASK_TICKET_TEMPLATE.md) |
+| Context loading across CLIs, Cursor, AFK | [docs/CONTEXT_LOADING_STRATEGY.md](docs/CONTEXT_LOADING_STRATEGY.md) |
 | Merge point guide | [docs/workstreams/MERGE_POINT_GUIDE.md](docs/workstreams/MERGE_POINT_GUIDE.md) |
 
 ## Development Workflow
