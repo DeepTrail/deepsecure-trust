@@ -51,6 +51,11 @@ class Settings(BaseSettings):
         os.getenv("GATEWAY_INTERNAL_TOKEN", "insecure_default_gateway_token_for_dev"),
     )
 
+    AGENT_SLOTS_JSON: str = os.getenv("AGENT_SLOTS_JSON", "[]")
+
+    GCP_PROJECT: str = os.getenv("GCP_PROJECT", "deepsecure-saas")
+    GCP_REGION: str = os.getenv("GCP_REGION", "us-central1")
+
     DELEGATION_AUTO_PROVISION: bool = os.getenv(
         "DELEGATION_AUTO_PROVISION", "false"
     ).lower() in ("1", "true", "yes")

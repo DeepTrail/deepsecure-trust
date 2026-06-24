@@ -81,3 +81,9 @@ variable "google_oauth_client_secret" {
   type        = string
   sensitive   = true
 }
+
+variable "agent_slot_count" {
+  description = "Number of pre-provisioned agent identity slots (SA + Job + Scheduler per slot)"
+  type        = number
+  default     = 5
+}

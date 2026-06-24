@@ -13,13 +13,22 @@ Or to get the full claims dict:
     @router.get("/admin/...")
     async def admin_endpoint(claims: dict = Depends(require_admin)):
         user_id = claims["sub"]
+
+For endpoints accessible by admin OR the agent itself:
+    @router.get("/agents/{agent_id}/config")
+    async def get_config(
+        agent_id: str,
+        auth: dict = Depends(get_admin_or_agent_self),
+    ):
+        if auth["access_type"] == "admin": ...
+        elif auth["access_type"] == "agent_self": ...
 """
 
 import logging
 from typing import Optional
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Path, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -111,3 +120,23 @@ def require_admin(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Admin role required",
     )
+
+
+def get_admin_or_agent_self(
+    agent_id: str = Path(...),
+    claims: dict = Depends(get_current_user_claims),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Allow admin user token OR agent JWT where sub matches path agent_id.
+
+    Returns claims dict with added ``access_type`` key:
+      - ``{"access_type": "admin", ...}`` for admin users
+      - ``{"access_type": "agent_self", "agent_id": agent_id}`` for self-read agents
+
+    Raises 401/403 if the caller is neither an admin nor the agent itself.
+    """
+    if claims.get("type") == "agent" and claims.get("sub") == agent_id:
+        return {**claims, "access_type": "agent_self", "agent_id": agent_id}
+
+    result = require_admin(claims, db)
+    return {**result, "access_type": "admin"}

@@ -25,3 +25,6 @@ slack_client_secret = "CHANGE_ME"
 # Google OAuth (service connections)
 google_oauth_client_id     = "CHANGE_ME.apps.googleusercontent.com"
 google_oauth_client_secret = "CHANGE_ME"
+
+# Agent identity slots (default 5 — each creates SA + IAM + Cloud Run Job + Scheduler)
+agent_slot_count = 5

@@ -41,6 +41,7 @@ from app.services.delegation_service import (
     PermissionValidationError,
     PermissionWideningError,
 )
+from app.core.config import settings
 from app.models.agent import Agent
 from app.models.agent_session import AgentSession
 from app.models.delegation import DelegationToken
@@ -1280,4 +1281,131 @@ def emergency_lockdown(
         executed_by=admin_claims.get("sub", "admin"),
         timestamp=now.isoformat(),
         message=f"Lockdown active. {sessions} sessions + {delegations} delegations revoked.",
+    )
+
+
+# --- Agent Slots Endpoints ---
+
+
+class AgentSlotEntry(BaseModel):
+    name: str
+    sa_email: str
+    job_name: str
+    scheduler_name: str
+    schedule: str
+    claimed_by: Optional[str] = None
+
+
+class AgentSlotsResponse(BaseModel):
+    slots: List[AgentSlotEntry]
+    total: int
+    available: int
+
+
+def _get_agent_slots() -> list[dict]:
+    """Parse AGENT_SLOTS_JSON from settings."""
+    import json
+
+    raw = settings.AGENT_SLOTS_JSON
+    try:
+        return json.loads(raw) if raw else []
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Invalid AGENT_SLOTS_JSON: %s", raw[:200] if raw else "empty")
+        return []
+
+
+@router.get("/agent-slots", response_model=AgentSlotsResponse)
+def list_agent_slots(
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_admin),
+):
+    """List pre-provisioned agent identity slots with claim status."""
+    raw_slots = _get_agent_slots()
+
+    claimed_selectors: dict[str, str] = {}
+    if raw_slots:
+        sa_emails = [s.get("sa_email") for s in raw_slots if s.get("sa_email")]
+        if sa_emails:
+            agents = db.query(Agent).filter(Agent.selector.in_(sa_emails)).all()
+            for a in agents:
+                claimed_selectors[a.selector] = a.agent_id
+
+    slots = []
+    for s in raw_slots:
+        sa = s.get("sa_email", "")
+        slots.append(AgentSlotEntry(
+            name=s.get("name", ""),
+            sa_email=sa,
+            job_name=s.get("job_name", ""),
+            scheduler_name=s.get("scheduler_name", ""),
+            schedule=s.get("schedule", ""),
+            claimed_by=claimed_selectors.get(sa),
+        ))
+
+    available = sum(1 for sl in slots if sl.claimed_by is None)
+    return AgentSlotsResponse(slots=slots, total=len(slots), available=available)
+
+
+# --- Scheduler Health Endpoint ---
+
+
+class SchedulerHealthEntry(BaseModel):
+    name: str
+    status_code: Optional[int] = None
+    status_message: Optional[str] = None
+    last_attempt: Optional[str] = None
+
+
+class SchedulerHealthResponse(BaseModel):
+    healthy: List[str]
+    unhealthy: List[SchedulerHealthEntry]
+    total: int
+
+
+@router.get("/health/agents", response_model=SchedulerHealthResponse)
+async def get_agent_scheduler_health(
+    _admin: dict = Depends(require_admin),
+):
+    """Check Cloud Scheduler status for all agent-related jobs.
+
+    Queries the GCP Cloud Scheduler API for jobs containing
+    'deepsecure-agent' in the name. Classifies each as healthy
+    (status code 0 or no status) or unhealthy (non-zero status code).
+    """
+    try:
+        from google.cloud import scheduler_v1
+    except ImportError:
+        return SchedulerHealthResponse(healthy=[], unhealthy=[], total=0)
+
+    healthy: list[str] = []
+    unhealthy: list[SchedulerHealthEntry] = []
+
+    try:
+        client = scheduler_v1.CloudSchedulerClient()
+        parent = f"projects/{settings.GCP_PROJECT}/locations/{settings.GCP_REGION}"
+
+        for job in client.list_jobs(parent=parent):
+            if "deepsecure-agent" not in job.name:
+                continue
+            short_name = job.name.split("/")[-1]
+            if job.status and job.status.code != 0:
+                unhealthy.append(SchedulerHealthEntry(
+                    name=short_name,
+                    status_code=job.status.code,
+                    status_message=job.status.message,
+                    last_attempt=(
+                        job.last_attempt_time.isoformat()
+                        if job.last_attempt_time
+                        else None
+                    ),
+                ))
+            else:
+                healthy.append(short_name)
+    except Exception as exc:
+        logger.warning("Failed to query Cloud Scheduler: %s", exc)
+
+    return SchedulerHealthResponse(
+        healthy=healthy,
+        unhealthy=unhealthy,
+        total=len(healthy) + len(unhealthy),
     )

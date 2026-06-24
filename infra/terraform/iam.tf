@@ -10,6 +10,7 @@ locals {
     "roles/cloudsql.client",
     "roles/logging.logWriter",
     "roles/iam.serviceAccountTokenCreator",
+    "roles/cloudscheduler.admin",
   ]
 }
 

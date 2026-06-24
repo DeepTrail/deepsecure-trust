@@ -25,5 +25,7 @@ class Agent(Base):
     created_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
     last_seen_at = Column(DateTime(timezone=True))
+    created_by = Column(String(200), nullable=True, comment="Admin email who registered this agent")
+    owner_user_id = Column(String(200), nullable=True, comment="Admin who owns this agent (alert recipient)")
 
-    nonces = relationship("Nonce", back_populates="agent", cascade="all, delete-orphan") 
+    nonces = relationship("Nonce", back_populates="agent", cascade="all, delete-orphan")

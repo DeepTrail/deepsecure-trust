@@ -199,6 +199,7 @@ class TaggedPrompt(BaseModel):
     """A prompt tagged with the services it requires."""
     services: str = Field(description="Comma-separated service IDs (e.g. 'notion' or 'slack,notion,gmail')")
     prompt: str = Field(description="The LLM prompt text")
+    added_by: Optional[str] = Field(None, description="Email of user who added this prompt; null for legacy/backfilled prompts")
 
 
 class AgentConfig(BaseModel):

@@ -1,6 +1,6 @@
 import base64
 
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from typing import List, Any
 from app import schemas, crud
 from app.api import deps
 from app.api.v1.endpoints.internal import verify_internal_api_key
+from app.middleware.admin_auth import get_admin_or_agent_self, get_current_user_claims, require_admin
 from app.models.attestation_policy import PlatformType
 from app.models.agent_session import AgentSession
 from app.schemas.attestation_policy import AttestationPolicyCreate
@@ -124,14 +125,29 @@ PLATFORM_TYPE_MAP = {
 
 
 @router.post("", response_model=schemas.AgentCreateResponse, status_code=status.HTTP_201_CREATED)
-def register_agent(agent_in: schemas.AgentCreate, db: Session = Depends(deps.get_db)):
+def register_agent(
+    agent_in: schemas.AgentCreate,
+    db: Session = Depends(deps.get_db),
+    authorization: str = Header(None, description="Bearer token (optional — sets created_by)"),
+):
     """Register a new agent in the system.
 
     Supports two registration flows:
     - **Key-based**: Ed25519 keypair (provided or backend-generated).
     - **Platform-based**: Platform identity (GCP, AWS, K8s) with auto-created
       attestation policy. No cryptographic key is involved.
+
+    If an Authorization header is provided, `created_by` and `owner_user_id`
+    are set from the JWT `sub` claim.
     """
+    caller_email = None
+    if authorization:
+        try:
+            claims = get_current_user_claims(authorization)
+            caller_email = claims.get("sub")
+        except Exception:
+            pass
+
     is_platform_agent = agent_in.platform is not None
 
     backend_generated_key = False
@@ -145,6 +161,11 @@ def register_agent(agent_in: schemas.AgentCreate, db: Session = Depends(deps.get
 
     try:
         agent = crud.agent.create(db=db, obj_in=agent_in)
+        if caller_email:
+            agent.created_by = caller_email
+            agent.owner_user_id = caller_email
+            db.commit()
+            db.refresh(agent)
     except IntegrityError as e:
         db.rollback()
         error_str = str(e).lower()
@@ -455,12 +476,13 @@ def get_agent_tools(
 def get_agent_config(
     agent_id: str,
     db: Session = Depends(deps.get_db),
+    auth: dict = Depends(get_admin_or_agent_self),
 ):
     """Return the agent's runtime configuration.
 
     Merges stored JSONB with schema defaults so callers always get a
     complete config object even if the DB column is empty or sparse.
-    Auth: User token or Agent JWT (agents can read their own config).
+    Auth: Admin token or Agent JWT (self-access only).
     """
     db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
     if db_agent is None:
@@ -475,12 +497,13 @@ def update_agent_config(
     agent_id: str,
     payload: schemas.AgentConfigUpdate,
     db: Session = Depends(deps.get_db),
+    admin: dict = Depends(require_admin),
 ):
     """Update the agent's runtime configuration.
 
     Only fields present in the request body are changed; omitted fields
     keep their current values.  Returns the full merged config.
-    Auth: User token (admin operation).
+    Auth: Admin only.
     """
     db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
     if db_agent is None:
