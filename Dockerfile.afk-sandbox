@@ -1,0 +1,51 @@
+# Dockerfile.afk-sandbox — Local Docker sandbox for AFK agent execution
+# Runs ralph.sh in a network-isolated container so AFK agents cannot
+# reach external services (OWASP ASI05: hardware-enforced sandbox).
+#
+# Usage:
+#   docker build -f Dockerfile.afk-sandbox -t afk-sandbox .
+#   docker run --rm --network none \
+#     -v "$(pwd):/workspace" \
+#     -e ANTHROPIC_API_KEY \
+#     afk-sandbox <workstream-name> [max-iterations]
+
+FROM node:20-slim
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    curl \
+    git \
+    jq \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code@latest
+
+# Create non-root user for sandbox execution
+RUN useradd -m -s /bin/bash afk-agent
+WORKDIR /workspace
+
+# Copy only the scripts and config needed for AFK execution
+COPY scripts/ralph.sh scripts/afk-once.sh scripts/afk-recover.sh \
+     scripts/notify.sh scripts/verify-claude-api.sh /workspace/scripts/
+COPY .afk/ /workspace/.afk/
+COPY CLAUDE.md /workspace/CLAUDE.md
+COPY docs/DEVELOPMENT_COMMANDS.md docs/ARCHITECTURE.md \
+     docs/TOKEN_TYPES.md docs/TESTING_GUIDE.md /workspace/docs/
+COPY CODE_STANDARDS.md /workspace/CODE_STANDARDS.md
+
+# Make scripts executable
+RUN chmod +x /workspace/scripts/*.sh
+
+# Default: run as non-root
+USER afk-agent
+
+# Health check — verify claude CLI is available
+HEALTHCHECK --interval=30s --timeout=5s \
+    CMD claude --version > /dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["bash", "/workspace/scripts/ralph.sh"]
+CMD ["--help"]
