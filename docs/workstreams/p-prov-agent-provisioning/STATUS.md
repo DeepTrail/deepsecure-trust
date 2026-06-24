@@ -12,15 +12,15 @@
 
 | Metric | Value |
 |--------|-------|
-| **Current Batch** | Batch 1 ✅ Complete → Batch 2 |
-| **Tasks Complete** | 12/27 (44%) |
+| **Current Batch** | Batch 2 ✅ Complete → Batch 3 |
+| **Tasks Complete** | 21/27 (78%) |
 | **Tasks In Progress** | 0 |
-| **Tasks Ready** | 3 (C1, C2, C4 — Wave 1 of Batch 2) |
+| **Tasks Ready** | 6 (D1-D6 — Batch 3, Frontend) |
 | **Tasks Blocked** | 0 |
 | **Active Worktrees** | 0 (single-branch) |
 | **Contract Verified** | ✅ |
 | **Files at Correct Location** | ✅ |
-| **E2E Tests Passing** | ✅ 18/18 |
+| **E2E Tests Passing** | ✅ 44/44 |
 
 ---
 
@@ -40,8 +40,8 @@
 
 ```
 Batch 1  [██████████] 100%  ✅ COMPLETE (Phase A: Security + SA Pool)
-Batch 2  [░░░░░░░░░░] 0%   ← CURRENT (Phase B: Composite Provisioning + Prompt RBAC)
-Batch 3  [░░░░░░░░░░] 0%   (blocked by Batch 2 / MP2)
+Batch 2  [██████████] 100%  ✅ COMPLETE (Phase B: Composite Provisioning + Prompt RBAC)
+Batch 3  [░░░░░░░░░░] 0%   ← CURRENT (Phase C: Frontend Wizard + Goals + My Agents)
 ```
 
 ---
@@ -71,8 +71,8 @@ Batch 3  [░░░░░░░░░░] 0%   (blocked by Batch 2 / MP2)
 |----|------|--------|----------|------------|
 | **A** | Security Fix + Ownership | ✅ Complete | 100% | 6/6 |
 | **B** | SA Identity Pool | ✅ Complete | 100% | 6/6 |
-| **C** | Composite Provisioning + Prompts | ⏳ Ready (MP1 done) | 0% | 0/9 |
-| **D** | Frontend (Wizard + Goals + My Agents) | ⏸️ Blocked (MP2) | 0% | 0/6 |
+| **C** | Composite Provisioning + Prompts | ✅ Complete | 100% | 9/9 |
+| **D** | Frontend (Wizard + Goals + My Agents) | ⏳ Ready (MP2 done) | 0% | 0/6 |
 
 ---
 
@@ -81,13 +81,13 @@ Batch 3  [░░░░░░░░░░] 0%   (blocked by Batch 2 / MP2)
 | Point | Converging Tasks | Status | Merged At |
 |-------|------------------|--------|-----------|
 | **MP1** | WS-A (all 6) + WS-B (all 6) | ✅ Complete | 2026-06-24 |
-| **MP2** | WS-C (all 9) | ⏸️ Pending | — |
+| **MP2** | WS-C (all 9) | ✅ Complete | 2026-06-24 |
 
 ---
 
 ## All Tasks by Status
 
-### ✅ Completed (12)
+### ✅ Completed (21)
 
 | Task ID | Task Name | Completed | Report |
 |---------|-----------|-----------|--------|
@@ -103,6 +103,15 @@ Batch 3  [░░░░░░░░░░] 0%   (blocked by Batch 2 / MP2)
 | WS-B4 | `AGENT_SLOTS_JSON` config setting | 2026-06-24 | [report](./reports/WS-B4-completion.md) |
 | WS-B5 | `GET /admin/agent-slots` endpoint | 2026-06-24 | [report](./reports/WS-B5-completion.md) |
 | WS-B6 | `GET /admin/health/agents` + tests | 2026-06-24 | [report](./reports/WS-B6-completion.md) |
+| WS-C1 | `provision_service.py` (atomic) | 2026-06-24 | [report](./reports/WS-C1-completion.md) |
+| WS-C2 | Provision schemas | 2026-06-24 | [report](./reports/WS-C2-completion.md) |
+| WS-C3 | `POST /admin/agents/provision` endpoint | 2026-06-24 | [report](./reports/WS-C3-completion.md) |
+| WS-C4 | `prompt_validation.py` | 2026-06-24 | [report](./reports/WS-C4-completion.md) |
+| WS-C5 | Prompt CRUD endpoints | 2026-06-24 | [report](./reports/WS-C5-completion.md) |
+| WS-C6 | `GET /agents/my-agents` endpoint | 2026-06-24 | [report](./reports/WS-C6-completion.md) |
+| WS-C7 | Provision endpoint tests | 2026-06-24 | [report](./reports/WS-C7-completion.md) |
+| WS-C8 | Prompt RBAC tests | 2026-06-24 | [report](./reports/WS-C8-completion.md) |
+| WS-C9 | My-agents tests | 2026-06-24 | [report](./reports/WS-C9-completion.md) |
 
 ### 🔄 In Progress (0)
 
@@ -110,35 +119,16 @@ Batch 3  [░░░░░░░░░░] 0%   (blocked by Batch 2 / MP2)
 |---------|-----------|---------|----------|
 | _None_ | — | — | — |
 
-### ⏳ Ready (3)
+### ⏳ Ready (6)
 
 | Task ID | Task Name | Batch | Wave |
 |---------|-----------|-------|------|
-| WS-C1 | `provision_service.py` (atomic) | 2 | 1 |
-| WS-C2 | Provision schemas | 2 | 1 |
-| WS-C4 | `prompt_validation.py` | 2 | 1 |
-
-### ⏸️ Pending (12)
-
-<details>
-<summary>Click to expand pending tasks</summary>
-
-| Task ID | Task Name | Batch | Blocked By |
-|---------|-----------|-------|------------|
-| WS-C3 | `POST /admin/agents/provision` | 2 | C1, C2, B5 |
-| WS-C5 | `GET /agents/{id}/prompts` | 2 | C4 |
-| WS-C6 | `POST /agents/{id}/prompts` | 2 | C4, C5 |
-| WS-C7 | `DELETE /agents/{id}/prompts/{index}` | 2 | C5 |
-| WS-C8 | `PUT /agents/{id}/prompts` | 2 | C5 |
-| WS-C9 | Provision + prompt RBAC tests | 2 | C3, C6, C7 |
-| WS-D1 | My Agents / All Agents tab bar | 3 | C5 (MP2) |
-| WS-D2 | `ProvisionWizard` (6-step) | 3 | B5, C3 (MP2) |
-| WS-D3 | Create page wizard/quick-register tabs | 3 | D2 |
-| WS-D4 | `PromptEditor` with service autocomplete | 3 | C5, C6 (MP2) |
-| WS-D5 | Goals page | 3 | D4 |
-| WS-D6 | Frontend integration tests | 3 | D1-D5 |
-
-</details>
+| WS-D1 | My Agents / All Agents tab bar | 3 | 1 |
+| WS-D2 | `ProvisionWizard` (6-step) | 3 | 1 |
+| WS-D4 | `PromptEditor` with service autocomplete | 3 | 1 |
+| WS-D6 | Scheduler health section | 3 | 1 |
+| WS-D3 | Create page wizard/quick-register tabs | 3 | 2 |
+| WS-D5 | Goals page | 3 | 2 |
 
 ### 🚫 Blocked (0)
 

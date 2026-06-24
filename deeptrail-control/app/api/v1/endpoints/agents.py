@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import logging
-from typing import List, Any
 
 from app import schemas, crud
 from app.api import deps
@@ -21,7 +20,6 @@ from app.models.policy import Policy
 from app.models.connected_service import ConnectedService
 from app.models.service_registry import ServiceRegistry
 from app.services.lifecycle_service import LifecycleService
-from app.services.scope_mapper import ScopeMapper
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -260,6 +258,92 @@ def register_agent(
         response.private_key_warning = "This private key will not be shown again. Store it securely."
 
     return response
+
+
+def _is_admin(claims: dict, db: Session) -> bool:
+    """Check if claims belong to an admin user (without raising)."""
+    jwt_roles = claims.get("roles", [])
+    if isinstance(jwt_roles, list) and "admin" in jwt_roles:
+        return True
+    from app.models.user_session import UserSession
+    user_id = claims.get("sub")
+    if user_id:
+        session = (
+            db.query(UserSession)
+            .filter(
+                UserSession.user_id == user_id,
+                UserSession.revoked_at.is_(None),
+            )
+            .order_by(UserSession.created_at.desc())
+            .first()
+        )
+        if session and getattr(session, "role", None) == "admin":
+            return True
+    return False
+
+
+# --- My Agents Endpoint (delegation-based) ---
+# IMPORTANT: This must be defined BEFORE /{agent_id} routes to avoid
+# FastAPI matching "my-agents" as an agent_id path parameter.
+
+
+@router.get("/my-agents")
+def get_my_agents(
+    db: Session = Depends(deps.get_db),
+    claims: dict = Depends(get_current_user_claims),
+):
+    """List agents the current user has active delegations to.
+
+    Non-admin endpoint — returns only agents with at least one active,
+    non-revoked, non-expired delegation from the calling user.
+    """
+    user_email = claims.get("sub", "")
+    from app.models.agent import Agent
+
+    delegations = (
+        db.query(DelegationToken)
+        .filter(
+            DelegationToken.delegator == user_email,
+            DelegationToken.revoked_at.is_(None),
+        )
+        .all()
+    )
+
+    active_delegations = [d for d in delegations if d.is_valid]
+    agent_ids = list({d.agent_id for d in active_delegations})
+
+    if not agent_ids:
+        return {"agents": [], "total": 0}
+
+    agents = db.query(Agent).filter(Agent.agent_id.in_(agent_ids)).all()
+    lifecycle = LifecycleService(db)
+    states = lifecycle.compute_state_bulk(agent_ids) if agent_ids else {}
+
+    result = []
+    for agent in agents:
+        agent_delegations = [d for d in active_delegations if d.agent_id == agent.agent_id]
+        all_perms = []
+        for d in agent_delegations:
+            perms = d.delegated_permissions if isinstance(d.delegated_permissions, list) else []
+            all_perms.extend(perms)
+        services = sorted({p.split(":")[0] for p in all_perms if ":" in p})
+
+        prompt_count = 0
+        config = agent.config or {}
+        for tp in config.get("tagged_prompts", []):
+            if tp.get("added_by") == user_email:
+                prompt_count += 1
+
+        result.append({
+            "agent_id": agent.agent_id,
+            "name": agent.name or agent.agent_id,
+            "lifecycle_state": states.get(agent.agent_id, "registered"),
+            "delegated_services": services,
+            "my_prompt_count": prompt_count,
+        })
+
+    return {"agents": result, "total": len(result)}
+
 
 @router.get("/{agent_id}", response_model=schemas.Agent)
 def read_agent(agent_id: str, db: Session = Depends(deps.get_db)):
@@ -526,6 +610,132 @@ def update_agent_config(
     db.refresh(db_agent)
 
     return schemas.AgentConfig(**(db_agent.config or {}))
+
+
+# --- Prompt CRUD Endpoints (delegation-based RBAC) ---
+
+
+@router.get("/{agent_id}/prompts")
+def get_agent_prompts(
+    agent_id: str,
+    db: Session = Depends(deps.get_db),
+    claims: dict = Depends(get_current_user_claims),
+):
+    """List tagged prompts for an agent.
+
+    Requires: active delegation to the agent, or admin role.
+    """
+    db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
+    if db_agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    user_email = claims.get("sub", "")
+    is_admin = _is_admin(claims, db)
+
+    if not is_admin:
+        from app.services.prompt_validation import get_user_delegations_for_agent
+        delegations = get_user_delegations_for_agent(db, user_email, agent_id)
+        if not delegations:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No active delegation to this agent",
+            )
+
+    config = db_agent.config or {}
+    prompts = config.get("tagged_prompts", [])
+    return {"prompts": prompts, "total": len(prompts)}
+
+
+@router.post("/{agent_id}/prompts", status_code=201)
+def add_agent_prompt(
+    agent_id: str,
+    body: schemas.PromptCreate,
+    db: Session = Depends(deps.get_db),
+    claims: dict = Depends(get_current_user_claims),
+):
+    """Add a prompt — validates service tags against user's delegation.
+
+    Admins can add prompts for any services. Non-admins can only add
+    prompts for services covered by their active delegations.
+    """
+    db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
+    if db_agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    user_email = claims.get("sub", "")
+    is_admin = _is_admin(claims, db)
+
+    from app.services.prompt_validation import (
+        get_user_delegations_for_agent,
+        validate_prompt_services,
+    )
+
+    if not is_admin:
+        delegations = get_user_delegations_for_agent(db, user_email, agent_id)
+        if not delegations:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No active delegation to this agent",
+            )
+        is_valid, missing = validate_prompt_services(delegations, body.services)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Services not in your delegation: {', '.join(sorted(missing))}",
+            )
+
+    config = dict(db_agent.config or {})
+    prompts = list(config.get("tagged_prompts", []))
+    new_prompt = {"services": body.services, "prompt": body.prompt, "added_by": user_email}
+    prompts.append(new_prompt)
+    config["tagged_prompts"] = prompts
+    db_agent.config = config
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(db_agent, "config")
+    db.commit()
+    db.refresh(db_agent)
+
+    return {"index": len(prompts) - 1, "services": body.services, "prompt": body.prompt, "added_by": user_email}
+
+
+@router.delete("/{agent_id}/prompts/{index}", status_code=204)
+def delete_agent_prompt(
+    agent_id: str,
+    index: int,
+    db: Session = Depends(deps.get_db),
+    claims: dict = Depends(get_current_user_claims),
+):
+    """Delete a prompt by index. Only the prompt's author or an admin can delete."""
+    db_agent = crud.agent.get_by_agent_id(db=db, agent_id=agent_id)
+    if db_agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    config = dict(db_agent.config or {})
+    prompts = list(config.get("tagged_prompts", []))
+
+    if index < 0 or index >= len(prompts):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt index not found")
+
+    user_email = claims.get("sub", "")
+    is_admin = _is_admin(claims, db)
+    prompt_author = prompts[index].get("added_by")
+
+    if not is_admin and prompt_author and prompt_author != user_email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the prompt author or an admin can delete this prompt",
+        )
+
+    prompts.pop(index)
+    config["tagged_prompts"] = prompts
+    db_agent.config = config
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(db_agent, "config")
+    db.commit()
+
+    return Response(status_code=204)
 
 
 @router.post(

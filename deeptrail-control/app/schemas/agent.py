@@ -215,4 +215,67 @@ class AgentConfigUpdate(BaseModel):
     prompts_per_delegation: Optional[int] = Field(None, ge=1, le=50)
     max_rounds: Optional[int] = Field(None, ge=1, le=20)
     interval_seconds: Optional[int] = Field(None, ge=10, le=3600)
-    tagged_prompts: Optional[List[TaggedPrompt]] = None 
+    tagged_prompts: Optional[List[TaggedPrompt]] = None
+
+
+# --- Composite Provisioning Schemas --- #
+
+class ProvisionAgentInput(BaseModel):
+    """Agent identity section of the composite provision request."""
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+    platform: str = Field(default="gcp_workload_identity")
+    selector: str = Field(description="SA email from slot or custom")
+
+
+class ProvisionConfigInput(BaseModel):
+    """Agent config section of the composite provision request."""
+    prompts_per_delegation: int = Field(default=10, ge=1, le=50)
+    max_rounds: int = Field(default=3, ge=1, le=20)
+    interval_seconds: int = Field(default=60, ge=10, le=3600)
+    tagged_prompts: List[TaggedPrompt] = Field(default_factory=list)
+
+
+class ProvisionTemplateInput(BaseModel):
+    """Delegation template section of the composite provision request."""
+    max_permissions: List[str]
+    default_ttl_days: int = Field(default=7, ge=1, le=365)
+    available_to_roles: List[str] = Field(default=["all"])
+
+
+class ProvisionRequest(BaseModel):
+    """Atomic composite provision: agent + config + delegation template in one call."""
+    agent: ProvisionAgentInput
+    config: ProvisionConfigInput = Field(default_factory=ProvisionConfigInput)
+    delegation_template: ProvisionTemplateInput
+
+
+class ProvisionResponse(BaseModel):
+    """Response from composite provision endpoint."""
+    agent: dict
+    config: dict
+    delegation_template: dict
+    scheduler_resumed: bool
+    warning: Optional[str] = None
+
+
+# --- Prompt CRUD Schemas --- #
+
+class PromptCreate(BaseModel):
+    """Request body for POST /agents/{id}/prompts."""
+    services: str = Field(description="Comma-separated service IDs")
+    prompt: str = Field(description="The LLM prompt text")
+
+
+class PromptResponse(BaseModel):
+    """Response for a single prompt operation."""
+    index: int
+    services: str
+    prompt: str
+    added_by: Optional[str] = None
+
+
+class PromptsListResponse(BaseModel):
+    """Response for GET /agents/{id}/prompts."""
+    prompts: List[TaggedPrompt]
+    total: int 

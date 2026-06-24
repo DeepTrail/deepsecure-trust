@@ -1,7 +1,7 @@
 """Expose Pydantic schemas for easier importing."""
 
 from .token import Token
-from .agent import Agent, AgentCreate, AgentUpdate, AgentList, AgentCreateResponse, AgentToolInfo, AgentToolsResponse, AgentSessionSummary, AgentSessionList, TaggedPrompt, AgentConfig, AgentConfigUpdate  # noqa
+from .agent import Agent, AgentCreate, AgentUpdate, AgentList, AgentCreateResponse, AgentToolInfo, AgentToolsResponse, AgentSessionSummary, AgentSessionList, TaggedPrompt, AgentConfig, AgentConfigUpdate, PromptCreate, PromptResponse, PromptsListResponse, ProvisionRequest, ProvisionResponse  # noqa
 from .user import UserUpdate, UserResponse  # noqa
 from .credential import Credential, CredentialIssueRequest, CredentialIssueResponse, CredentialRevokeResponse, CredentialVerifyResponse # noqa
 from .policy import Policy, PolicyCreate, PolicyUpdate # noqa
@@ -70,6 +70,13 @@ __all__ = [
     "TaggedPrompt",
     "AgentConfig",
     "AgentConfigUpdate",
+    # Prompt CRUD
+    "PromptCreate",
+    "PromptResponse",
+    "PromptsListResponse",
+    # Composite Provisioning
+    "ProvisionRequest",
+    "ProvisionResponse",
     # User
     "UserUpdate",
     "UserResponse",

@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -54,6 +55,7 @@ from app.models.org_directory import OrgDirectory
 from app.services.lifecycle_service import LifecycleService
 from app.services.scope_mapper import ScopeMapper
 from app.models.service_registry import ServiceRegistry
+from app.schemas.agent import ProvisionRequest
 
 
 def _ensure_tz(dt: Optional[datetime]) -> Optional[datetime]:
@@ -1282,6 +1284,46 @@ def emergency_lockdown(
         timestamp=now.isoformat(),
         message=f"Lockdown active. {sessions} sessions + {delegations} delegations revoked.",
     )
+
+
+# --- Composite Provisioning Endpoint ---
+
+@router.post("/agents/provision", status_code=201)
+def provision_agent(
+    body: ProvisionRequest,
+    db: Session = Depends(get_db),
+    admin_claims: dict = Depends(require_admin),
+):
+    """Atomic agent provisioning: register + config + delegation template in one call.
+
+    Rolls back DB changes on failure. Scheduler resume is best-effort.
+    """
+    from app.services.provision_service import AgentProvisionService, ProvisionError
+
+    admin_email = admin_claims.get("sub", "")
+    service = AgentProvisionService(db)
+    try:
+        result = service.provision(
+            agent_name=body.agent.name,
+            agent_description=body.agent.description,
+            platform=body.agent.platform,
+            selector=body.agent.selector,
+            config=body.config.model_dump() if hasattr(body.config, "model_dump") else body.config,
+            template_max_permissions=body.delegation_template.max_permissions,
+            template_default_ttl_days=body.delegation_template.default_ttl_days,
+            template_available_to_roles=body.delegation_template.available_to_roles,
+            admin_email=admin_email,
+        )
+    except ProvisionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Agent with this selector already exists",
+        )
+
+    return result
 
 
 # --- Agent Slots Endpoints ---
