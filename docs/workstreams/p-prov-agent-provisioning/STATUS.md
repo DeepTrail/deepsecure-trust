@@ -12,15 +12,16 @@
 
 | Metric | Value |
 |--------|-------|
-| **Current Batch** | Batch 2 ✅ Complete → Batch 3 |
-| **Tasks Complete** | 21/27 (78%) |
+| **Current Batch** | All 3 Batches ✅ COMPLETE |
+| **Tasks Complete** | 27/27 (100%) |
 | **Tasks In Progress** | 0 |
-| **Tasks Ready** | 6 (D1-D6 — Batch 3, Frontend) |
+| **Tasks Ready** | 0 |
 | **Tasks Blocked** | 0 |
 | **Active Worktrees** | 0 (single-branch) |
 | **Contract Verified** | ✅ |
 | **Files at Correct Location** | ✅ |
-| **E2E Tests Passing** | ✅ 44/44 |
+| **E2E Tests Passing** | ✅ 44/44 (backend) |
+| **Frontend TSC** | ✅ No new errors |
 
 ---
 
@@ -30,9 +31,10 @@
 |-------|--------|-------|
 | Config endpoints have auth | ✅ Complete | WS-A1 + WS-A2 |
 | Endpoints match design spec | ✅ Complete | Audited in Step 6 |
-| Test endpoints match impl | ✅ Complete | 18/18 passing |
-| Async fixtures correct | ✅ N/A | Sync tests only in B1 |
-| All tests passing | ✅ Complete | 18 tests pass |
+| Test endpoints match impl | ✅ Complete | 44/44 passing |
+| Async fixtures correct | ✅ N/A | Sync tests only |
+| All tests passing | ✅ Complete | 44 backend tests pass |
+| Frontend type-checks | ✅ Complete | No new tsc errors |
 
 ---
 
@@ -41,12 +43,12 @@
 ```
 Batch 1  [██████████] 100%  ✅ COMPLETE (Phase A: Security + SA Pool)
 Batch 2  [██████████] 100%  ✅ COMPLETE (Phase B: Composite Provisioning + Prompt RBAC)
-Batch 3  [░░░░░░░░░░] 0%   ← CURRENT (Phase C: Frontend Wizard + Goals + My Agents)
+Batch 3  [██████████] 100%  ✅ COMPLETE (Phase C: Frontend Wizard + Goals + My Agents)
 ```
 
 ---
 
-## Current Batch: Batch 1 — Phase A: Security Fix + SA Pool ✅ COMPLETE
+## Batch 1 — Phase A: Security Fix + SA Pool ✅ COMPLETE
 
 | Task ID | Task Name | Status | Wave | Deps |
 |---------|-----------|--------|------|------|
@@ -65,6 +67,35 @@ Batch 3  [░░░░░░░░░░] 0%   ← CURRENT (Phase C: Frontend Wi
 
 ---
 
+## Batch 2 — Phase B: Composite Provisioning + Prompt RBAC ✅ COMPLETE
+
+| Task ID | Task Name | Status | Wave | Deps |
+|---------|-----------|--------|------|------|
+| WS-C1 | `provision_service.py` (atomic) | ✅ Complete | 1 | A1, A3, B4 |
+| WS-C2 | Provision + prompt schemas | ✅ Complete | 1 | A5 |
+| WS-C4 | `prompt_validation.py` | ✅ Complete | 1 | None |
+| WS-C3 | `POST /admin/agents/provision` endpoint | ✅ Complete | 2 | C1, C2 |
+| WS-C5 | Prompt CRUD endpoints (RBAC) | ✅ Complete | 2 | C2, C4 |
+| WS-C6 | `GET /agents/my-agents` endpoint | ✅ Complete | 2 | None |
+| WS-C7 | Provision endpoint tests | ✅ Complete | 3 | C3 |
+| WS-C8 | Prompt RBAC tests | ✅ Complete | 3 | C5 |
+| WS-C9 | My-agents tests | ✅ Complete | 3 | C6 |
+
+---
+
+## Batch 3 — Phase C: Frontend Wizard + Goals + My Agents ✅ COMPLETE
+
+| Task ID | Task Name | Status | Wave | Deps |
+|---------|-----------|--------|------|------|
+| WS-D1 | My Agents / All Agents tab bar | ✅ Complete | 1 | C6 |
+| WS-D2 | `ProvisionWizard` (6-step) | ✅ Complete | 1 | C3, B5 |
+| WS-D4 | `PromptEditor` with service autocomplete | ✅ Complete | 1 | C5 |
+| WS-D6 | Scheduler health section | ✅ Complete | 1 | B6 |
+| WS-D3 | Create page wizard/quick-register tabs | ✅ Complete | 2 | D2 |
+| WS-D5 | Goals page | ✅ Complete | 2 | D4 |
+
+---
+
 ## Workstream Status
 
 | WS | Name | Status | Progress | Tasks Done |
@@ -72,7 +103,7 @@ Batch 3  [░░░░░░░░░░] 0%   ← CURRENT (Phase C: Frontend Wi
 | **A** | Security Fix + Ownership | ✅ Complete | 100% | 6/6 |
 | **B** | SA Identity Pool | ✅ Complete | 100% | 6/6 |
 | **C** | Composite Provisioning + Prompts | ✅ Complete | 100% | 9/9 |
-| **D** | Frontend (Wizard + Goals + My Agents) | ⏳ Ready (MP2 done) | 0% | 0/6 |
+| **D** | Frontend (Wizard + Goals + My Agents) | ✅ Complete | 100% | 6/6 |
 
 ---
 
@@ -87,7 +118,7 @@ Batch 3  [░░░░░░░░░░] 0%   ← CURRENT (Phase C: Frontend Wi
 
 ## All Tasks by Status
 
-### ✅ Completed (21)
+### ✅ Completed (27)
 
 | Task ID | Task Name | Completed | Report |
 |---------|-----------|-----------|--------|
@@ -112,6 +143,12 @@ Batch 3  [░░░░░░░░░░] 0%   ← CURRENT (Phase C: Frontend Wi
 | WS-C7 | Provision endpoint tests | 2026-06-24 | [report](./reports/WS-C7-completion.md) |
 | WS-C8 | Prompt RBAC tests | 2026-06-24 | [report](./reports/WS-C8-completion.md) |
 | WS-C9 | My-agents tests | 2026-06-24 | [report](./reports/WS-C9-completion.md) |
+| WS-D1 | My Agents / All Agents tab bar | 2026-06-24 | [report](./reports/WS-D1-completion.md) |
+| WS-D2 | `ProvisionWizard` (6-step) | 2026-06-24 | [report](./reports/WS-D2-completion.md) |
+| WS-D3 | Create page wizard/quick-register tabs | 2026-06-24 | [report](./reports/WS-D3-completion.md) |
+| WS-D4 | `PromptEditor` with RBAC | 2026-06-24 | [report](./reports/WS-D4-completion.md) |
+| WS-D5 | Goals page | 2026-06-24 | [report](./reports/WS-D5-completion.md) |
+| WS-D6 | Scheduler health section | 2026-06-24 | [report](./reports/WS-D6-completion.md) |
 
 ### 🔄 In Progress (0)
 
@@ -119,16 +156,11 @@ Batch 3  [░░░░░░░░░░] 0%   ← CURRENT (Phase C: Frontend Wi
 |---------|-----------|---------|----------|
 | _None_ | — | — | — |
 
-### ⏳ Ready (6)
+### ⏳ Ready (0)
 
 | Task ID | Task Name | Batch | Wave |
 |---------|-----------|-------|------|
-| WS-D1 | My Agents / All Agents tab bar | 3 | 1 |
-| WS-D2 | `ProvisionWizard` (6-step) | 3 | 1 |
-| WS-D4 | `PromptEditor` with service autocomplete | 3 | 1 |
-| WS-D6 | Scheduler health section | 3 | 1 |
-| WS-D3 | Create page wizard/quick-register tabs | 3 | 2 |
-| WS-D5 | Goals page | 3 | 2 |
+| _None_ | — | — | — |
 
 ### 🚫 Blocked (0)
 
@@ -143,21 +175,6 @@ Batch 3  [░░░░░░░░░░] 0%   ← CURRENT (Phase C: Frontend Wi
 | ID | Description | Blocking | Severity | Status | Resolution |
 |----|-------------|----------|----------|--------|------------|
 | _None_ | — | — | — | — | — |
-
----
-
-## Quick Commands Reference
-
-### Execute Tasks
-```bash
-/run-batch P0-B2 p-prov-agent-provisioning --continue --auto-heal
-```
-
-### Run Quality Checks
-```bash
-cd deeptrail-control && python -m pytest tests/api/v1/test_agent_config_auth.py tests/api/v1/test_agent_slots.py -v
-cd infra/terraform && terraform validate
-```
 
 ---
 

@@ -7,8 +7,11 @@ import { apiClient, ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { AgentTypeSelector, IdentityMethodSelector, PrivateKeyModal } from "@/components/agents";
+import { AgentTypeSelector, IdentityMethodSelector, PrivateKeyModal, ProvisionWizard } from "@/components/agents";
 import type { AgentType, IdentityMethod } from "@/components/agents";
+import { cn } from "@/lib/utils";
+
+type CreateMode = "wizard" | "quick";
 
 interface AgentCreateResponse {
   agent_id: string;
@@ -28,6 +31,7 @@ const PLATFORM_LABELS: Record<Exclude<IdentityMethod, "key">, string> = {
 
 export default function AgentCreatePage() {
   const router = useRouter();
+  const [createMode, setCreateMode] = useState<CreateMode>("wizard");
 
   const [agentType, setAgentType] = useState<AgentType>("own");
   const [identityMethod, setIdentityMethod] = useState<IdentityMethod>("key");
@@ -136,6 +140,35 @@ export default function AgentCreatePage() {
         </div>
       </div>
 
+      {/* Mode toggle: Wizard vs Quick Register */}
+      <div className="flex gap-1 rounded-lg bg-muted p-1">
+        <button
+          onClick={() => setCreateMode("wizard")}
+          className={cn(
+            "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            createMode === "wizard"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Full Setup Wizard
+        </button>
+        <button
+          onClick={() => setCreateMode("quick")}
+          className={cn(
+            "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            createMode === "quick"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Quick Register
+        </button>
+      </div>
+
+      {createMode === "wizard" && <ProvisionWizard />}
+
+      {createMode === "quick" && (<>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -359,6 +392,7 @@ export default function AgentCreatePage() {
           onDismiss={handleModalDismiss}
         />
       )}
+      </>)}
     </div>
   );
 }

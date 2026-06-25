@@ -12,3 +12,5 @@ export { AttestationPolicyCard } from "./AttestationPolicyCard";
 export { SessionHistoryTable } from "./SessionHistoryTable";
 export type { AgentSession } from "./SessionHistoryTable";
 export { AgentIdentityCard } from "./AgentIdentityCard";
+export { PromptEditor } from "./PromptEditor";
+export { ProvisionWizard } from "./ProvisionWizard";

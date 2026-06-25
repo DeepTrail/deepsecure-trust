@@ -478,6 +478,9 @@ export default function AdminHealthPage() {
         </div>
       </div>
 
+      {/* Agent Scheduler Health */}
+      <SchedulerHealthSection />
+
       {/* Emergency Action Dialog */}
       <Dialog open={dialog.open} onOpenChange={(open: boolean) => !open && closeDialog()}>
         <DialogContent>
@@ -567,6 +570,126 @@ export default function AdminHealthPage() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+interface SchedulerEntry {
+  name: string;
+  status_code: number;
+  status_message: string;
+  last_attempt: string | null;
+}
+
+interface SchedulerHealthData {
+  healthy: string[];
+  unhealthy: SchedulerEntry[];
+  total: number;
+}
+
+function SchedulerHealthSection() {
+  const [data, setData] = useState<SchedulerHealthData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetch() {
+      try {
+        const res = await apiClient<SchedulerHealthData>("admin/health/agents");
+        setData(res);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to load scheduler health"
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetch();
+  }, []);
+
+  if (loading) {
+    return (
+      <Card className="p-6">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Activity className="h-4 w-4 animate-pulse" />
+          Loading agent scheduler health...
+        </div>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="border-amber-300 bg-amber-50 p-6 dark:border-amber-800 dark:bg-amber-950/40">
+        <div className="flex items-center gap-2 text-sm text-amber-900 dark:text-amber-100">
+          <AlertTriangle className="h-4 w-4" />
+          Scheduler health unavailable: {error}
+        </div>
+      </Card>
+    );
+  }
+
+  if (!data || data.total === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <h2 className="flex items-center gap-2 text-lg font-semibold">
+        <Activity className="h-5 w-5" />
+        Agent Scheduler Health
+      </h2>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Card className="p-4">
+          <div className="text-sm text-muted-foreground">Healthy Schedulers</div>
+          <div className="mt-1 flex items-center gap-2">
+            <div className="h-2.5 w-2.5 rounded-full bg-green-500" />
+            <span className="text-2xl font-bold">{data.healthy.length}</span>
+            <span className="text-sm text-muted-foreground">
+              / {data.total}
+            </span>
+          </div>
+        </Card>
+        {data.unhealthy.length > 0 && (
+          <Card className="border-red-300 p-4 dark:border-red-800">
+            <div className="text-sm text-red-700 dark:text-red-300">
+              Unhealthy Schedulers
+            </div>
+            <div className="mt-1 flex items-center gap-2">
+              <div className="h-2.5 w-2.5 rounded-full bg-red-500" />
+              <span className="text-2xl font-bold text-red-700 dark:text-red-300">
+                {data.unhealthy.length}
+              </span>
+            </div>
+          </Card>
+        )}
+      </div>
+      {data.unhealthy.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="border-b bg-red-50 px-4 py-2 text-sm font-medium text-red-900 dark:bg-red-950/40 dark:text-red-100">
+            Unhealthy Scheduler Details
+          </div>
+          <div className="divide-y">
+            {data.unhealthy.map((entry) => (
+              <div
+                key={entry.name}
+                className="flex items-center justify-between px-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-medium">{entry.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {entry.status_message || `Error code ${entry.status_code}`}
+                  </p>
+                </div>
+                <div className="text-right text-xs text-muted-foreground">
+                  {entry.last_attempt
+                    ? `Last attempt: ${formatRelativeTime(entry.last_attempt)}`
+                    : "No attempts recorded"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
